@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta content="width=device-width, initial-scale=1.0" name="viewport">
+    <title>DsChat</title>
+    <link href="/favicon.ico" rel="icon" type="image/x-icon">
+    <link href="/web/css/style.css" rel="stylesheet">
+</head>
+<body>
+<div id="app">
+    <aside id="sidebar">
+        <div id="sidebar-header">
+            <button id="btn-new-chat">+ New</button>
+            <button id="btn-tools">Tools</button>
+        </div>
+        <ul id="chat-list"></ul>
+    </aside>
+    <main id="main">
+        <div id="main-header">
+            <div id="mode-controls">
+                <button class="mode-btn active" data-mode="readonly">Read</button>
+                <button class="mode-btn" data-mode="writable">Write</button>
+                <button class="mode-btn" data-mode="sudo">Sudo</button>
+            </div>
+            <button id="btn-validate">Validate</button>
+            <label id="auto-continue-label">
+                <input checked id="auto-continue" type="checkbox"> Auto
+            </label>
+            <button id="btn-version" title="Version Info">v</button>
+        </div>
+        <div id="messages"></div>
+        <div id="input-area">
+            <textarea id="user-input" placeholder="Type your message..." rows="3"></textarea>
+            <button id="btn-continue">Continue</button>
+        </div>
+    </main>
+</div>
+
+<div class="hidden" id="modal-overlay">
+    <div id="modal-content">
+        <div id="modal-header">
+            <h3 id="modal-title">Tool Management</h3>
+            <button id="modal-close">&times;</button>
+        </div>
+        <div id="modal-body"></div>
+    </div>
+</div>
+
+<div class="hidden" id="editor-overlay">
+    <div class="editor-card">
+        <div class="editor-header">
+            <h3 id="editor-title">Edit Message</h3>
+            <button id="editor-close">&times;</button>
+        </div>
+        <div class="editor-body" id="editor-body"></div>
+        <div class="editor-footer">
+            <button id="editor-cancel">Cancel</button>
+            <button id="editor-save">Save</button>
+        </div>
+    </div>
+</div>
+
+<div class="hidden" id="version-overlay">
+    <div id="version-content">
+        <div id="version-header">
+            <h3>Version Info</h3>
+            <button id="version-close">&times;</button>
+        </div>
+        <div id="version-body">
+            <table class="version-table">
+                <tr>
+                    <td class="version-label">App</td>
+                    <td>DsChat</td>
+                </tr>
+                <tr>
+                    <td class="version-label">Version</td>
+                    <td>1.0.0</td>
+                </tr>
+                <tr>
+                    <td class="version-label">Author</td>
+                    <td>huzpsb</td>
+                </tr>
+                <tr>
+                    <td class="version-label">Made With</td>
+                    <td>love</td>
+                </tr>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script src="/assets/marked.min.js"></script>
+
+<script src="/web/js/app.js"></script>
+<script src="/web/js/chat.js"></script>
+<script src="/web/js/messages.js"></script>
+<script src="/web/js/continue.js"></script>
+<script src="/web/js/editor.js"></script>
+<script src="/web/js/validate.js"></script>
+<script src="/web/js/tools.js"></script>
+</body>
+</html>

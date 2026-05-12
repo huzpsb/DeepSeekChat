@@ -1,0 +1,23 @@
+{
+  "api_key": "sk-12345678",
+  "mcp_servers": [
+    {
+      "name": "sample_mcp_1",
+      "type": "stdio",
+      "command": "D:\\sample_mcp.exe"
+    },
+    {
+      "name": "sample_mcp_2",
+      "type": "sse",
+      "url": "http://127.0.0.1:12345/sse"
+    }
+  ],
+  "approved_tools": [
+    "sample_mcp_1::file_list",
+    "sample_mcp_1::file_create",
+    "sample_mcp_2::web_search"
+  ],
+  "manually_approved_tools": [
+    "sample_mcp_1::file_delete"
+  ]
+}

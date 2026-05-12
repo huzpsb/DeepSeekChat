@@ -1,0 +1,13 @@
+package mcp
+
+import "hschat/internal/model"
+
+type Client interface {
+	Initialize() error
+	ListTools() ([]model.ToolDef, error)
+	CallTool(name string, arguments map[string]any) (*model.ToolResult, error)
+	Close() error
+	Name() string
+	Type() string
+	IsConnected() bool
+}
