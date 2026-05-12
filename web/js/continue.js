@@ -7,6 +7,13 @@
     var streamingTitle = null;
     var messagesBeforeStream = 0;
 
+    function scrollIfNearBottom(container) {
+        var threshold = 80;
+        if (container.scrollHeight - container.scrollTop - container.clientHeight < threshold) {
+            container.scrollTop = container.scrollHeight;
+        }
+    }
+
     var btnContinue = document.getElementById('btn-continue');
 
     function setRunning(running) {
@@ -216,7 +223,7 @@
         currentAssistant = document.createElement('div');
         currentAssistant.className = 'message role-assistant assistant-streaming';
         container.appendChild(currentAssistant);
-        container.scrollTop = container.scrollHeight;
+        scrollIfNearBottom(container);
         return currentAssistant;
     }
 
@@ -260,7 +267,7 @@
             contentEl.dataset.rawText = (contentEl.dataset.rawText || '') + text;
             contentEl.innerHTML = marked.parse(contentEl.dataset.rawText);
         }
-        document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight;
+        scrollIfNearBottom(document.getElementById('messages'));
     }
 
     function appendToolCall(tc) {
@@ -269,12 +276,33 @@
         var id = tc.id || tc.ID || '';
 
         var el = getOrCreateAssistant();
-        var tcl = el.querySelector('.tool-calls-list');
-        if (!tcl) {
-            tcl = document.createElement('div');
+        var tcBlock = el.querySelector('.tool-calls-block');
+        if (!tcBlock) {
+            tcBlock = document.createElement('div');
+            tcBlock.className = 'tool-calls-block';
+            var tcToggle = document.createElement('div');
+            tcToggle.className = 'tool-calls-toggle';
+            tcToggle.textContent = 'Tool Calls (1) \u25B6';
+            var tcl = document.createElement('div');
             tcl.className = 'tool-calls-list';
-            el.appendChild(tcl);
+            tcl.style.display = 'none';
+            tcToggle.addEventListener('click', function () {
+                var count = tcl.querySelectorAll('.tool-call-item').length;
+                if (tcl.style.display === 'none') {
+                    tcl.style.display = 'flex';
+                    tcToggle.textContent = 'Tool Calls (' + count + ') \u25BC';
+                } else {
+                    tcl.style.display = 'none';
+                    tcToggle.textContent = 'Tool Calls (' + count + ') \u25B6';
+                }
+            });
+            tcBlock.appendChild(tcToggle);
+            tcBlock.appendChild(tcl);
+            el.appendChild(tcBlock);
         }
+
+        var tcl = tcBlock.querySelector('.tool-calls-list');
+        var tcToggle = tcBlock.querySelector('.tool-calls-toggle');
 
         var existing = tcl.querySelector('.tool-call-item[data-tool-call-id="' + id + '"]');
         var item;
@@ -295,19 +323,51 @@
         item.innerHTML = '<div class="tool-call-name">' + Messages.escHtml(name) + '</div>'
             + '<div class="tool-call-args">' + Messages.escHtml(formatted) + '</div>';
 
-        document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight;
+        var count = tcl.querySelectorAll('.tool-call-item').length;
+        if (tcl.style.display === 'none') {
+            tcToggle.textContent = 'Tool Calls (' + count + ') \u25B6';
+        } else {
+            tcToggle.textContent = 'Tool Calls (' + count + ') \u25BC';
+        }
+
+        scrollIfNearBottom(document.getElementById('messages'));
     }
 
     function appendToolResult(msg) {
         var container = document.getElementById('messages');
         var div = document.createElement('div');
         div.className = 'message role-tool';
-        div.innerHTML = '<div class="msg-header"><span class="msg-role">TOOL</span><span class="msg-tags"><span class="msg-tag">' + Messages.escHtml(msg.name || '') + '</span></span></div>'
-            + '<div class="msg-content"><pre><code>' + Messages.escHtml(msg.content || '') + '</code></pre></div>';
+
+        var headerDiv = document.createElement('div');
+        headerDiv.className = 'msg-header';
+        headerDiv.innerHTML = '<span class="msg-role">TOOL</span><span class="msg-tags"><span class="msg-tag">' + Messages.escHtml(msg.name || '') + '</span></span>';
+
+        var contentDiv = document.createElement('div');
+        contentDiv.className = 'msg-content';
+        contentDiv.style.display = 'none';
+        contentDiv.innerHTML = '<pre><code>' + Messages.escHtml(msg.content || '') + '</code></pre>';
+
+        var toolToggle = document.createElement('span');
+        toolToggle.className = 'tool-result-toggle';
+        toolToggle.textContent = ' \u25B6';
+        toolToggle.addEventListener('click', function (e) {
+            e.stopPropagation();
+            if (contentDiv.style.display === 'none') {
+                contentDiv.style.display = 'block';
+                toolToggle.textContent = ' \u25BC';
+            } else {
+                contentDiv.style.display = 'none';
+                toolToggle.textContent = ' \u25B6';
+            }
+        });
+        headerDiv.appendChild(toolToggle);
+
+        div.appendChild(headerDiv);
+        div.appendChild(contentDiv);
         container.appendChild(div);
 
         currentAssistant = null;
-        document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight;
+        scrollIfNearBottom(document.getElementById('messages'));
     }
 
     function appendUserMessage(content) {
@@ -334,7 +394,7 @@
         div.innerHTML = '<div class="msg-header"><span class="msg-role">USER</span></div>'
             + '<div class="msg-content">' + marked.parse(content) + '</div>';
         container.appendChild(div);
-        container.scrollTop = container.scrollHeight;
+        scrollIfNearBottom(container);
     }
 
     function tryAutoResume() {

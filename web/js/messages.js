@@ -102,6 +102,21 @@ var Messages = {
         if (msg.content) {
             if (msg.role === 'tool') {
                 content.innerHTML = '<pre><code>' + this.escHtml(msg.content) + '</code></pre>';
+                content.style.display = 'none';
+                var toolToggle = document.createElement('span');
+                toolToggle.className = 'tool-result-toggle';
+                toolToggle.textContent = ' \u25B6';
+                toolToggle.addEventListener('click', function (e) {
+                    e.stopPropagation();
+                    if (content.style.display === 'none') {
+                        content.style.display = 'block';
+                        toolToggle.textContent = ' \u25BC';
+                    } else {
+                        content.style.display = 'none';
+                        toolToggle.textContent = ' \u25B6';
+                    }
+                });
+                header.appendChild(toolToggle);
             } else {
                 content.innerHTML = marked.parse(msg.content);
             }
@@ -110,8 +125,14 @@ var Messages = {
         div.appendChild(content);
 
         if (msg.tool_calls && msg.tool_calls.length > 0) {
+            const tcBlock = document.createElement('div');
+            tcBlock.className = 'tool-calls-block';
+            const tcToggle = document.createElement('div');
+            tcToggle.className = 'tool-calls-toggle';
+            tcToggle.textContent = 'Tool Calls (' + msg.tool_calls.length + ') \u25B6';
             const tcl = document.createElement('div');
             tcl.className = 'tool-calls-list';
+            tcl.style.display = 'none';
             msg.tool_calls.forEach(tc => {
                 const item = document.createElement('div');
                 item.className = 'tool-call-item';
@@ -120,7 +141,18 @@ var Messages = {
                     + '<div class="tool-call-args">' + this.escHtml(this.formatArgs(tc.function.arguments)) + '</div>';
                 tcl.appendChild(item);
             });
-            div.appendChild(tcl);
+            tcToggle.addEventListener('click', function () {
+                if (tcl.style.display === 'none') {
+                    tcl.style.display = 'flex';
+                    tcToggle.textContent = 'Tool Calls (' + msg.tool_calls.length + ') \u25BC';
+                } else {
+                    tcl.style.display = 'none';
+                    tcToggle.textContent = 'Tool Calls (' + msg.tool_calls.length + ') \u25B6';
+                }
+            });
+            tcBlock.appendChild(tcToggle);
+            tcBlock.appendChild(tcl);
+            div.appendChild(tcBlock);
         }
 
         const actions = document.createElement('div');

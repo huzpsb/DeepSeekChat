@@ -316,11 +316,34 @@ html, body {
     user-select: none;
 }
 
-.message .tool-calls-list {
+.message .tool-calls-block {
     margin-top: 8px;
+    padding: 8px;
+    background: var(--bg-secondary);
+    border-left: 3px solid var(--accent-dim);
+    border-radius: 4px;
+}
+
+.message .tool-calls-toggle {
+    cursor: pointer;
+    color: var(--accent);
+    font-size: 11px;
+    user-select: none;
+    margin-bottom: 6px;
+}
+
+.message .tool-calls-list {
     display: flex;
     flex-direction: column;
     gap: 4px;
+}
+
+.message .tool-result-toggle {
+    cursor: pointer;
+    color: var(--accent);
+    font-size: 11px;
+    user-select: none;
+    margin-left: 4px;
 }
 
 .message .tool-call-item {
