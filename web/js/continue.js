@@ -236,9 +236,10 @@
                 reasoningEl.className = 'reasoning-block';
                 var toggle = document.createElement('div');
                 toggle.className = 'reasoning-toggle';
-                toggle.textContent = 'Reasoning \u25BC';
+                toggle.textContent = 'Reasoning \u25B6';
                 var contentEl = document.createElement('div');
-                contentEl.style.display = 'block';
+                contentEl.className = 'reasoning-content';
+                contentEl.style.display = 'none';
                 contentEl.dataset.rawText = '';
                 toggle.addEventListener('click', function () {
                     if (contentEl.style.display === 'none') {
@@ -253,7 +254,7 @@
                 reasoningEl.appendChild(contentEl);
                 el.appendChild(reasoningEl);
             }
-            var contentEl = reasoningEl.querySelector('div');
+            var contentEl = reasoningEl.querySelector('.reasoning-content');
             contentEl.dataset.rawText = (contentEl.dataset.rawText || '') + text;
             contentEl.innerHTML = marked.parse(contentEl.dataset.rawText);
         } else {
