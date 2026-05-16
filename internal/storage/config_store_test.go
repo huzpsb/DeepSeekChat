@@ -40,8 +40,7 @@ func TestSaveAndLoadConfig(t *testing.T) {
 			{
 				Name:    "test_mcp",
 				Type:    "stdio",
-				Command: "test.exe",
-				Args:    []string{"--verbose"},
+				Command: []string{"test.exe", "--verbose"},
 			},
 		},
 		ApprovedTools:         []string{"test_mcp::tool_a", "test_mcp::tool_b"},
@@ -69,8 +68,8 @@ func TestSaveAndLoadConfig(t *testing.T) {
 	if loaded.MCPServers[0].Type != "stdio" {
 		t.Errorf("expected type 'stdio', got '%s'", loaded.MCPServers[0].Type)
 	}
-	if len(loaded.MCPServers[0].Args) != 1 || loaded.MCPServers[0].Args[0] != "--verbose" {
-		t.Errorf("expected args ['--verbose'], got %v", loaded.MCPServers[0].Args)
+	if len(loaded.MCPServers[0].Command) != 2 || loaded.MCPServers[0].Command[0] != "test.exe" || loaded.MCPServers[0].Command[1] != "--verbose" {
+		t.Errorf("expected command ['test.exe','--verbose'], got %v", loaded.MCPServers[0].Command)
 	}
 	if len(loaded.ApprovedTools) != 2 {
 		t.Errorf("expected 2 approved tools, got %d", len(loaded.ApprovedTools))
@@ -155,7 +154,7 @@ func TestSaveConfig_SSEServer(t *testing.T) {
 	if loaded.MCPServers[0].URL != "https://example.com/mcp" {
 		t.Errorf("expected URL, got '%s'", loaded.MCPServers[0].URL)
 	}
-	if loaded.MCPServers[0].Command != "" {
-		t.Errorf("expected empty command for SSE, got '%s'", loaded.MCPServers[0].Command)
+	if loaded.MCPServers[0].Command != nil {
+		t.Errorf("expected nil command for SSE, got %v", loaded.MCPServers[0].Command)
 	}
 }

@@ -13,8 +13,7 @@ import (
 
 type StdioClient struct {
 	name    string
-	command string
-	args    []string
+	command []string
 	conn    bool
 	mu      sync.Mutex
 	cmd     *exec.Cmd
@@ -24,11 +23,10 @@ type StdioClient struct {
 	counter int
 }
 
-func NewStdioClient(name, command string, args []string) *StdioClient {
+func NewStdioClient(name string, command []string) *StdioClient {
 	return &StdioClient{
 		name:    name,
 		command: command,
-		args:    args,
 		counter: 1,
 	}
 }
@@ -42,7 +40,7 @@ func (c *StdioClient) Initialize() error {
 	defer c.mu.Unlock()
 
 	c.conn = false
-	c.cmd = exec.Command(c.command, c.args...)
+	c.cmd = exec.Command(c.command[0], c.command[1:]...)
 
 	var err error
 	c.stdin, err = c.cmd.StdinPipe()

@@ -11,8 +11,7 @@ type MCPServer struct {
 	Name    string   `json:"name"`
 	Type    string   `json:"type"`
 	URL     string   `json:"url,omitempty"`
-	Command string   `json:"command,omitempty"`
-	Args    []string `json:"args,omitempty"`
+	Command []string `json:"command,omitempty"`
 }
 
 type ToolDef struct {

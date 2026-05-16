@@ -95,7 +95,9 @@
 
         var reloadBtn = document.getElementById('btn-reload-mcp');
         if (reloadBtn) {
+            // WebStorm is too dumb to infer this -> button :(
             reloadBtn.addEventListener('click', async function () {
+                // noinspection JSUnusedGlobalSymbols
                 this.disabled = true;
                 this.textContent = 'Reloading...';
                 try {
@@ -104,6 +106,7 @@
                 } catch (e) {
                     this.textContent = 'Failed';
                 }
+                // noinspection JSUnusedGlobalSymbols
                 this.disabled = false;
                 this.textContent = 'Reload MCP';
             });

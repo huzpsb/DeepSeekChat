@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"hschat/internal/model"
@@ -20,6 +21,22 @@ func sanitizeFilename(title string) string {
 	return repl.Replace(title)
 }
 
+func getSortedChatFiles(entries []os.DirEntry) []os.FileInfo {
+	infos := make([]os.FileInfo, 0, len(entries))
+	for _, e := range entries {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
+			continue
+		}
+		if info, err := e.Info(); err == nil {
+			infos = append(infos, info)
+		}
+	}
+	sort.Slice(infos, func(i, j int) bool {
+		return infos[i].ModTime().After(infos[j].ModTime())
+	})
+	return infos
+}
+
 func findChatFile(title string) (string, error) {
 	sanitized := sanitizeFilename(title)
 	path := filepath.Join(chatsDir, sanitized+".json")
@@ -31,11 +48,11 @@ func findChatFile(title string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	for _, e := range entries {
-		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(chatsDir, e.Name()))
+
+	infos := getSortedChatFiles(entries)
+
+	for _, info := range infos {
+		data, err := os.ReadFile(filepath.Join(chatsDir, info.Name()))
 		if err != nil {
 			continue
 		}
@@ -44,7 +61,7 @@ func findChatFile(title string) (string, error) {
 			continue
 		}
 		if chat.Title == title {
-			return filepath.Join(chatsDir, e.Name()), nil
+			return filepath.Join(chatsDir, info.Name()), nil
 		}
 	}
 	return "", fmt.Errorf("chat not found: %s", title)
@@ -58,12 +75,12 @@ func ListChats() ([]model.Chat, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	infos := getSortedChatFiles(entries)
+
 	var chats []model.Chat
-	for _, e := range entries {
-		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(chatsDir, e.Name()))
+	for _, info := range infos {
+		data, err := os.ReadFile(filepath.Join(chatsDir, info.Name()))
 		if err != nil {
 			continue
 		}

@@ -78,7 +78,7 @@ func (m *Manager) connectServer(srv model.MCPServer) error {
 	case "sse":
 		client = NewSSEClient(srv.Name, srv.URL)
 	case "stdio":
-		client = NewStdioClient(srv.Name, srv.Command, srv.Args)
+		client = NewStdioClient(srv.Name, srv.Command)
 	default:
 		return fmt.Errorf("unknown MCP type: %s", srv.Type)
 	}

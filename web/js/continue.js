@@ -411,7 +411,6 @@
         isRunning: function () {
             return isRunning;
         },
-        setRunning: setRunning,
         doInterrupt: doInterrupt
     };
 })();

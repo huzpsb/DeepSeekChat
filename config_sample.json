@@ -4,7 +4,7 @@
     {
       "name": "sample_mcp_1",
       "type": "stdio",
-      "command": "D:\\sample_mcp.exe"
+      "command": ["D:\\sample_mcp.exe"]
     },
     {
       "name": "sample_mcp_2",
