@@ -10,18 +10,36 @@ import (
 const configPath = "config.json"
 
 func LoadConfig() (*model.MCPConfig, error) {
-	cfg := &model.MCPConfig{}
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return cfg, nil
+			return defaultConfig(), nil
 		}
 		return nil, err
 	}
+	cfg := &model.MCPConfig{}
 	if err := json.Unmarshal(data, cfg); err != nil {
 		return nil, err
 	}
 	return cfg, nil
+}
+
+func defaultConfig() *model.MCPConfig {
+	return &model.MCPConfig{
+		EnableCodingTools: true,
+		MCPServers: []model.MCPServer{
+			{
+				Name: "SSE_Example",
+				Type: "sse",
+				URL:  "http://127.0.0.1:12345/stream",
+			},
+			{
+				Name:    "STDIO_Example",
+				Type:    "stdio",
+				Command: []string{"./mcp_server.exe", "--verbose"},
+			},
+		},
+	}
 }
 
 func SaveConfig(cfg *model.MCPConfig) error {

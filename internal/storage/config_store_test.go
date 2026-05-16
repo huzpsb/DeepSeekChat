@@ -23,8 +23,17 @@ func TestLoadConfig_NotExist(t *testing.T) {
 	if cfg.APIKey != "" {
 		t.Errorf("expected empty api_key, got '%s'", cfg.APIKey)
 	}
-	if len(cfg.MCPServers) != 0 {
-		t.Errorf("expected empty servers, got %d", len(cfg.MCPServers))
+	if !cfg.EnableCodingTools {
+		t.Errorf("expected enable_coding_tools=true by default")
+	}
+	if len(cfg.MCPServers) != 2 {
+		t.Errorf("expected 2 default servers, got %d", len(cfg.MCPServers))
+	}
+	if cfg.MCPServers[0].Name != "SSE_Example" || cfg.MCPServers[0].Type != "sse" {
+		t.Errorf("expected SSE_Example server, got %v", cfg.MCPServers[0])
+	}
+	if cfg.MCPServers[1].Name != "STDIO_Example" || cfg.MCPServers[1].Type != "stdio" {
+		t.Errorf("expected STDIO_Example server, got %v", cfg.MCPServers[1])
 	}
 }
 

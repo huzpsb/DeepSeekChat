@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 
+	"hschat/internal/builtin"
+	"hschat/internal/builtin/coding"
 	"hschat/internal/model"
 	"hschat/internal/storage"
 )
@@ -48,7 +50,38 @@ func (m *Manager) LoadAndConnect() error {
 		}
 	}
 
+	if m.config.EnableCodingTools {
+		if err := m.registerBuiltin(coding.New()); err != nil {
+			log.Printf("Builtin [CodingMCP] init failed: %v", err)
+		}
+	}
+
 	m.reconcileTools()
+	return nil
+}
+
+func (m *Manager) registerBuiltin(p builtin.Provider) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	name := p.Name()
+	if _, exists := m.clients[name]; exists {
+		return fmt.Errorf("builtin with name '%s' already exists", name)
+	}
+
+	if err := p.Initialize(""); err != nil {
+		return fmt.Errorf("failed to initialize builtin '%s': %w", name, err)
+	}
+
+	client := builtin.AdaptClient(p)
+	tools := p.Tools()
+	if len(tools) == 0 {
+		return fmt.Errorf("builtin '%s' returned empty tool list", name)
+	}
+
+	m.clients[name] = client
+	m.allTools[name] = tools
+	log.Printf("Builtin [%s] loaded with %d tools", name, len(tools))
 	return nil
 }
 
