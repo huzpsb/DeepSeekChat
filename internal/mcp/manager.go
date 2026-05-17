@@ -9,6 +9,8 @@ import (
 
 	"hschat/internal/builtin"
 	"hschat/internal/builtin/coding"
+	"hschat/internal/builtin/sandbox"
+	"hschat/internal/builtin/web"
 	"hschat/internal/model"
 	"hschat/internal/storage"
 )
@@ -50,9 +52,19 @@ func (m *Manager) LoadAndConnect() error {
 		}
 	}
 
+	if err := m.registerBuiltin(sandbox.New(&m.config.Sandbox)); err != nil {
+		log.Printf("Builtin [Sandbox] init failed: %v", err)
+	}
+
 	if m.config.EnableCodingTools {
-		if err := m.registerBuiltin(coding.New()); err != nil {
-			log.Printf("Builtin [CodingMCP] init failed: %v", err)
+		if err := m.registerBuiltin(coding.New(m.config.Sandbox.RootDir)); err != nil {
+			log.Printf("Builtin [Coding] init failed: %v", err)
+		}
+	}
+
+	if m.config.EnableWebTools {
+		if err := m.registerBuiltin(web.New(m.config.Sandbox.RootDir)); err != nil {
+			log.Printf("Builtin [WebMCP] init failed: %v", err)
 		}
 	}
 

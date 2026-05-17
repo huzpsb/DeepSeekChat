@@ -224,7 +224,6 @@ func TestManager_Reload_ClearsState(t *testing.T) {
 	mgr := NewManager()
 	mgr.LoadAndConnect()
 
-	// Set up some state
 	mgr.mu.Lock()
 	mgr.allTools["test_mcp"] = []model.ToolDef{{Name: "stale_tool"}}
 	mgr.unapprovedTools = []string{"test_mcp::stale_tool"}
@@ -238,11 +237,12 @@ func TestManager_Reload_ClearsState(t *testing.T) {
 
 	mgr.mu.RLock()
 	defer mgr.mu.RUnlock()
-	if len(mgr.allTools) != 0 {
-		t.Errorf("allTools should be cleared after reload, got %d", len(mgr.allTools))
+	// Sandbox always reloads, so allTools should have Sandbox
+	if _, ok := mgr.allTools["Sandbox"]; !ok {
+		t.Errorf("allTools should have Sandbox after reload")
 	}
-	if len(mgr.unapprovedTools) != 0 {
-		t.Errorf("unapprovedTools should be cleared after reload, got %v", mgr.unapprovedTools)
+	if _, ok := mgr.allTools["test_mcp"]; ok {
+		t.Errorf("test_mcp should be cleared after reload")
 	}
 }
 

@@ -20,8 +20,8 @@ func TestLoadCodingConfig_NotExist(t *testing.T) {
 	if cfg == nil {
 		t.Fatalf("expected non-nil config")
 	}
-	if cfg.RootDir != "" {
-		t.Errorf("expected empty root_dir, got '%s'", cfg.RootDir)
+	if cfg.Blacklist != nil {
+		t.Errorf("expected nil blacklist, got %v", cfg.Blacklist)
 	}
 	if cfg.ShellTools != nil {
 		t.Errorf("expected nil shell_tools, got %v", cfg.ShellTools)
@@ -35,12 +35,10 @@ func TestSaveAndLoadCodingConfig(t *testing.T) {
 	defer os.Chdir(origDir)
 
 	cfg := &model.CodingConfig{
-		RootDir: "/tmp/project",
 		ShellTools: map[string]model.ShellTool{
 			"build": {Description: "Build project", Command: "go build ./...", Timeout: 120},
 		},
-		Blacklist:    []string{"os/exec", "net/http"},
-		ExtBlacklist: []string{"exe", "dll"},
+		Blacklist: []string{"os/exec", "net/http"},
 	}
 
 	err := SaveCodingConfig(cfg)
@@ -51,9 +49,6 @@ func TestSaveAndLoadCodingConfig(t *testing.T) {
 	loaded, err := LoadCodingConfig()
 	if err != nil {
 		t.Fatalf("LoadCodingConfig failed: %v", err)
-	}
-	if loaded.RootDir != "/tmp/project" {
-		t.Errorf("expected '/tmp/project', got '%s'", loaded.RootDir)
 	}
 	if len(loaded.ShellTools) != 1 {
 		t.Fatalf("expected 1 shell tool, got %d", len(loaded.ShellTools))
@@ -67,9 +62,6 @@ func TestSaveAndLoadCodingConfig(t *testing.T) {
 	if len(loaded.Blacklist) != 2 || loaded.Blacklist[0] != "os/exec" {
 		t.Errorf("expected blacklist ['os/exec','net/http'], got %v", loaded.Blacklist)
 	}
-	if len(loaded.ExtBlacklist) != 2 {
-		t.Errorf("expected 2 ext blacklist items, got %d", len(loaded.ExtBlacklist))
-	}
 }
 
 func TestSaveCodingConfig_Overwrite(t *testing.T) {
@@ -78,15 +70,15 @@ func TestSaveCodingConfig_Overwrite(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(origDir)
 
-	cfg1 := &model.CodingConfig{RootDir: "/a"}
-	cfg2 := &model.CodingConfig{RootDir: "/b"}
+	cfg1 := &model.CodingConfig{Blacklist: []string{"a"}}
+	cfg2 := &model.CodingConfig{Blacklist: []string{"b"}}
 
 	SaveCodingConfig(cfg1)
 	SaveCodingConfig(cfg2)
 
 	loaded, _ := LoadCodingConfig()
-	if loaded.RootDir != "/b" {
-		t.Errorf("expected '/b' after overwrite, got '%s'", loaded.RootDir)
+	if len(loaded.Blacklist) != 1 || loaded.Blacklist[0] != "b" {
+		t.Errorf("expected ['b'] after overwrite, got %v", loaded.Blacklist)
 	}
 }
 
@@ -117,8 +109,8 @@ func TestSaveCodingConfig_NilFields(t *testing.T) {
 	}
 
 	loaded, _ := LoadCodingConfig()
-	if loaded.RootDir != "" {
-		t.Errorf("expected empty root_dir")
+	if loaded.Blacklist != nil {
+		t.Errorf("expected nil blacklist")
 	}
 }
 

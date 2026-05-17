@@ -10,6 +10,44 @@ import (
 	"hschat/internal/storage"
 )
 
+func TestManager_LoadAndConnect_SandboxAlways(t *testing.T) {
+	setupManagerTest(t)
+	seedConfig(&model.MCPConfig{})
+
+	mgr := NewManager()
+	err := mgr.LoadAndConnect()
+	if err != nil {
+		t.Fatalf("LoadAndConnect failed: %v", err)
+	}
+
+	if !mgr.isMCPConnected("Sandbox") {
+		t.Errorf("expected Sandbox to be connected unconditionally")
+	}
+
+	tools, ok := mgr.allTools["Sandbox"]
+	if !ok {
+		t.Fatalf("expected Sandbox in allTools")
+	}
+	if len(tools) != 10 {
+		t.Errorf("expected 10 sandbox tools, got %d", len(tools))
+	}
+
+	expectedTools := []string{"tree", "search_name", "search_content", "read_content",
+		"replace_content", "create_dir", "create_file", "rm", "move", "rewrite_file"}
+	for _, name := range expectedTools {
+		found := false
+		for _, tool := range tools {
+			if tool.Name == name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected tool '%s' in Sandbox tools", name)
+		}
+	}
+}
+
 func TestManager_LoadAndConnect_CodingEnabled(t *testing.T) {
 	setupManagerTest(t)
 	seedConfig(&model.MCPConfig{
@@ -22,34 +60,16 @@ func TestManager_LoadAndConnect_CodingEnabled(t *testing.T) {
 		t.Fatalf("LoadAndConnect failed: %v", err)
 	}
 
-	// CodingMCP should be a connected client
-	if !mgr.isMCPConnected("CodingMCP") {
-		t.Errorf("expected CodingMCP to be connected")
+	if !mgr.isMCPConnected("Coding") {
+		t.Errorf("expected Coding to be connected")
 	}
 
-	// CodingMCP tools should be available
-	tools, ok := mgr.allTools["CodingMCP"]
+	tools, ok := mgr.allTools["Coding"]
 	if !ok {
-		t.Fatalf("expected CodingMCP in allTools")
+		t.Fatalf("expected Coding in allTools")
 	}
-	if len(tools) < 10 {
-		t.Errorf("expected at least 10 coding tools, got %d", len(tools))
-	}
-
-	// Verify specific tools exist
-	expectedTools := []string{"tree", "search_name", "search_content", "read_content",
-		"replace_content", "create_dir", "create_file", "rm", "move", "rewrite_file"}
-	for _, name := range expectedTools {
-		found := false
-		for _, tool := range tools {
-			if tool.Name == name {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Errorf("expected tool '%s' in CodingMCP tools", name)
-		}
+	if len(tools) < 1 {
+		t.Errorf("expected at least 1 coding tool, got %d", len(tools))
 	}
 }
 
@@ -65,13 +85,12 @@ func TestManager_LoadAndConnect_CodingDisabled(t *testing.T) {
 		t.Fatalf("LoadAndConnect failed: %v", err)
 	}
 
-	if mgr.isMCPConnected("CodingMCP") {
-		t.Errorf("expected CodingMCP not to be connected when disabled")
+	if mgr.isMCPConnected("Coding") {
+		t.Errorf("expected Coding not to be connected when disabled")
 	}
 }
 
 func TestManager_LoadAndConnect_CodingDefault(t *testing.T) {
-	// When EnableCodingTools is not set (false by default), coding should not load
 	setupManagerTest(t)
 	seedConfig(&model.MCPConfig{})
 
@@ -81,39 +100,36 @@ func TestManager_LoadAndConnect_CodingDefault(t *testing.T) {
 		t.Fatalf("LoadAndConnect failed: %v", err)
 	}
 
-	if mgr.isMCPConnected("CodingMCP") {
-		t.Errorf("expected CodingMCP not to be connected by default")
+	// Coding defaults to false when not set explicitly
+	if mgr.isMCPConnected("Coding") {
+		t.Errorf("expected Coding not to be connected by default")
 	}
 }
 
-func TestManager_GetTools_WithCoding(t *testing.T) {
+func TestManager_GetTools_WithSandbox(t *testing.T) {
 	setupManagerTest(t)
-	seedConfig(&model.MCPConfig{
-		EnableCodingTools: true,
-	})
+	seedConfig(&model.MCPConfig{})
 
 	mgr := NewManager()
 	mgr.LoadAndConnect()
 
 	tools := mgr.GetTools()
 
-	// Find coding tools in the result
-	codingTools := 0
+	sandboxTools := 0
 	for _, ts := range tools {
-		if ts.MCPName == "CodingMCP" && ts.Available {
-			codingTools++
+		if ts.MCPName == "Sandbox" && ts.Available {
+			sandboxTools++
 		}
 	}
-	if codingTools < 10 {
-		t.Errorf("expected at least 10 coding tools, got %d", codingTools)
+	if sandboxTools != 10 {
+		t.Errorf("expected 10 sandbox tools, got %d", sandboxTools)
 	}
 }
 
-func TestManager_GetAllowedTools_WithApprovedCoding(t *testing.T) {
+func TestManager_GetAllowedTools_WithApprovedSandbox(t *testing.T) {
 	setupManagerTest(t)
 	seedConfig(&model.MCPConfig{
-		EnableCodingTools: true,
-		ApprovedTools:     []string{"CodingMCP::tree", "CodingMCP::read_content"},
+		ApprovedTools: []string{"Sandbox::tree", "Sandbox::read_content"},
 	})
 
 	mgr := NewManager()
@@ -142,10 +158,9 @@ func TestManager_GetAllowedTools_WithApprovedCoding(t *testing.T) {
 	}
 }
 
-func TestManager_GetAllowedTools_NoApprovedCoding(t *testing.T) {
+func TestManager_GetAllowedTools_NoApproved(t *testing.T) {
 	setupManagerTest(t)
 	seedConfig(&model.MCPConfig{
-		EnableCodingTools: true,
 		ApprovedTools:     []string{},
 	})
 
@@ -158,18 +173,16 @@ func TestManager_GetAllowedTools_NoApprovedCoding(t *testing.T) {
 	}
 }
 
-func TestManager_ExecuteTool_CodingTool(t *testing.T) {
+func TestManager_ExecuteTool_SandboxTool(t *testing.T) {
 	setupManagerTest(t)
 	seedConfig(&model.MCPConfig{
-		EnableCodingTools: true,
-		ApprovedTools:     []string{"CodingMCP::create_file"},
+		ApprovedTools: []string{"Sandbox::create_file"},
 	})
 
 	mgr := NewManager()
 	mgr.LoadAndConnect()
 
-	// Execute create_file via the coding provider
-	result, err := mgr.ExecuteTool("CodingMCP::create_file", `{"file":"test.txt","content":"hello"}`)
+	result, err := mgr.ExecuteTool("Sandbox::create_file", `{"file":"test.txt","content":"hello"}`)
 	if err != nil {
 		t.Fatalf("ExecuteTool failed: %v", err)
 	}
@@ -183,7 +196,6 @@ func TestManager_ExecuteTool_CodingTool(t *testing.T) {
 		t.Errorf("expected 'Success', got '%s'", result.Content[0].Text)
 	}
 
-	// Verify file was created
 	cwd, _ := os.Getwd()
 	data, err := os.ReadFile(filepath.Join(cwd, "test.txt"))
 	if err != nil {
@@ -194,21 +206,18 @@ func TestManager_ExecuteTool_CodingTool(t *testing.T) {
 	}
 }
 
-func TestManager_ExecuteTool_CodingTool_ReadContent(t *testing.T) {
+func TestManager_ExecuteTool_SandboxTool_ReadContent(t *testing.T) {
 	setupManagerTest(t)
 	seedConfig(&model.MCPConfig{
-		EnableCodingTools: true,
-		ApprovedTools:     []string{"CodingMCP::read_content"},
+		ApprovedTools: []string{"Sandbox::create_file", "Sandbox::read_content"},
 	})
 
 	mgr := NewManager()
 	mgr.LoadAndConnect()
 
-	// First create a file
-	mgr.ExecuteTool("CodingMCP::create_file", `{"file":"readme.txt","content":"line1\nline2\nline3"}`)
+	mgr.ExecuteTool("Sandbox::create_file", `{"file":"readme.txt","content":"line1\nline2\nline3"}`)
 
-	// Then read it back
-	result, err := mgr.ExecuteTool("CodingMCP::read_content", `{"file":"readme.txt"}`)
+	result, err := mgr.ExecuteTool("Sandbox::read_content", `{"file":"readme.txt"}`)
 	if err != nil {
 		t.Fatalf("ExecuteTool failed: %v", err)
 	}
@@ -217,99 +226,90 @@ func TestManager_ExecuteTool_CodingTool_ReadContent(t *testing.T) {
 	}
 }
 
-func TestManager_ToolExists_WithCoding(t *testing.T) {
+func TestManager_ToolExists_WithSandbox(t *testing.T) {
 	setupManagerTest(t)
-	seedConfig(&model.MCPConfig{
-		EnableCodingTools: true,
-	})
+	seedConfig(&model.MCPConfig{})
 
 	mgr := NewManager()
 	mgr.LoadAndConnect()
 
-	// Full name with MCP prefix
-	if !mgr.ToolExists("CodingMCP::tree") {
-		t.Errorf("expected CodingMCP::tree to exist")
+	if !mgr.ToolExists("Sandbox::tree") {
+		t.Errorf("expected Sandbox::tree to exist")
 	}
-	if !mgr.ToolExists("CodingMCP::search_name") {
-		t.Errorf("expected CodingMCP::search_name to exist")
+	if !mgr.ToolExists("Sandbox::search_name") {
+		t.Errorf("expected Sandbox::search_name to exist")
 	}
-	if mgr.ToolExists("CodingMCP::nonexistent_tool") {
-		t.Errorf("expected CodingMCP::nonexistent_tool not to exist")
+	if mgr.ToolExists("Sandbox::nonexistent_tool") {
+		t.Errorf("expected Sandbox::nonexistent_tool not to exist")
 	}
 }
 
-func TestManager_IsToolApproved_WithCoding(t *testing.T) {
+func TestManager_IsToolApproved_WithSandbox(t *testing.T) {
 	setupManagerTest(t)
 	seedConfig(&model.MCPConfig{
-		EnableCodingTools:     true,
-		ApprovedTools:         []string{"CodingMCP::tree", "CodingMCP::rm"},
-		ManuallyApprovedTools: []string{"CodingMCP::move"},
+		ApprovedTools:         []string{"Sandbox::tree", "Sandbox::rm"},
+		ManuallyApprovedTools: []string{"Sandbox::move"},
 	})
 
 	mgr := NewManager()
 	mgr.LoadAndConnect()
 
-	approved, manual := mgr.IsToolApproved("CodingMCP::tree")
+	approved, manual := mgr.IsToolApproved("Sandbox::tree")
 	if !approved || manual {
 		t.Errorf("expected approved=true, manual=false for tree")
 	}
 
-	approved, manual = mgr.IsToolApproved("CodingMCP::rm")
+	approved, manual = mgr.IsToolApproved("Sandbox::rm")
 	if !approved || manual {
 		t.Errorf("expected approved=true, manual=false for rm")
 	}
 
-	approved, manual = mgr.IsToolApproved("CodingMCP::move")
+	approved, manual = mgr.IsToolApproved("Sandbox::move")
 	if approved || !manual {
 		t.Errorf("expected approved=false, manual=true for move")
 	}
 
-	approved, manual = mgr.IsToolApproved("CodingMCP::read_content")
+	approved, manual = mgr.IsToolApproved("Sandbox::read_content")
 	if approved || manual {
 		t.Errorf("expected approved=false, manual=false for unapproved read_content")
 	}
 }
 
-func TestManager_SetToolStatus_WithCoding(t *testing.T) {
+func TestManager_SetToolStatus_WithSandbox(t *testing.T) {
 	setupManagerTest(t)
-	seedConfig(&model.MCPConfig{
-		EnableCodingTools: true,
-	})
+	seedConfig(&model.MCPConfig{})
 
 	mgr := NewManager()
 	mgr.LoadAndConnect()
 
-	// Approve a coding tool
-	err := mgr.SetToolStatus("CodingMCP", "tree", "approved")
+	err := mgr.SetToolStatus("Sandbox", "tree", "approved")
 	if err != nil {
 		t.Fatalf("SetToolStatus failed: %v", err)
 	}
 
-	// Verify config was updated
 	cfg, _ := storage.LoadConfig()
 	found := false
 	for _, t := range cfg.ApprovedTools {
-		if t == "CodingMCP::tree" {
+		if t == "Sandbox::tree" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("expected CodingMCP::tree in approved tools")
+		t.Errorf("expected Sandbox::tree in approved tools")
 	}
 
-	// Set another to manually_approved
-	mgr.SetToolStatus("CodingMCP", "rm", "manually_approved")
+	mgr.SetToolStatus("Sandbox", "rm", "manually_approved")
 	cfg, _ = storage.LoadConfig()
 	found = false
 	for _, t := range cfg.ManuallyApprovedTools {
-		if t == "CodingMCP::rm" {
+		if t == "Sandbox::rm" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("expected CodingMCP::rm in manually approved tools")
+		t.Errorf("expected Sandbox::rm in manually approved tools")
 	}
 }
 
@@ -322,63 +322,55 @@ func TestManager_Reload_WithCoding(t *testing.T) {
 	mgr := NewManager()
 	mgr.LoadAndConnect()
 
-	if !mgr.isMCPConnected("CodingMCP") {
-		t.Fatalf("expected CodingMCP to be connected before reload")
+	if !mgr.isMCPConnected("Coding") {
+		t.Fatalf("expected Coding to be connected before reload")
 	}
 
-	// Reload should reconnect coding tools
 	err := mgr.Reload()
 	if err != nil {
 		t.Fatalf("Reload failed: %v", err)
 	}
 
-	if !mgr.isMCPConnected("CodingMCP") {
-		t.Errorf("expected CodingMCP to be connected after reload")
+	if !mgr.isMCPConnected("Coding") {
+		t.Errorf("expected Coding to be connected after reload")
 	}
 
-	tools, ok := mgr.allTools["CodingMCP"]
+	tools, ok := mgr.allTools["Coding"]
 	if !ok {
-		t.Fatalf("expected CodingMCP in allTools after reload")
+		t.Fatalf("expected Coding in allTools after reload")
 	}
-	if len(tools) < 10 {
-		t.Errorf("expected at least 10 tools after reload, got %d", len(tools))
+	if len(tools) < 1 {
+		t.Errorf("expected at least 1 tool after reload, got %d", len(tools))
 	}
 }
 
-func TestManager_ExecuteTool_CodingTool_NoArgs(t *testing.T) {
+func TestManager_ExecuteTool_SandboxTool_NoArgs(t *testing.T) {
 	setupManagerTest(t)
-	seedConfig(&model.MCPConfig{
-		EnableCodingTools: true,
-	})
+	seedConfig(&model.MCPConfig{})
 
 	mgr := NewManager()
 	mgr.LoadAndConnect()
 
-	// tree works with no arguments (uses defaults)
-	result, err := mgr.ExecuteTool("CodingMCP::tree", "")
+	result, err := mgr.ExecuteTool("Sandbox::tree", "")
 	if err != nil {
 		t.Fatalf("ExecuteTool failed: %v", err)
 	}
 	if result == nil {
 		t.Fatalf("expected non-nil result")
 	}
-	// Should return something meaningful
 	if len(result.Content) == 0 {
 		t.Errorf("expected content in result")
 	}
 }
 
-func TestManager_ExecuteTool_CodingTool_BadJson(t *testing.T) {
+func TestManager_ExecuteTool_SandboxTool_BadJson(t *testing.T) {
 	setupManagerTest(t)
-	seedConfig(&model.MCPConfig{
-		EnableCodingTools: true,
-	})
+	seedConfig(&model.MCPConfig{})
 
 	mgr := NewManager()
 	mgr.LoadAndConnect()
 
-	// Bad JSON should still work — coding tools handle arg parsing gracefully
-	result, err := mgr.ExecuteTool("CodingMCP::tree", "not json")
+	result, err := mgr.ExecuteTool("Sandbox::tree", "not json")
 	if err != nil {
 		t.Fatalf("ExecuteTool should handle bad JSON: %v", err)
 	}
@@ -387,11 +379,10 @@ func TestManager_ExecuteTool_CodingTool_BadJson(t *testing.T) {
 	}
 }
 
-func TestManager_GetTools_UnapprovedCodingTools(t *testing.T) {
+func TestManager_GetTools_UnapprovedSandboxTools(t *testing.T) {
 	setupManagerTest(t)
 	seedConfig(&model.MCPConfig{
-		EnableCodingTools: true,
-		ApprovedTools:     []string{},
+		ApprovedTools: []string{},
 	})
 
 	mgr := NewManager()
@@ -399,24 +390,22 @@ func TestManager_GetTools_UnapprovedCodingTools(t *testing.T) {
 
 	tools := mgr.GetTools()
 
-	// All coding tools should appear as "unapproved"
 	unapprovedCount := 0
 	for _, ts := range tools {
-		if ts.MCPName == "CodingMCP" && ts.Available && ts.Status == "unapproved" {
+		if ts.MCPName == "Sandbox" && ts.Available && ts.Status == "unapproved" {
 			unapprovedCount++
 		}
 	}
-	if unapprovedCount < 10 {
-		t.Errorf("expected at least 10 unapproved coding tools, got %d", unapprovedCount)
+	if unapprovedCount != 10 {
+		t.Errorf("expected 10 unapproved sandbox tools, got %d", unapprovedCount)
 	}
 }
 
 func TestManager_GetAllowedTools_CategorizedByApproval(t *testing.T) {
 	setupManagerTest(t)
 	seedConfig(&model.MCPConfig{
-		EnableCodingTools:     true,
-		ApprovedTools:         []string{"CodingMCP::tree"},
-		ManuallyApprovedTools: []string{"CodingMCP::search_name"},
+		ApprovedTools:         []string{"Sandbox::tree"},
+		ManuallyApprovedTools: []string{"Sandbox::search_name"},
 	})
 
 	mgr := NewManager()

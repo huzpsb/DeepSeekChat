@@ -13,13 +13,17 @@ import (
 	"hschat/internal/model"
 )
 
+func ignoredName(name string) bool {
+	return name == ".trash_can" || name == "_runtime"
+}
+
 func (p *Provider) runShellTool(tool model.ShellTool) string {
 	if len(p.fileBlacklist) > 0 {
 		checkErr := filepath.Walk(p.rootDir, func(fp string, info os.FileInfo, err error) error {
 			if err != nil {
 				return nil
 			}
-			if isIgnoredName(info.Name()) {
+			if ignoredName(info.Name()) {
 				if info.IsDir() {
 					return filepath.SkipDir
 				}

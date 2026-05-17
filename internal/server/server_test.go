@@ -603,8 +603,8 @@ func TestHandleMCPTools_Empty(t *testing.T) {
 
 	var tools []map[string]any
 	json.Unmarshal(w.Body.Bytes(), &tools)
-	if len(tools) != 0 {
-		t.Errorf("expected 0 tools, got %d", len(tools))
+	if len(tools) != 10 {
+		t.Errorf("expected 10 sandbox tools, got %d", len(tools))
 	}
 }
 

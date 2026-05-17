@@ -1,0 +1,72 @@
+package sandbox
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"hschat/internal/builtin"
+	"hschat/internal/model"
+)
+
+type Provider struct {
+	rootDir      string
+	extBlacklist []string
+}
+
+func New(cfg *model.SandboxConfig) builtin.Provider {
+	p := &Provider{
+		extBlacklist: cfg.ExtBlacklist,
+	}
+
+	if cfg.RootDir == "" {
+		if exe, err := os.Executable(); err == nil {
+			cfg.RootDir = filepath.Join(filepath.Dir(exe), "agent")
+		} else {
+			cfg.RootDir, _ = os.Getwd()
+		}
+	}
+	if abs, err := filepath.Abs(cfg.RootDir); err == nil {
+		cfg.RootDir = abs
+	}
+	p.rootDir = cfg.RootDir
+
+	return p
+}
+
+func (p *Provider) Name() string {
+	return "Sandbox"
+}
+
+func (p *Provider) Initialize(configPath string) error {
+	return nil
+}
+
+func (p *Provider) Close() error {
+	return nil
+}
+
+func SafePath(rootDir, rel string) (string, error) {
+	cleanRel := filepath.Clean(rel)
+	cleanRel = strings.TrimPrefix(cleanRel, "/")
+	cleanRel = strings.TrimPrefix(cleanRel, "\\")
+
+	target := filepath.Join(rootDir, cleanRel)
+	absTarget, err := filepath.Abs(target)
+	if err != nil {
+		return "", err
+	}
+
+	absRoot, _ := filepath.Abs(rootDir)
+	relPath, err := filepath.Rel(absRoot, absTarget)
+	if err != nil || strings.HasPrefix(relPath, "..") {
+		return "", fmt.Errorf("security error: access denied to path outside root directory")
+	}
+
+	return absTarget, nil
+}
+
+func (p *Provider) getSafePath(rel string) (string, error) {
+	return SafePath(p.rootDir, rel)
+}

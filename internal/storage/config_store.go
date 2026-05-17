@@ -26,7 +26,12 @@ func LoadConfig() (*model.MCPConfig, error) {
 
 func defaultConfig() *model.MCPConfig {
 	return &model.MCPConfig{
+		Sandbox: model.SandboxConfig{
+			RootDir:      "",
+			ExtBlacklist: []string{"exe", "dll", "ppt", "pptx", "doc", "docx", "pdf"},
+		},
 		EnableCodingTools: true,
+		EnableWebTools:    true,
 		MCPServers: []model.MCPServer{
 			{
 				Name: "SSE_Example",
