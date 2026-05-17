@@ -62,4 +62,8 @@
             await ChatList.loadMessages();
         }
     });
+
+    document.getElementById('btn-export').addEventListener('click', function () {
+        Messages.exportToHtml();
+    });
 })();

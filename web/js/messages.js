@@ -212,5 +212,96 @@ var Messages = {
         setTimeout(() => {
             document.querySelectorAll('.highlight-error').forEach(el => el.classList.remove('highlight-error'));
         }, 5000);
+    },
+
+    exportToHtml: function () {
+        var title = window.ChatList ? ChatList.getCurrentTitle() : null;
+        if (!title) {
+            alert('No chat open to export.');
+            return;
+        }
+
+        var container = document.getElementById('messages');
+        var msgEls = container.querySelectorAll('.message');
+        var count = msgEls.length;
+        var clones = [].map.call(msgEls, function (el) {
+            var clone = el.cloneNode(true);
+            clone.querySelectorAll('.msg-content pre code').forEach(function (code) {
+                var text = code.textContent || '';
+                if (text.length > 3000) {
+                    code.innerHTML = Messages.escHtml(text.substring(0, 1000))
+                        + '\n\n... [truncated ' + (text.length - 2000).toLocaleString() + ' chars] ...\n\n'
+                        + Messages.escHtml(text.substring(text.length - 1000));
+                }
+            });
+
+            clone.removeAttribute('data-raw-message');
+            clone.querySelectorAll('[data-raw-text]').forEach(function (c) {
+                c.removeAttribute('data-raw-text');
+            });
+            clone.querySelectorAll('.msg-actions').forEach(function (c) {
+                c.remove();
+            });
+            clone.classList.remove('highlight-error', 'highlight-success');
+
+            return clone.outerHTML;
+        }).join('\n');
+
+        var t = this.escHtml(title);
+        var html = '<!DOCTYPE html>\n'
+            + '<html lang="en">\n<head>\n<meta charset="UTF-8">\n<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
+            + '<title>DsChat - ' + t + '</title>\n'
+            + '<style>\n'
+            + '*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}\n'
+            + 'body{font-family:"Segoe UI",system-ui,-apple-system,sans-serif;background:#1a1a2e;color:#e0e0e0;font-size:14px;line-height:1.5;padding:80px 0 40px 0}\n'
+            + '#export-header{position:fixed;top:0;left:0;right:0;background:#16213e;border-bottom:1px solid #2a2a4a;padding:16px 24px;z-index:10}\n'
+            + '#export-header h1{font-size:18px;font-weight:600;color:#4fc3f7}\n'
+            + '#export-header .export-meta{font-size:11px;color:#a0a0a0;margin-top:4px}\n'
+            + '#export-messages{max-width:900px;margin:0 auto;padding:0 16px;display:flex;flex-direction:column;gap:8px}\n'
+            + '.message{padding:12px 16px;border-radius:8px;max-width:85%;position:relative}\n'
+            + '.message.role-system{background:#2d1b69;align-self:center;max-width:95%;text-align:center;font-style:italic}\n'
+            + '.message.role-user{background:#1a3a5c;align-self:flex-end}\n'
+            + '.message.role-assistant{background:#1a2a1a;align-self:flex-start}\n'
+            + '.message.role-tool{background:#3a2a0a;align-self:flex-start;font-family:Consolas,"Fira Code",monospace;font-size:13px;white-space:pre-wrap}\n'
+            + '.msg-header{display:flex;align-items:center;gap:8px;margin-bottom:4px;font-size:11px;color:#a0a0a0}\n'
+            + '.msg-role{font-weight:600;text-transform:uppercase}\n'
+            + '.msg-tags{display:flex;gap:4px}\n'
+            + '.msg-tag{padding:1px 6px;border-radius:3px;font-size:10px;background:#0f3460;color:#a0a0a0}\n'
+            + '.msg-tag.no-server{background:#f39c12;color:#000}\n'
+            + '.msg-tag.approved{background:#2ecc71;color:#000}\n'
+            + '.msg-content{word-break:break-word}\n'
+            + '.msg-content p{margin:4px 0}\n'
+            + '.msg-content pre{background:#16213e;border:1px solid #2a2a4a;border-radius:4px;padding:8px;overflow-x:auto}\n'
+            + '.msg-content code{background:#16213e;padding:1px 4px;border-radius:3px;font-family:Consolas,"Fira Code",monospace;font-size:13px}\n'
+            + '.reasoning-block{margin-bottom:8px;padding:8px;background:#16213e;border-left:3px solid #2a8fc7;border-radius:4px;font-size:12px;color:#a0a0a0}\n'
+            + '.reasoning-toggle{cursor:default;color:#4fc3f7;font-size:11px;user-select:none}\n'
+            + '.tool-calls-block{margin-top:8px;padding:8px;background:#16213e;border-left:3px solid #2a8fc7;border-radius:4px}\n'
+            + '.tool-calls-toggle{cursor:default;color:#4fc3f7;font-size:11px;user-select:none;margin-bottom:6px}\n'
+            + '.tool-calls-list{display:flex;flex-direction:column;gap:4px}\n'
+            + '.tool-call-item{padding:6px 8px;background:#16213e;border-radius:4px;font-size:12px;border:1px solid #2a2a4a}\n'
+            + '.tool-call-item .tool-call-name{font-weight:600;color:#4fc3f7}\n'
+            + '.tool-call-item .tool-call-args{color:#a0a0a0;font-family:Consolas,"Fira Code",monospace;font-size:11px;white-space:pre-wrap}\n'
+            + '.msg-actions{display:none}\n'
+            + '</style>\n</head>\n<body>\n'
+            + '<div id="export-header"><h1>HsChat - ' + t + '</h1><div class="export-meta">Exported on ' + new Date().toISOString().split('T')[0] + ' | ' + count + ' messages</div></div>\n'
+            + '<div id="export-messages">\n'
+            + clones
+            + '\n</div>\n'
+            + '<script>\n'
+            + 'document.querySelectorAll(".reasoning-toggle").forEach(function(t){t.style.cursor="pointer";t.addEventListener("click",function(){var c=this.nextElementSibling;if(c.style.display==="none"){c.style.display="block";this.textContent=this.textContent.replace("\\u25B6","\\u25BC")}else{c.style.display="none";this.textContent=this.textContent.replace("\\u25BC","\\u25B6")}})});\n'
+            + 'document.querySelectorAll(".tool-calls-toggle").forEach(function(t){t.style.cursor="pointer";t.addEventListener("click",function(){var c=this.nextElementSibling;if(c.style.display==="none"){c.style.display="flex";this.textContent=this.textContent.replace("\\u25B6","\\u25BC")}else{c.style.display="none";this.textContent=this.textContent.replace("\\u25BC","\\u25B6")}})});\n'
+            + 'document.querySelectorAll(".tool-result-toggle").forEach(function(t){t.style.cursor="pointer";t.addEventListener("click",function(e){e.stopPropagation();var c=this.parentElement.parentElement.querySelector(".msg-content");if(c.style.display==="none"){c.style.display="block";this.textContent=" \\u25BC"}else{c.style.display="none";this.textContent=" \\u25B6"}})});\n'
+            + '</' + 'script>\n'
+            + '</body>\n</html>';
+
+        var blob = new Blob([html], {type: 'text/html;charset=utf-8'});
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = title.replace(/[\\/:*?"<>|]/g, '_') + '.html';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
     }
 };
