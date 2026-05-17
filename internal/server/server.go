@@ -303,6 +303,7 @@ func (s *Server) streamSSE(w http.ResponseWriter, r *http.Request, flusher http.
 
 func (s *Server) handleInterrupt(w http.ResponseWriter, r *http.Request) {
 	s.engine.RequestInterrupt()
+	s.engine.WaitForIdle()
 	s.writeJSON(w, map[string]bool{"ok": true})
 }
 

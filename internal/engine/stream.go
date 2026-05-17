@@ -98,6 +98,18 @@ func (e *StreamEngine) RequestInterrupt() {
 	}
 }
 
+func (e *StreamEngine) WaitForIdle() {
+	for {
+		e.mu.Lock()
+		if e.state == StateIdle {
+			e.mu.Unlock()
+			return
+		}
+		e.mu.Unlock()
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 func (e *StreamEngine) StartInference(title, input string, autoContinue bool) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
