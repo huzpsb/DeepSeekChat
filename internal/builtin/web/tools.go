@@ -176,6 +176,7 @@ webjs_batch_download_append(url: string, dir: string, retries?: int, filename?: 
 
 webjs_batch_download_remaining() -> int
   Returns the number of tasks still pending (not yet succeeded or failed).
+  The lifecycle of batch_download is the same as the JS interpreter. You MUST loop and wait on webjs_batch_download_remaining until it returns 0, otherwise the downloads will not proceed as expected.
 
 webjs_batch_download_clear() -> void
   Immediately cancels all pending and in-flight download tasks.

@@ -192,6 +192,7 @@ func (r *Runtime) webjsBatchDownloadRemaining(vm *goja.Runtime, call goja.Functi
 	if !r.dlInit {
 		return vm.ToValue(0)
 	}
+	time.Sleep(time.Millisecond)
 	return vm.ToValue(int(atomic.LoadInt32(&r.dlPending)))
 }
 
