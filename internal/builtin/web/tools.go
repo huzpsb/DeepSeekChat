@@ -179,7 +179,7 @@ webjs_batch_download_remaining() -> int
   The lifecycle of batch_download is the same as the JS interpreter. You MUST loop and wait on webjs_batch_download_remaining until it returns 0, otherwise the downloads will not proceed as expected.
 
 webjs_batch_download_clear() -> void
-  Immediately cancels all pending and in-flight download tasks.
+  Immediately cancels all pending and in-flight download tasks. In most cases, you do not need to use this function because downloads will automatically stop when the script returns.
 
 console.log(...args: any) -> void
   Prints arguments to the script's console output buffer (100KB limit).
