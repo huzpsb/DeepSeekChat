@@ -149,25 +149,53 @@ webjs_delete(path: string) -> void
   Deletes a file or empty directory. Non-empty directories cannot be deleted.
   May throw: invalid path, file not found, directory not empty, path traversal.
 
+webjs_test(path: string) -> bool
+  Tests whether a file or directory exists without reading its contents.
+  Returns true if the path exists, false otherwise.
+  May throw: path traversal.
+
 webjs_create_folder(path: string) -> void
   Creates a new directory, including any necessary parent directories.
   May throw: invalid path, creation failure, path traversal.
+
+webjs_clean_tmp(dir: string) -> int
+  Deletes all .tmp files in the specified directory (non-recursive).
+  Returns the number of files deleted.
+  May throw: invalid directory, path traversal.
+
+webjs_batch_download_append(url: string, dir: string, retries?: int) -> void
+  Registers a batch download task and returns immediately. The file is downloaded
+  to the specified directory using a 20-worker pool. Use webjs_test to check
+  whether the file has been downloaded successfully.
+  May throw: invalid directory, path traversal, pool cleared.
+
+webjs_batch_download_remaining() -> int
+  Returns the number of tasks still pending (not yet succeeded or failed).
+
+webjs_batch_download_clear() -> void
+  Immediately cancels all pending and in-flight download tasks.
 
 console.log(...args: any) -> void
   Prints arguments to the script's console output buffer (100KB limit).
   May throw: buffer overflow (100KB limit).
 
-Best Practices for Large Scraping Tasks (>= 200 pages):
-Considering the execution timeout, if you plan to scrape more than 200 web pages, you are expected to write code in the following way to implement resumable scraping:
-0. All requests should be retried 3 times unless the user explicitly specifies otherwise.
-1. First, fetch only the index and write it to disk.
-2. After obtaining the index and before starting to scrape details, check if a partial result file exists. If it does, load it into memory first.
-3. During the scraping process, if an item is already in the loaded partial results, do not scrape it again.
-4. Save the partial results to disk after every 50 actual scrapes.
-5. Keep logs as concise as possible (e.g., output a summary every 50 items, or only output errors) to prevent execution being killed due to console buffer overflow.
-6. Estimate the data volume. If <1k items or there is no clear index, prefer saving as a single JSON file. If >1k items, you can save 1k items per JSON file, spreading across multiple JSONs. If it is really hard to index, saving as one large JSON is also acceptable. 
-7. NEVER save as HTML, especially avoid saving a large bunch of HTML files. This means do not save raw HTML strings even in JSON; extract the important contents instead. 
-8. If you need to download multiple binary files, only save them to disk after ensuring they are completely downloaded, and use list to skip already downloaded files.
+Best Practices for Large Scraping Tasks:
+Because of execution timeouts, web scraping operations involving large amounts of pages or files should be optimized with the batch download API.
+1. Recommended workflow: Always run a single-threaded test on 3-5 items first to verify that your download and data extraction logic works correctly before using the batch API.
+2. Task Queue Management: BEFORE starting any batch downloads, gather the target URLs and MUST SAVE the task list to disk. If the task list already exists on disk, MUST LOAD it directly instead of re-fetching the index. This prevents issues if the source CMS updates file names during the process, avoiding duplication or failure.
+3. For HTML pages:
+   - Load or build the task queue as described above.
+   - Run batch downloads to a temporary folder, saving the files with a ".tmp" extension (create the folder if it does not exist).
+   - Loop and wait (using webjs_batch_download_remaining) until tasks log as complete.
+   - Once finished, read the downloaded ".tmp" files, parse/extract the required JSON or structured data, and group them into appropriate files (e.g., 1k items per JSON).
+   - Finally, clean up the temporary files using webjs_clean_tmp. NEVER permanently save a large bunch of raw HTML files.
+4. For binary files:
+   - Load or build the task queue and use the batch download API.
+   - If a directory tree structure is required, ensure all necessary output directories are created using webjs_create_folder before submitting the tasks.
+5. Resumability for >= 500 files:
+   - For large scales, consider potential mid-way failures. Resuming is very simple: the batch submitter automatically skips files that have already been fully downloaded, so there is no need to call webjs_test manually.
+   - Just ensure that across multiple runs, the target folder and file names remain strictly consistent so resuming naturally skips completed items.
+5. Keep logs as concise as possible to prevent execution being killed due to console buffer overflow.
 
 General Best Practices for webjs:
 1. webjs is designed not just for scraping, but also for document and workspace management.

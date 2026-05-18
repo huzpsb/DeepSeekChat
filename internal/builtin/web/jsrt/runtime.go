@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -59,6 +60,15 @@ type Runtime struct {
 	cfg     *Config
 	console *console
 	client  *http.Client
+	execCtx context.Context
+
+	dlMu      sync.Mutex
+	dlInit    bool
+	dlCtx     context.Context
+	dlCancel  context.CancelFunc
+	dlPending int32
+	dlCh      chan batchTask
+	dlWg      sync.WaitGroup
 }
 
 func New(cfg *Config) *Runtime {
@@ -68,6 +78,7 @@ func New(cfg *Config) *Runtime {
 }
 
 func (r *Runtime) Close() {
+	r.batchCleanup()
 	r.client.CloseIdleConnections()
 }
 
@@ -89,6 +100,7 @@ func (r *Runtime) Execute(fileName string, timeout time.Duration) (consoleOutput
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
+	r.execCtx = ctx
 
 	go func() {
 		<-ctx.Done()
@@ -131,6 +143,26 @@ func (r *Runtime) registerFunctions(vm *goja.Runtime) {
 
 	vm.Set("webjs_delete", func(call goja.FunctionCall) goja.Value {
 		return r.webjsDelete(vm, call)
+	})
+
+	vm.Set("webjs_test", func(call goja.FunctionCall) goja.Value {
+		return r.webjsTest(vm, call)
+	})
+
+	vm.Set("webjs_clean_tmp", func(call goja.FunctionCall) goja.Value {
+		return r.webjsCleanTmp(vm, call)
+	})
+
+	vm.Set("webjs_batch_download_append", func(call goja.FunctionCall) goja.Value {
+		return r.webjsBatchDownloadAppend(vm, call)
+	})
+
+	vm.Set("webjs_batch_download_remaining", func(call goja.FunctionCall) goja.Value {
+		return r.webjsBatchDownloadRemaining(vm, call)
+	})
+
+	vm.Set("webjs_batch_download_clear", func(call goja.FunctionCall) goja.Value {
+		return r.webjsBatchDownloadClear(vm, call)
 	})
 
 	vm.Set("webjs_create_folder", func(call goja.FunctionCall) goja.Value {
@@ -476,6 +508,51 @@ func (r *Runtime) webjsDelete(vm *goja.Runtime, call goja.FunctionCall) goja.Val
 		panic(vm.NewGoError(fmt.Errorf("webjs_delete failed: %w", err)))
 	}
 	return goja.Undefined()
+}
+
+func (r *Runtime) webjsTest(vm *goja.Runtime, call goja.FunctionCall) goja.Value {
+	if len(call.Arguments) < 1 {
+		panic(vm.NewGoError(fmt.Errorf("webjs_test requires 1 argument (path)")))
+	}
+	name := call.Argument(0).String()
+	path, err := sandbox.SafePath(r.cfg.RootDir, name)
+	if err != nil {
+		panic(vm.NewGoError(err))
+	}
+	_, err = os.Stat(path)
+	return vm.ToValue(err == nil)
+}
+
+func (r *Runtime) webjsCleanTmp(vm *goja.Runtime, call goja.FunctionCall) goja.Value {
+	if len(call.Arguments) < 1 {
+		panic(vm.NewGoError(fmt.Errorf("webjs_clean_tmp requires 1 argument (dir)")))
+	}
+	dirArg := call.Argument(0).String()
+	dirPath, err := sandbox.SafePath(r.cfg.RootDir, dirArg)
+	if err != nil {
+		panic(vm.NewGoError(err))
+	}
+
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		panic(vm.NewGoError(fmt.Errorf("webjs_clean_tmp: failed to read directory: %w", err)))
+	}
+
+	var deleted int
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if filepath.Ext(entry.Name()) != ".tmp" {
+			continue
+		}
+		fullPath := filepath.Join(dirPath, entry.Name())
+		if err := os.Remove(fullPath); err != nil {
+			continue
+		}
+		deleted++
+	}
+	return vm.ToValue(deleted)
 }
 
 func (r *Runtime) webjsCreateFolder(vm *goja.Runtime, call goja.FunctionCall) goja.Value {
