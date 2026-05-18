@@ -21,14 +21,13 @@ func New(cfg *model.SandboxConfig) builtin.Provider {
 	}
 
 	if cfg.RootDir == "" {
-		if exe, err := os.Executable(); err == nil {
-			cfg.RootDir = filepath.Join(filepath.Dir(exe), "agent")
-		} else {
-			cfg.RootDir, _ = os.Getwd()
-		}
+		cfg.RootDir = filepath.Join(".", "agent")
 	}
 	if abs, err := filepath.Abs(cfg.RootDir); err == nil {
 		cfg.RootDir = abs
+	}
+	if err := os.MkdirAll(cfg.RootDir, 0755); err != nil {
+		panic(fmt.Sprintf("failed to create root directory %s: %v", cfg.RootDir, err))
 	}
 	p.rootDir = cfg.RootDir
 
