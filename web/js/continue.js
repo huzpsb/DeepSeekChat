@@ -86,7 +86,7 @@
 
     async function doContinue() {
         var title = ChatList.getCurrentTitle();
-        if (!title) return;
+        if (!title) { showToast('Please create or open a session'); return; }
 
         var inputArea = document.getElementById('user-input');
         var input = inputArea.value.trim();
