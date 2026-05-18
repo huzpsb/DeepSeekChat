@@ -28,6 +28,7 @@ type StreamEngine struct {
 	activeChat  *model.Chat
 	events      []cont.ContinueEvent
 	streamDone  bool
+	savedPos    int
 
 	cancelFunc context.CancelFunc
 
@@ -128,6 +129,7 @@ func (e *StreamEngine) StartInference(title, input string, autoContinue bool) er
 	e.activeTitle = title
 	e.activeChat = chat
 	e.events = nil
+	e.savedPos = 0
 	e.streamDone = false
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -138,6 +140,9 @@ func (e *StreamEngine) StartInference(title, input string, autoContinue bool) er
 
 		save := func() {
 			storage.SaveChat(chat)
+			e.mu.Lock()
+			e.savedPos = len(e.events)
+			e.mu.Unlock()
 		}
 
 		engine := cont.NewEngine(e.dsClient, e.mode, e.mcpMgr, save)
@@ -159,6 +164,7 @@ func (e *StreamEngine) StartInference(title, input string, autoContinue bool) er
 		storage.SaveChat(chat)
 
 		e.mu.Lock()
+		e.savedPos = len(e.events)
 		e.streamDone = true
 		e.state = StateIdle
 		e.mu.Unlock()
@@ -180,7 +186,7 @@ func (e *StreamEngine) Subscribe(title string) *EventReader {
 		return nil
 	}
 
-	return &EventReader{eng: e, pos: 0}
+	return &EventReader{eng: e, pos: e.savedPos}
 }
 
 func (r *EventReader) Wait(ctx context.Context) ([]cont.ContinueEvent, bool) {

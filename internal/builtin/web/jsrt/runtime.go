@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -118,8 +117,8 @@ func (r *Runtime) registerFunctions(vm *goja.Runtime) {
 		return r.webFetch(vm, call)
 	})
 
-	vm.Set("webjs_tree", func(call goja.FunctionCall) goja.Value {
-		return r.webjsTree(vm, call)
+	vm.Set("webjs_list", func(call goja.FunctionCall) goja.Value {
+		return r.webjsList(vm, call)
 	})
 
 	vm.Set("webjs_read", func(call goja.FunctionCall) goja.Value {
@@ -357,9 +356,8 @@ func (r *Runtime) webFetch(vm *goja.Runtime, call goja.FunctionCall) goja.Value 
 	return val
 }
 
-func (r *Runtime) webjsTree(vm *goja.Runtime, call goja.FunctionCall) goja.Value {
+func (r *Runtime) webjsList(vm *goja.Runtime, call goja.FunctionCall) goja.Value {
 	var dir string
-	depth := 2
 
 	for _, arg := range call.Arguments {
 		if goja.IsUndefined(arg) || goja.IsNull(arg) {
@@ -371,24 +369,6 @@ func (r *Runtime) webjsTree(vm *goja.Runtime, call goja.FunctionCall) goja.Value
 			if v != "" {
 				dir = v
 			}
-		case float64:
-			d := int(v)
-			if d < 1 {
-				d = 1
-			}
-			if d > 10 {
-				d = 10
-			}
-			depth = d
-		case int64:
-			d := int(v)
-			if d < 1 {
-				d = 1
-			}
-			if d > 10 {
-				d = 10
-			}
-			depth = d
 		}
 	}
 
@@ -400,40 +380,27 @@ func (r *Runtime) webjsTree(vm *goja.Runtime, call goja.FunctionCall) goja.Value
 		}
 		info, err := os.Stat(resolved)
 		if err != nil || !info.IsDir() {
-			panic(vm.NewGoError(fmt.Errorf("webjs_tree: not a valid directory: %s", dir)))
+			panic(vm.NewGoError(fmt.Errorf("webjs_list: not a valid directory: %s", dir)))
 		}
 		startDir = resolved
 	}
 
+	entries, err := os.ReadDir(startDir)
+	if err != nil {
+		panic(vm.NewGoError(fmt.Errorf("webjs_list: failed to read directory: %s", err)))
+	}
+
 	var result []string
-	_ = filepath.Walk(startDir, func(fp string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil
+	for _, entry := range entries {
+		if sandbox.IsIgnoredName(entry.Name()) {
+			continue
 		}
-		rel, _ := filepath.Rel(startDir, fp)
-		if rel == "." {
-			return nil
-		}
-		if sandbox.IsIgnoredName(info.Name()) {
-			if info.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		sepCount := len(strings.Split(rel, string(os.PathSeparator)))
-		if sepCount > depth {
-			if info.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if info.IsDir() {
-			result = append(result, rel+"/")
+		if entry.IsDir() {
+			result = append(result, entry.Name()+"/")
 		} else {
-			result = append(result, rel)
+			result = append(result, entry.Name())
 		}
-		return nil
-	})
+	}
 
 	val := vm.ToValue(result)
 	return val

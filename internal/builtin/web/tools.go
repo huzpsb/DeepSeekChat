@@ -130,10 +130,10 @@ web_fetch(url: string, headers?: object) -> {status: int, body: string|Uint8Arra
   TLS fingerprint.
   May throw: invalid URL, fetch failure.
 
-webjs_tree(dir?: string, depth?: int) -> []string
-  Lists directory contents recursively. Returns an array of strings, each representing one
-  file or directory entry as a relative path. The optional dir parameter specifies the starting directory.
-  depth controls recursion depth (1-10, default 2).
+webjs_list(dir?: string) -> []string
+  Lists directory contents non-recursively. Returns an array of strings, each representing one
+  file or directory entry by name. The optional dir parameter specifies the directory to list.
+  Directories are suffixed with "/". 
   May throw: invalid directory, path traversal.
 
 webjs_read(path: string) -> string
@@ -167,6 +167,7 @@ Considering the execution timeout, if you plan to scrape more than 200 web pages
 5. Keep logs as concise as possible (e.g., output a summary every 50 items, or only output errors) to prevent execution being killed due to console buffer overflow.
 6. Estimate the data volume. If <1k items or there is no clear index, prefer saving as a single JSON file. If >1k items, you can save 1k items per JSON file, spreading across multiple JSONs. If it is really hard to index, saving as one large JSON is also acceptable. 
 7. NEVER save as HTML, especially avoid saving a large bunch of HTML files. This means do not save raw HTML strings even in JSON; extract the important contents instead. 
+8. If you need to download multiple binary files, only save them to disk after ensuring they are completely downloaded, and use list to skip already downloaded files.
 
 General Best Practices for webjs:
 1. webjs is designed not just for scraping, but also for document and workspace management.
