@@ -16,8 +16,11 @@ func MoveToTrash(rootDir, path string) error {
 		return os.Remove(path)
 	}
 	trashDir := filepath.Join(rootDir, ".trash_can")
+	if filepath.Dir(path) == trashDir {
+		return nil
+	}
 	_ = os.MkdirAll(trashDir, 0755)
-	timestamp := (time.Now().UnixNano()) % 1_0000_0000
+	timestamp := (time.Now().UnixMilli()) % 1_000_000
 	dest := filepath.Join(trashDir, fmt.Sprintf("%d_%s", timestamp, filepath.Base(path)))
 	return os.Rename(path, dest)
 }

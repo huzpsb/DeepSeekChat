@@ -49,14 +49,6 @@ func (p *Provider) Close() error {
 func SafePath(rootDir, rel string) (string, error) {
 	cleanRel := filepath.Clean(rel)
 
-	if strings.Contains(rel, "..") {
-		trimmed := strings.TrimPrefix(cleanRel, "/")
-		trimmed = strings.TrimPrefix(trimmed, "\\")
-		if trimmed == "" || trimmed == "." {
-			return "", fmt.Errorf("security error: path traversal detected")
-		}
-	}
-
 	cleanRel = strings.TrimPrefix(cleanRel, "/")
 	cleanRel = strings.TrimPrefix(cleanRel, "\\")
 
@@ -69,7 +61,7 @@ func SafePath(rootDir, rel string) (string, error) {
 	absRoot, _ := filepath.Abs(rootDir)
 	relPath, err := filepath.Rel(absRoot, absTarget)
 	if err != nil || strings.HasPrefix(relPath, "..") {
-		return "", fmt.Errorf("security error: access denied to path outside root directory")
+		return "", fmt.Errorf("sandbox fs error: access denied (-1)")
 	}
 
 	return absTarget, nil
