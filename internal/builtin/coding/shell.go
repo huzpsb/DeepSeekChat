@@ -10,12 +10,9 @@ import (
 	"strings"
 	"time"
 
+	"hschat/internal/builtin/sandbox"
 	"hschat/internal/model"
 )
-
-func ignoredName(name string) bool {
-	return name == ".trash_can" || name == "_runtime"
-}
 
 func (p *Provider) runShellTool(tool model.ShellTool) string {
 	if len(p.fileBlacklist) > 0 {
@@ -23,7 +20,7 @@ func (p *Provider) runShellTool(tool model.ShellTool) string {
 			if err != nil {
 				return nil
 			}
-			if ignoredName(info.Name()) {
+			if sandbox.IsIgnoredName(info.Name()) {
 				if info.IsDir() {
 					return filepath.SkipDir
 				}

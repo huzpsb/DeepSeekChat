@@ -25,6 +25,6 @@ func (p *Provider) moveToTrash(path string) error {
 	return os.Rename(path, p.trashPath(path))
 }
 
-func isIgnoredName(name string) bool {
+func IsIgnoredName(name string) bool {
 	return name == ".trash_can" || name == "_runtime"
 }

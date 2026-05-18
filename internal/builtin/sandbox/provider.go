@@ -48,6 +48,15 @@ func (p *Provider) Close() error {
 
 func SafePath(rootDir, rel string) (string, error) {
 	cleanRel := filepath.Clean(rel)
+
+	if strings.Contains(rel, "..") {
+		trimmed := strings.TrimPrefix(cleanRel, "/")
+		trimmed = strings.TrimPrefix(trimmed, "\\")
+		if trimmed == "" || trimmed == "." {
+			return "", fmt.Errorf("security error: path traversal detected")
+		}
+	}
+
 	cleanRel = strings.TrimPrefix(cleanRel, "/")
 	cleanRel = strings.TrimPrefix(cleanRel, "\\")
 

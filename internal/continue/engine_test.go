@@ -1370,7 +1370,7 @@ func TestInsertMessage_Scenario2_InsertToolBeforeMsg10(t *testing.T) {
 // ============================================================
 
 func newTestEngine(mode string, executor ToolExecutor) *Engine {
-	return NewEngine(deepseek.NewClient("test-key"), mode, executor)
+	return NewEngine(deepseek.NewClient("test-key"), mode, executor, nil)
 }
 
 func TestContinue_EmptyChat(t *testing.T) {

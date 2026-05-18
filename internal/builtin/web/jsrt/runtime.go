@@ -410,6 +410,12 @@ func (r *Runtime) webjsTree(vm *goja.Runtime, call goja.FunctionCall) goja.Value
 		if rel == "." {
 			return nil
 		}
+		if sandbox.IsIgnoredName(info.Name()) {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
 		sepCount := len(strings.Split(rel, string(os.PathSeparator)))
 		if sepCount > depth {
 			if info.IsDir() {

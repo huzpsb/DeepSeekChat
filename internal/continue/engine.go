@@ -12,6 +12,7 @@ type Engine struct {
 	deepseekClient *deepseek.Client
 	mode           string
 	toolExecutor   ToolExecutor
+	saveFunc       func()
 }
 
 type ToolExecutor interface {
@@ -40,11 +41,12 @@ type errorDetail struct {
 	IDs    []string `json:"ids,omitempty"`
 }
 
-func NewEngine(client *deepseek.Client, mode string, executor ToolExecutor) *Engine {
+func NewEngine(client *deepseek.Client, mode string, executor ToolExecutor, saveFunc func()) *Engine {
 	return &Engine{
 		deepseekClient: client,
 		mode:           mode,
 		toolExecutor:   executor,
+		saveFunc:       saveFunc,
 	}
 }
 
@@ -304,6 +306,10 @@ func (e *Engine) executeToolCall(ctx context.Context, chat *model.Chat, autoCont
 			},
 		})
 
+		if e.saveFunc != nil {
+			e.saveFunc()
+		}
+
 		if autoContinue {
 			e.checkAutoContinue(ctx, chat, autoContinue, emit, interrupted)
 		}
@@ -387,6 +393,9 @@ func (e *Engine) streamDeepSeek(ctx context.Context, chat *model.Chat, emit func
 		chat.Messages = chat.Messages[:assistantIdx]
 	}
 	emit(ContinueEvent{Type: "assistant_done"})
+	if e.saveFunc != nil {
+		e.saveFunc()
+	}
 	return nil
 }
 

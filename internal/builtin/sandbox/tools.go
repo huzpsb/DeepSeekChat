@@ -184,7 +184,7 @@ func (p *Provider) tree(args map[string]any) string {
 		if rel == "." {
 			return nil
 		}
-		if isIgnoredName(info.Name()) {
+		if IsIgnoredName(info.Name()) {
 			if info.IsDir() {
 				return filepath.SkipDir
 			}
@@ -232,7 +232,7 @@ func (p *Provider) searchName(args map[string]any) string {
 		if err != nil || count >= limit {
 			return nil
 		}
-		if isIgnoredName(info.Name()) {
+		if IsIgnoredName(info.Name()) {
 			if info.IsDir() {
 				return filepath.SkipDir
 			}
@@ -276,7 +276,7 @@ func (p *Provider) searchContent(args map[string]any) string {
 		if err != nil {
 			return nil
 		}
-		if isIgnoredName(info.Name()) {
+		if IsIgnoredName(info.Name()) {
 			if info.IsDir() {
 				return filepath.SkipDir
 			}

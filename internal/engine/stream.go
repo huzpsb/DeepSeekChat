@@ -136,7 +136,11 @@ func (e *StreamEngine) StartInference(title, input string, autoContinue bool) er
 	go func() {
 		defer cancel()
 
-		engine := cont.NewEngine(e.dsClient, e.mode, e.mcpMgr)
+		save := func() {
+			storage.SaveChat(chat)
+		}
+
+		engine := cont.NewEngine(e.dsClient, e.mode, e.mcpMgr, save)
 
 		interrupted := func() bool {
 			e.mu.Lock()
@@ -152,12 +156,12 @@ func (e *StreamEngine) StartInference(title, input string, autoContinue bool) er
 
 		engine.Continue(ctx, chat, input, autoContinue, emit, interrupted)
 
+		storage.SaveChat(chat)
+
 		e.mu.Lock()
 		e.streamDone = true
 		e.state = StateIdle
 		e.mu.Unlock()
-
-		storage.SaveChat(chat)
 	}()
 
 	return nil
