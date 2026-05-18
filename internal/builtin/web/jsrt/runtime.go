@@ -295,6 +295,10 @@ func (r *Runtime) webFetch(vm *goja.Runtime, call goja.FunctionCall) goja.Value 
 		panic(vm.NewGoError(fmt.Errorf("invalid URL: %w", err)))
 	}
 
+	if req.URL.Port() == "5233" {
+		panic(vm.NewGoError(fmt.Errorf("access to port 5233 is blocked")))
+	}
+
 	for k, v := range r.cfg.Headers {
 		req.Header.Set(k, v)
 	}
