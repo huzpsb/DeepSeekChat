@@ -78,7 +78,9 @@ var Messages = {
         header.appendChild(tags);
         div.appendChild(header);
 
-        if (msg.reasoning_content) {
+        var isNoob = window.NoobMode && window.NoobMode.isActive();
+
+        if (msg.reasoning_content && !isNoob) {
             const reasoning = document.createElement('div');
             reasoning.className = 'reasoning-block';
             const toggle = document.createElement('div');
@@ -129,7 +131,7 @@ var Messages = {
         }
         div.appendChild(content);
 
-        if (msg.tool_calls && msg.tool_calls.length > 0) {
+        if (msg.tool_calls && msg.tool_calls.length > 0 && !isNoob) {
             const tcBlock = document.createElement('div');
             tcBlock.className = 'tool-calls-block';
             const tcToggle = document.createElement('div');
@@ -163,7 +165,6 @@ var Messages = {
         const actions = document.createElement('div');
         actions.className = 'msg-actions';
         var isReadonly = window.DsApp && window.DsApp.getMode && window.DsApp.getMode() === 'readonly';
-        var isNoob = window.NoobMode && window.NoobMode.isActive();
         var showDel = !isReadonly || isLast;
         if (isNoob) showDel = false;
         if (isReadonly) {

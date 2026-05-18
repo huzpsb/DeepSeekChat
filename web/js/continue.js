@@ -202,10 +202,14 @@
                 appendToAssistant(evt.content || evt.Content, 'reasoning');
                 break;
             case 'tool_call':
-                appendToolCall(evt.tool_call || {id: evt.ID, function: {name: evt.Name, arguments: evt.Args}});
+                if (!(window.NoobMode && window.NoobMode.isActive())) {
+                    appendToolCall(evt.tool_call || {id: evt.ID, function: {name: evt.Name, arguments: evt.Args}});
+                }
                 break;
             case 'tool_result':
-                appendToolResult(evt.tool_result ? evt.tool_result.message : evt);
+                if (!(window.NoobMode && window.NoobMode.isActive())) {
+                    appendToolResult(evt.tool_result ? evt.tool_result.message : evt);
+                }
                 break;
             case 'assistant_done':
                 break;

@@ -164,6 +164,8 @@ Considering the execution timeout, if you plan to scrape more than 200 web pages
 3. During the scraping process, if an item is already in the loaded partial results, do not scrape it again.
 4. Save the partial results to disk after every 50 actual scrapes.
 5. Keep logs as concise as possible (e.g., output a summary every 50 items, or only output errors) to prevent execution being killed due to console buffer overflow.
+6. Estimate the data volume. If <1k items or there is no clear index, prefer saving as a single JSON file. If >1k items, you can save 1k items per JSON file, spreading across multiple JSONs. If it is really hard to index, saving as one large JSON is also acceptable. 
+7. NEVER save as HTML, especially avoid saving a large bunch of HTML files. This means do not save raw HTML strings even in JSON; extract the important contents instead. 
 
 General Best Practices for webjs:
 1. webjs is designed not just for scraping, but also for document and workspace management.
