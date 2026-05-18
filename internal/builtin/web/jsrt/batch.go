@@ -101,7 +101,12 @@ func (r *Runtime) tryBatchDownload(task batchTask) error {
 	defer f.Close()
 
 	_, err = io.Copy(f, io.LimitReader(resp.Body, 50*1024*1024))
-	return err
+	if err != nil {
+		f.Close() // Close early to allow removal on Windows
+		os.Remove(outPath)
+		return err
+	}
+	return nil
 }
 
 func filenameFromURL(rawURL string) string {

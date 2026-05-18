@@ -200,7 +200,8 @@ Because of execution timeouts, web scraping operations involving large amounts o
 5. Resumability for >= 500 files:
    - For large scales, consider potential mid-way failures. Resuming is very simple: the batch submitter automatically skips files that have already been fully downloaded, so there is no need to call webjs_test manually.
    - Just ensure that across multiple runs, the target folder and file names remain strictly consistent so resuming naturally skips completed items.
-5. Keep logs as concise as possible to prevent execution being killed due to console buffer overflow.
+6. Keep logs as concise as possible to prevent execution being killed due to console buffer overflow.
+7. Even with multi-threaded batch downloads, setting a long execution time_out is often helpful to ensure all download tasks have enough time to finish.
 
 General Best Practices for webjs:
 1. webjs is designed not just for scraping, but also for document and workspace management.

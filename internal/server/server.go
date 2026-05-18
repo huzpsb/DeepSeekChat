@@ -236,6 +236,7 @@ func (s *Server) handleContinue(w http.ResponseWriter, r *http.Request) {
 		Title        string `json:"title"`
 		Input        string `json:"input"`
 		AutoContinue bool   `json:"auto_continue"`
+		Reconnect    bool   `json:"reconnect"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, "invalid body", http.StatusBadRequest)
@@ -262,6 +263,12 @@ func (s *Server) handleContinue(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.streamSSE(w, r, flusher, reader)
+		return
+	}
+
+	if req.Reconnect {
+		fmt.Fprintf(w, "event: error\ndata: %s\n\n", `{"error":"no active stream for reconnect"}`)
+		flusher.Flush()
 		return
 	}
 

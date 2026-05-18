@@ -7,6 +7,7 @@
     var streamingTitle = null;
     var messagesBeforeStream = 0;
     var toastTimer = null;
+    var reconnectMode = false;
 
     function showToast(msg) {
         var toast = document.getElementById('error-toast');
@@ -87,7 +88,7 @@
         setRunning(false);
     }
 
-    async function doContinue() {
+    async function doContinue(reconnect) {
         var title = ChatList.getCurrentTitle();
         if (!title) {
             showToast('Please create or open a session');
@@ -98,7 +99,10 @@
         var input = inputArea.value.trim();
         var autoContinue = document.getElementById('auto-continue').checked;
 
-        setRunning(true);
+        if (!reconnect) {
+            setRunning(true);
+        }
+        reconnectMode = !!reconnect;
         abortController = new AbortController();
         inputArea.value = '';
         currentAssistant = null;
@@ -120,7 +124,8 @@
                 body: JSON.stringify({
                     title: title,
                     input: input || '',
-                    auto_continue: autoContinue
+                    auto_continue: autoContinue,
+                    reconnect: !!reconnect
                 }),
                 signal: abortController.signal
             });
@@ -130,6 +135,10 @@
                 showToast(err.error || 'Unknown');
                 setRunning(false);
                 return;
+            }
+
+            if (reconnect) {
+                setRunning(true);
             }
 
             var reader = resp.body.getReader();
@@ -175,6 +184,7 @@
             }
             showToast('Continue error: ' + (e.message || e));
         } finally {
+            reconnectMode = false;
             setRunning(false);
             abortController = null;
             await ChatList.loadMessages();
@@ -230,7 +240,7 @@
                         }
                     });
                 }
-                if (evt.error) {
+                if (evt.error && !reconnectMode) {
                     showToast(evt.error.detail || evt.error.type || 'Unknown error');
                 }
                 break;
@@ -430,8 +440,7 @@
         if (window.NoobMode && window.NoobMode.isActive()) return;
         var streamingTitle = localStorage.getItem('streaming_chat');
         if (streamingTitle && streamingTitle === ChatList.getCurrentTitle()) {
-            setRunning(true);
-            doContinue();
+            doContinue(true);
         }
     }
 
