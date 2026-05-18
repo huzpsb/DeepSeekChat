@@ -6,6 +6,24 @@
     var abortController = null;
     var streamingTitle = null;
     var messagesBeforeStream = 0;
+    var toastTimer = null;
+
+    function showToast(msg) {
+        var toast = document.getElementById('error-toast');
+        if (!toast) {
+            toast = document.createElement('div');
+            toast.id = 'error-toast';
+            document.body.appendChild(toast);
+        }
+        if (toastTimer) {
+            clearTimeout(toastTimer);
+        }
+        toast.textContent = msg;
+        toast.classList.add('visible');
+        toastTimer = setTimeout(function () {
+            toast.classList.remove('visible');
+        }, 2500);
+    }
 
     function scrollIfNearBottom(container) {
         var threshold = 80;
@@ -103,7 +121,7 @@
 
             if (!resp.ok) {
                 var err = await resp.json();
-                alert('Error: ' + (err.error || 'Unknown'));
+                showToast(err.error || 'Unknown');
                 setRunning(false);
                 return;
             }
@@ -143,13 +161,13 @@
                 if (e.name === 'AbortError') {
                     return;
                 }
-                console.error('Stream error:', e);
+                showToast('Stream error: ' + (e.message || e));
             }
         } catch (e) {
             if (e.name === 'AbortError') {
                 return;
             }
-            console.error('Continue error:', e);
+            showToast('Continue error: ' + (e.message || e));
         } finally {
             setRunning(false);
             abortController = null;
@@ -203,7 +221,7 @@
                     });
                 }
                 if (evt.error) {
-                    console.warn('Continue error:', evt.error.detail || evt.error.type);
+                    showToast(evt.error.detail || evt.error.type || 'Unknown error');
                 }
                 break;
         }
