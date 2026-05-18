@@ -1,5 +1,5 @@
 // messages.js - message rendering with marked.js
-marked.setOptions({ breaks: true });
+marked.setOptions({breaks: true});
 var Messages = {
     render: function (messages, container) {
         container.innerHTML = '';
