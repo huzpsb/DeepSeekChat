@@ -36,22 +36,24 @@
 
     function setRunning(running) {
         isRunning = running;
+        var noobActive = window.NoobMode && window.NoobMode.isActive();
         if (running) {
             btnContinue.textContent = 'Interrupt';
             btnContinue.classList.add('interrupt');
-            btnContinue.disabled = false;
+            btnContinue.disabled = noobActive;
             if (ChatList.getCurrentTitle()) {
                 localStorage.setItem('streaming_chat', ChatList.getCurrentTitle());
             }
         } else {
             btnContinue.textContent = 'Send';
             btnContinue.classList.remove('interrupt');
-            btnContinue.disabled = false;
+            btnContinue.disabled = noobActive;
             localStorage.removeItem('streaming_chat');
         }
     }
 
     btnContinue.addEventListener('click', function () {
+        if (window.NoobMode && window.NoobMode.isActive()) return;
         if (isRunning) {
             doInterrupt();
         } else {
@@ -62,6 +64,7 @@
     document.getElementById('user-input').addEventListener('keydown', function (e) {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
+            if (window.NoobMode && window.NoobMode.isActive()) return;
             if (isRunning) {
                 doInterrupt();
             } else {
@@ -420,6 +423,7 @@
     }
 
     function tryAutoResume() {
+        if (window.NoobMode && window.NoobMode.isActive()) return;
         var streamingTitle = localStorage.getItem('streaming_chat');
         if (streamingTitle && streamingTitle === ChatList.getCurrentTitle()) {
             setRunning(true);

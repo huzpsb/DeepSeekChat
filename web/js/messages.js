@@ -26,6 +26,10 @@ var Messages = {
         }
         messages.forEach((msg, idx) => {
             try {
+                if (window.NoobMode && window.NoobMode.isActive()) {
+                    if (msg.role !== 'user' && msg.role !== 'assistant') return;
+                    if (msg.role === 'assistant' && !msg.content) return;
+                }
                 const isLast = idx === messages.length - 1;
                 const el = this.renderMessage(msg, idx, isLast);
                 container.appendChild(el);
@@ -159,7 +163,9 @@ var Messages = {
         const actions = document.createElement('div');
         actions.className = 'msg-actions';
         var isReadonly = window.DsApp && window.DsApp.getMode && window.DsApp.getMode() === 'readonly';
+        var isNoob = window.NoobMode && window.NoobMode.isActive();
         var showDel = !isReadonly || isLast;
+        if (isNoob) showDel = false;
         if (isReadonly) {
             if (msg.role === 'assistant') {
                 actions.innerHTML = ''

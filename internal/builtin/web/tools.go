@@ -24,8 +24,9 @@ func (p *Provider) Tools() []model.ToolDef {
 			},
 		},
 		{
-			Name:        "webjs_help",
-			Description: "Display the API documentation and capabilities of the webjs runtime environment.",
+			Name: "webjs_help",
+			Description: "Display the API documentation and capabilities of the webjs runtime environment. " +
+				"Also useful for memories and maths. Run this tool first if you are confused about your tools.",
 			InputSchema: map[string]any{
 				"type":       "object",
 				"properties": map[string]any{},
@@ -153,5 +154,23 @@ webjs_create_folder(path: string) -> void
 
 console.log(...args: any) -> void
   Prints arguments to the script's console output buffer (100KB limit).
-  May throw: buffer overflow (100KB limit).`
+  May throw: buffer overflow (100KB limit).
+
+Best Practices for Large Scraping Tasks (>= 200 pages):
+Considering the execution timeout, if you plan to scrape more than 200 web pages, you are expected to write code in the following way to implement resumable scraping:
+0. All requests should be retried 3 times unless the user explicitly specifies otherwise.
+1. First, fetch only the index and write it to disk.
+2. After obtaining the index and before starting to scrape details, check if a partial result file exists. If it does, load it into memory first.
+3. During the scraping process, if an item is already in the loaded partial results, do not scrape it again.
+4. Save the partial results to disk after every 50 actual scrapes.
+5. Keep logs as concise as possible (e.g., output a summary every 50 items, or only output errors) to prevent execution being killed due to console buffer overflow.
+
+General Best Practices for webjs:
+1. webjs is designed not just for scraping, but also for document and workspace management.
+2. Before starting a scrape, check your workspace directories. You might have already completed or partially completed the scrape.
+3. During scraping, use semantic names for directories (Good: "aaai 2022 papers", Bad: "scraper_dir").
+4. After scraping, generate artifacts like "readme.md" and "searcher.js" so you can easily search/filter data later by just reading the readme and running the searcher, without needing to write new test scripts from scratch.
+5. You should maintain documents like MEMORY.MD or PROJECTS.MD in the root directory for cross-conversation memory management.
+6. Keep the root directory clean. If you need to store temporary files or junk, create a directory like "./tmp" for them.
+`
 }

@@ -207,6 +207,14 @@ html, body {
     gap: 4px;
 }
 
+#noob-mode-label {
+    font-size: 12px;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
 #messages {
     flex: 1;
     overflow-y: auto;
