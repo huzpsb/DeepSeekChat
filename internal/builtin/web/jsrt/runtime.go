@@ -460,12 +460,22 @@ func (r *Runtime) webjsWrite(vm *goja.Runtime, call goja.FunctionCall) goja.Valu
 		panic(vm.NewGoError(fmt.Errorf("webjs_write requires 2 arguments (path, content)")))
 	}
 	name := call.Argument(0).String()
-	content := call.Argument(1).String()
 	path, err := sandbox.SafePath(r.cfg.RootDir, name)
 	if err != nil {
 		panic(vm.NewGoError(err))
 	}
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+	var data []byte
+	arg := call.Argument(1)
+	exported := arg.Export()
+	switch v := exported.(type) {
+	case []byte:
+		data = v
+	case string:
+		data = []byte(v)
+	default:
+		data = []byte(arg.String())
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
 		panic(vm.NewGoError(fmt.Errorf("webjs_write failed: %w", err)))
 	}
 	return goja.Undefined()

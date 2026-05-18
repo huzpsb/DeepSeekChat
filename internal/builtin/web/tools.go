@@ -140,8 +140,9 @@ webjs_read(path: string) -> string
   Reads a file and returns its contents as a string.
   May throw: invalid path, file not found, path traversal.
 
-webjs_write(path: string, content: string) -> void
+webjs_write(path: string, content: string|Uint8Array) -> void
   Writes content to a file, creating it if it doesn't exist, overwriting if it does.
+  Accepts a string for text content or a Uint8Array (e.g. from web_fetch) for binary data.
   May throw: invalid path, write failure, path traversal.
 
 webjs_delete(path: string) -> void

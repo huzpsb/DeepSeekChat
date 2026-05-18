@@ -19,7 +19,7 @@
     function applyNoobModeUI() {
         var noobActive = window.NoobMode.isActive();
         document.getElementById('mode-controls').style.display = noobActive ? 'none' : '';
-        document.getElementById('btn-continue').disabled = noobActive;
+        document.getElementById('btn-continue').disabled = noobActive && (window.ContinueModule ? window.ContinueModule.isRunning() : false);
     }
 
     function handleModeChangeForNoob() {

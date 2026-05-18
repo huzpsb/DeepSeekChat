@@ -47,13 +47,13 @@
         } else {
             btnContinue.textContent = 'Send';
             btnContinue.classList.remove('interrupt');
-            btnContinue.disabled = noobActive;
+            btnContinue.disabled = false;
             localStorage.removeItem('streaming_chat');
         }
     }
 
     btnContinue.addEventListener('click', function () {
-        if (window.NoobMode && window.NoobMode.isActive()) return;
+        if (isRunning && window.NoobMode && window.NoobMode.isActive()) return;
         if (isRunning) {
             doInterrupt();
         } else {
@@ -64,7 +64,7 @@
     document.getElementById('user-input').addEventListener('keydown', function (e) {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
-            if (window.NoobMode && window.NoobMode.isActive()) return;
+            if (isRunning && window.NoobMode && window.NoobMode.isActive()) return;
             if (isRunning) {
                 doInterrupt();
             } else {
