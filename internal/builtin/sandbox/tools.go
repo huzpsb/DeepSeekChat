@@ -453,6 +453,12 @@ func (p *Provider) createFile(args map[string]any) string {
 	if err != nil {
 		return fmt.Sprintf("Error: %v", err)
 	}
+	if _, err := os.Stat(filepath.Dir(path)); err != nil {
+		return "Error: parent directory does not exist"
+	}
+	if _, err := os.Stat(path); err == nil {
+		return "Error: file already exists, create_file cannot overwrite existing files"
+	}
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		return fmt.Sprintf("Error: %v", err)
 	}
@@ -504,7 +510,11 @@ func (p *Provider) rewriteFile(args map[string]any) string {
 		return fmt.Sprintf("Error: %v", err)
 	}
 
-	if stat, err := os.Stat(path); err == nil && stat.Size() > 1024*1024 {
+	stat, err := os.Stat(path)
+	if err != nil {
+		return "Error: file does not exist, rewrite_file cannot create new files"
+	}
+	if stat.Size() > 1024*1024 {
 		return "Error: file is larger than 1MB"
 	}
 
