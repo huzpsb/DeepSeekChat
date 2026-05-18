@@ -17,9 +17,10 @@ import (
 )
 
 type batchTask struct {
-	url     string
-	dir     string
-	retries int
+	url      string
+	dir      string
+	retries  int
+	filename string
 }
 
 func (r *Runtime) ensureBatchInit() {
@@ -87,7 +88,10 @@ func (r *Runtime) tryBatchDownload(task batchTask) error {
 		return fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
-	filename := filenameFromURL(task.url)
+	filename := task.filename
+	if filename == "" {
+		filename = filenameFromURL(task.url)
+	}
 	outPath := filepath.Join(task.dir, filename)
 
 	f, err := os.Create(outPath)
@@ -146,15 +150,25 @@ func (r *Runtime) webjsBatchDownloadAppend(vm *goja.Runtime, call goja.FunctionC
 		}
 	}
 
-	outPath := filepath.Join(resolvedDir, filenameFromURL(rawURL))
+	filename := ""
+	if len(call.Arguments) >= 4 && !goja.IsUndefined(call.Argument(3)) && !goja.IsNull(call.Argument(3)) {
+		filename = call.Argument(3).String()
+	}
+
+	if filename == "" {
+		filename = filenameFromURL(rawURL)
+	}
+
+	outPath := filepath.Join(resolvedDir, filename)
 	if _, err := os.Stat(outPath); err == nil {
 		return goja.Undefined()
 	}
 
 	task := batchTask{
-		url:     rawURL,
-		dir:     resolvedDir,
-		retries: retries,
+		url:      rawURL,
+		dir:      resolvedDir,
+		retries:  retries,
+		filename: filename,
 	}
 
 	select {

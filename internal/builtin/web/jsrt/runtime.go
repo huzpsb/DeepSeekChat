@@ -169,6 +169,10 @@ func (r *Runtime) registerFunctions(vm *goja.Runtime) {
 		return r.webjsCreateFolder(vm, call)
 	})
 
+	vm.Set("webjs_move", func(call goja.FunctionCall) goja.Value {
+		return r.webjsMove(vm, call)
+	})
+
 	cons := vm.NewObject()
 	cons.Set("log", func(call goja.FunctionCall) goja.Value {
 		var parts []string
@@ -566,6 +570,26 @@ func (r *Runtime) webjsCreateFolder(vm *goja.Runtime, call goja.FunctionCall) go
 	}
 	if err := os.MkdirAll(path, 0755); err != nil {
 		panic(vm.NewGoError(fmt.Errorf("webjs_create_folder failed: %w", err)))
+	}
+	return goja.Undefined()
+}
+
+func (r *Runtime) webjsMove(vm *goja.Runtime, call goja.FunctionCall) goja.Value {
+	if len(call.Arguments) < 2 {
+		panic(vm.NewGoError(fmt.Errorf("webjs_move requires 2 arguments (src, dst)")))
+	}
+	src := call.Argument(0).String()
+	dst := call.Argument(1).String()
+	srcPath, err := sandbox.SafePath(r.cfg.RootDir, src)
+	if err != nil {
+		panic(vm.NewGoError(err))
+	}
+	dstPath, err := sandbox.SafePath(r.cfg.RootDir, dst)
+	if err != nil {
+		panic(vm.NewGoError(err))
+	}
+	if err := os.Rename(srcPath, dstPath); err != nil {
+		panic(vm.NewGoError(fmt.Errorf("webjs_move failed: %w", err)))
 	}
 	return goja.Undefined()
 }

@@ -158,15 +158,20 @@ webjs_create_folder(path: string) -> void
   Creates a new directory, including any necessary parent directories.
   May throw: invalid path, creation failure, path traversal.
 
+webjs_move(src: string, dst: string) -> void
+  Moves a file or directory from src to dst path.
+  May throw: invalid path, move failure, path traversal.
+
 webjs_clean_tmp(dir: string) -> int
   Deletes all .tmp files in the specified directory (non-recursive).
   Returns the number of files deleted.
   May throw: invalid directory, path traversal.
 
-webjs_batch_download_append(url: string, dir: string, retries?: int) -> void
+webjs_batch_download_append(url: string, dir: string, retries?: int, filename?: string) -> void
   Registers a batch download task and returns immediately. The file is downloaded
-  to the specified directory using a 20-worker pool. Use webjs_test to check
+  to the specified directory using a multi-threaded worker pool. Use webjs_test to check
   whether the file has been downloaded successfully.
+  If filename is omitted, it is derived from the URL path.
   May throw: invalid directory, path traversal, pool cleared.
 
 webjs_batch_download_remaining() -> int
