@@ -117,6 +117,16 @@ func (e *Engine) continueAssistant(ctx context.Context, chat *model.Chat, autoCo
 
 	invalidIDs := e.findInvalidToolCalls(msg)
 	if len(invalidIDs) > 0 {
+		if e.mode == "readonly" {
+			e.markInvalidAsNotFound(chat, msg, invalidIDs, emit)
+			if err := e.streamDeepSeek(ctx, chat, emit, interrupted); err != nil {
+				return
+			}
+			if autoContinue {
+				e.checkAutoContinue(ctx, chat, autoContinue, emit, interrupted)
+			}
+			return
+		}
 		emit(ContinueEvent{
 			Type: "error",
 			Error: &errorDetail{
@@ -207,6 +217,16 @@ func (e *Engine) continueTool(ctx context.Context, chat *model.Chat, autoContinu
 
 	invalidIDs := e.findInvalidToolCalls(assistant)
 	if len(invalidIDs) > 0 {
+		if e.mode == "readonly" {
+			e.markInvalidAsNotFound(chat, assistant, invalidIDs, emit)
+			if err := e.streamDeepSeek(ctx, chat, emit, interrupted); err != nil {
+				return
+			}
+			if autoContinue {
+				e.checkAutoContinue(ctx, chat, autoContinue, emit, interrupted)
+			}
+			return
+		}
 		emit(ContinueEvent{
 			Type: "error",
 			Error: &errorDetail{
@@ -439,6 +459,34 @@ func (e *Engine) findInvalidToolCalls(msg model.Message) []string {
 		}
 	}
 	return invalid
+}
+
+func (e *Engine) markInvalidAsNotFound(chat *model.Chat, msg model.Message, invalidIDs []string, emit func(ContinueEvent)) {
+	invalidSet := make(map[string]bool, len(invalidIDs))
+	for _, id := range invalidIDs {
+		invalidSet[id] = true
+	}
+	for _, tc := range msg.ToolCalls {
+		if invalidSet[tc.ID] {
+			toolMsg := model.Message{
+				Role:         "tool",
+				ToolCallID:   tc.ID,
+				Name:         tc.Function.Name,
+				Content:      "tool not found",
+				SendToServer: true,
+			}
+			chat.Messages = append(chat.Messages, toolMsg)
+			emit(ContinueEvent{
+				Type: "tool_result",
+				ToolResult: &toolResultEvt{
+					Message: toolMsg,
+				},
+			})
+		}
+	}
+	if e.saveFunc != nil {
+		e.saveFunc()
+	}
 }
 
 func (e *Engine) checkApproval(msg *model.Message) (allApproved bool, needsApproval bool) {

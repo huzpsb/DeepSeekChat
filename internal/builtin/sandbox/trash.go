@@ -7,14 +7,7 @@ import (
 	"time"
 )
 
-func (p *Provider) trashPath(base string) string {
-	trashDir := filepath.Join(p.rootDir, ".trash_can")
-	_ = os.MkdirAll(trashDir, 0755)
-	timestamp := (time.Now().UnixNano()) % 1_0000_0000
-	return filepath.Join(trashDir, fmt.Sprintf("%d_%s", timestamp, filepath.Base(base)))
-}
-
-func (p *Provider) moveToTrash(path string) error {
+func MoveToTrash(rootDir, path string) error {
 	stat, err := os.Stat(path)
 	if err != nil {
 		return err
@@ -22,7 +15,15 @@ func (p *Provider) moveToTrash(path string) error {
 	if stat.IsDir() {
 		return os.Remove(path)
 	}
-	return os.Rename(path, p.trashPath(path))
+	trashDir := filepath.Join(rootDir, ".trash_can")
+	_ = os.MkdirAll(trashDir, 0755)
+	timestamp := (time.Now().UnixNano()) % 1_0000_0000
+	dest := filepath.Join(trashDir, fmt.Sprintf("%d_%s", timestamp, filepath.Base(path)))
+	return os.Rename(path, dest)
+}
+
+func (p *Provider) moveToTrash(path string) error {
+	return MoveToTrash(p.rootDir, path)
 }
 
 func IsIgnoredName(name string) bool {

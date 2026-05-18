@@ -495,7 +495,7 @@ func (r *Runtime) webjsDelete(vm *goja.Runtime, call goja.FunctionCall) goja.Val
 		}
 	}
 
-	if err := os.Remove(path); err != nil {
+	if err := sandbox.MoveToTrash(r.cfg.RootDir, path); err != nil {
 		panic(vm.NewGoError(fmt.Errorf("webjs_delete failed: %w", err)))
 	}
 	return goja.Undefined()

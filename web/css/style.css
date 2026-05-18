@@ -166,8 +166,16 @@ html, body {
 }
 
 .mode-btn.active {
-    background: var(--accent-dim);
     color: var(--text-primary);
+}
+.mode-btn[data-mode="readonly"].active {
+    background: var(--success);
+}
+.mode-btn[data-mode="writable"].active {
+    background: var(--warning);
+}
+.mode-btn[data-mode="sudo"].active {
+    background: var(--danger);
 }
 
 #btn-validate {
