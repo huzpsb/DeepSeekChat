@@ -2,11 +2,15 @@ package mcp
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os/exec"
 	"sync"
+
+	"golang.org/x/text/encoding/simplifiedchinese"
+	"golang.org/x/text/transform"
 
 	"hschat/internal/model"
 )
@@ -215,11 +219,23 @@ func (c *StdioClient) sendRequestLocked(req map[string]any) (map[string]any, err
 	if err != nil {
 		return nil, fmt.Errorf("read response: %w", err)
 	}
+	lineBytes := []byte(line)
 	var result map[string]any
-	if err := json.Unmarshal([]byte(line), &result); err != nil {
+	if err := json.Unmarshal(lineBytes, &result); err != nil {
+		decoded, decErr := decodeGBK(lineBytes)
+		if decErr == nil {
+			if err2 := json.Unmarshal(decoded, &result); err2 == nil {
+				return result, nil
+			}
+		}
 		return nil, fmt.Errorf("parse response: %w", err)
 	}
 	return result, nil
+}
+
+func decodeGBK(data []byte) ([]byte, error) {
+	reader := transform.NewReader(bytes.NewReader(data), simplifiedchinese.GB18030.NewDecoder())
+	return io.ReadAll(reader)
 }
 
 func (c *StdioClient) sendNotificationLocked(req map[string]any) error {
