@@ -68,6 +68,7 @@
         }
 
         initNoobMode();
+        initSkipConfirm();
         ChatList.init();
     }
 
@@ -112,6 +113,24 @@
             await ChatList.loadMessages();
         }
     });
+
+    function initSkipConfirm() {
+        var cb = document.getElementById('skip-confirm');
+        if (cb) {
+            cb.checked = localStorage.getItem('skip_confirm') === 'true';
+            cb.addEventListener('change', function () {
+                if (cb.checked) {
+                    localStorage.setItem('skip_confirm', 'true');
+                } else {
+                    localStorage.removeItem('skip_confirm');
+                }
+            });
+        }
+    }
+
+    window.isSkipConfirm = function () {
+        return localStorage.getItem('skip_confirm') === 'true';
+    };
 
     document.getElementById('btn-export').addEventListener('click', function () {
         Messages.exportToHtml();

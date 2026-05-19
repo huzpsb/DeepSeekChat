@@ -790,7 +790,9 @@
             alert('Cannot delete while chat is being processed.');
             return;
         }
-        if (!confirm('Delete this message?')) return;
+        if (!window.isSkipConfirm || !window.isSkipConfirm()) {
+            if (!confirm('Delete this message?')) return;
+        }
 
         var resp = await fetch('/api/chat/' + encodeURIComponent(ChatList.getCurrentTitle()) + '/message/' + index, {
             method: 'DELETE'
