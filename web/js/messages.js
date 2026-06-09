@@ -6,8 +6,9 @@ var Messages = {
         if (messages == null) {
             var emptyDiv = document.createElement('div');
             emptyDiv.className = 'empty-state';
-            emptyDiv.style.cssText = 'color:var(--text-secondary);text-align:center;padding:40px';
-            emptyDiv.textContent = '请新建或打开会话';
+            emptyDiv.innerHTML = '<div class="empty-logo">D</div>'
+                + '<h1>Welcome to DsChat</h1>'
+                + '<p>Open an existing chat or create a new one to begin.</p>';
             container.appendChild(emptyDiv);
             return;
         }
@@ -15,11 +16,15 @@ var Messages = {
             var isReadonly = window.DsApp && window.DsApp.getMode && window.DsApp.getMode() === 'readonly';
             var emptyDiv = document.createElement('div');
             emptyDiv.className = 'empty-state';
-            emptyDiv.style.cssText = 'color:var(--text-secondary);text-align:center;padding:40px';
             if (isReadonly) {
-                emptyDiv.textContent = '请开始聊天';
+                emptyDiv.innerHTML = '<div class="empty-logo">D</div>'
+                    + '<h1>How can I help?</h1>'
+                    + '<p>Send a message below to start this conversation.</p>';
             } else {
-                emptyDiv.innerHTML = '<button class="btn-insert-empty" style="background:var(--bg-primary);color:var(--accent);border:1px solid var(--accent);padding:6px 16px;border-radius:4px;cursor:pointer;font-size:13px">Insert First Message</button>';
+                emptyDiv.innerHTML = '<div class="empty-logo">D</div>'
+                    + '<h1>This chat is empty</h1>'
+                    + '<p>Add the first editable message to build the conversation manually.</p>'
+                    + '<button class="btn-insert-empty" type="button">Insert First Message</button>';
             }
             container.appendChild(emptyDiv);
             return;
