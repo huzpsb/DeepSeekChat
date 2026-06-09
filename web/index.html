@@ -1,45 +1,70 @@
 <!DOCTYPE html>
-<html lang="en">
+<html data-theme="light" lang="en">
 <head>
     <meta charset="UTF-8">
     <meta content="width=device-width, initial-scale=1.0" name="viewport">
     <title>DsChat</title>
     <link href="/favicon.ico" rel="icon" type="image/x-icon">
+    <script>
+        (function () {
+            try {
+                var savedTheme = localStorage.getItem('dschat_theme');
+                var theme = savedTheme || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+                document.documentElement.setAttribute('data-theme', theme);
+            } catch (e) {
+                document.documentElement.setAttribute('data-theme', 'light');
+            }
+        })();
+    </script>
     <link href="/web/css/style.css" rel="stylesheet">
 </head>
 <body>
 <div id="app">
     <aside id="sidebar">
+        <div id="sidebar-brand">
+            <div id="brand-mark">D</div>
+            <div>
+                <div id="brand-name">DsChat</div>
+                <div id="brand-subtitle">AI workspace</div>
+            </div>
+        </div>
         <div id="sidebar-header">
-            <button id="btn-new-chat">+ New</button>
-            <button id="btn-tools">Tools</button>
-            <button id="btn-export">Export</button>
+            <button id="btn-new-chat" type="button">+ New</button>
+            <button id="btn-tools" type="button">Tools</button>
+            <button id="btn-export" type="button">Export</button>
         </div>
         <ul id="chat-list"></ul>
     </aside>
     <main id="main">
         <div id="main-header">
-            <div id="mode-controls">
-                <button class="mode-btn active" data-mode="readonly">Read</button>
-                <button class="mode-btn" data-mode="writable">Write</button>
-                <button class="mode-btn" data-mode="sudo">Sudo</button>
+            <div id="header-left">
+                <div id="mode-controls" aria-label="Mode controls">
+                    <button class="mode-btn active" data-mode="readonly" type="button">Read</button>
+                    <button class="mode-btn" data-mode="writable" type="button">Write</button>
+                    <button class="mode-btn" data-mode="sudo" type="button">Sudo</button>
+                </div>
             </div>
-            <button id="btn-validate">Validate</button>
-            <label id="auto-continue-label">
-                <input checked id="auto-continue" type="checkbox"> Auto
-            </label>
-            <label id="noob-mode-label" style="display:none">
-                <input id="noob-mode" type="checkbox"> Noob Mode
-            </label>
-            <label id="skip-confirm-label">
-                <input id="skip-confirm" type="checkbox"> Skip Confirm
-            </label>
-            <button id="btn-version" title="Version Info">v</button>
+            <div id="header-actions">
+                <button id="btn-validate" type="button">Validate</button>
+                <label id="auto-continue-label">
+                    <input checked id="auto-continue" type="checkbox"> Auto
+                </label>
+                <label id="noob-mode-label" style="display:none">
+                    <input id="noob-mode" type="checkbox"> Noob Mode
+                </label>
+                <label id="skip-confirm-label">
+                    <input id="skip-confirm" type="checkbox"> Skip Confirm
+                </label>
+                <button aria-label="Toggle theme" aria-pressed="false" id="theme-toggle" type="button">Dark</button>
+                <button id="btn-version" title="Version Info" type="button">v</button>
+            </div>
         </div>
         <div id="messages"></div>
         <div id="input-area">
-            <textarea id="user-input" placeholder="Type your message..." rows="3"></textarea>
-            <button id="btn-continue">Continue</button>
+            <div id="input-shell">
+                <textarea id="user-input" placeholder="Message DsChat..." rows="1"></textarea>
+                <button id="btn-continue" type="button">Send</button>
+            </div>
         </div>
     </main>
 </div>

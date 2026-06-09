@@ -2,6 +2,7 @@
 (function () {
     'use strict';
     var currentMode = 'readonly';
+    var themeKey = 'dschat_theme';
 
     window.DsApp = {};
 
@@ -15,6 +16,43 @@
                 && currentMode === 'readonly';
         }
     };
+
+    function getInitialTheme() {
+        var savedTheme = localStorage.getItem(themeKey);
+        if (savedTheme === 'light' || savedTheme === 'dark') {
+            return savedTheme;
+        }
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+            return 'dark';
+        }
+        return 'light';
+    }
+
+    function applyTheme(theme) {
+        var isDark = theme === 'dark';
+        document.documentElement.setAttribute('data-theme', theme);
+
+        var btn = document.getElementById('theme-toggle');
+        if (btn) {
+            btn.textContent = isDark ? 'Light' : 'Dark';
+            btn.setAttribute('aria-pressed', String(isDark));
+            btn.setAttribute('aria-label', isDark ? 'Switch to light theme' : 'Switch to dark theme');
+            btn.title = isDark ? 'Switch to light theme' : 'Switch to dark theme';
+        }
+    }
+
+    function initTheme() {
+        applyTheme(getInitialTheme());
+
+        var btn = document.getElementById('theme-toggle');
+        if (!btn) return;
+        btn.addEventListener('click', function () {
+            var currentTheme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+            var nextTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            localStorage.setItem(themeKey, nextTheme);
+            applyTheme(nextTheme);
+        });
+    }
 
     function applyNoobModeUI() {
         var noobActive = window.NoobMode.isActive();
@@ -58,6 +96,8 @@
     }
 
     async function init() {
+        initTheme();
+
         try {
             var resp = await fetch('/api/mode');
             var data = await resp.json();
