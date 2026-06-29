@@ -34,6 +34,12 @@
             <label id="skip-confirm-label">
                 <input id="skip-confirm" type="checkbox"> Skip Confirm
             </label>
+            <label id="stop-sound-label">
+                <input id="stop-sound" type="checkbox"> Stop Sound
+            </label>
+            <label id="loop-sound-label">
+                <input id="loop-sound" type="checkbox"> Loop Sound
+            </label>
             <button id="btn-version" title="Version Info">v</button>
         </div>
         <div id="messages"></div>
@@ -93,6 +99,23 @@
                     <td>love</td>
                 </tr>
             </table>
+        </div>
+    </div>
+</div>
+
+<div class="hidden" id="ask-user-overlay">
+    <div class="ask-user-card">
+        <div class="ask-user-header">
+            <h3>Question</h3>
+            <button id="ask-user-close">&times;</button>
+        </div>
+        <div class="ask-user-body">
+            <div id="ask-user-question"></div>
+            <textarea id="ask-user-input" placeholder="Type your answer..." rows="5"></textarea>
+        </div>
+        <div class="ask-user-footer">
+            <button id="ask-user-cancel">Cancel</button>
+            <button id="ask-user-submit">Submit</button>
         </div>
     </div>
 </div>

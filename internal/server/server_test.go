@@ -197,6 +197,44 @@ func TestHandleInsertMessage_ReadonlyMode(t *testing.T) {
 	}
 }
 
+func TestHandleInsertMessage_ReadonlyAskUserAllowed(t *testing.T) {
+	setupServerTest(t)
+	chat := &model.Chat{
+		Title: "chat",
+		Messages: []model.Message{
+			{
+				Role:         "assistant",
+				SendToServer: true,
+				ToolCalls: []model.ToolCall{
+					{ID: "call_ask", Function: model.FunctionCall{Name: "ask_user", Arguments: `{"question":"Name?"}`}},
+				},
+			},
+		},
+	}
+	storage.SaveChat(chat)
+
+	srv := New(testStaticFS)
+	srv.mode = "readonly"
+
+	body := `{"role":"tool","name":"ask_user","tool_call_id":"call_ask","content":"Alice","send_to_server":true}`
+	req := httptest.NewRequest("POST", "/api/chat/chat/message/1", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for readonly ask_user answer, got %d: %s", w.Code, w.Body.String())
+	}
+
+	saved, err := storage.GetChat("chat")
+	if err != nil {
+		t.Fatalf("failed to reload chat: %v", err)
+	}
+	if len(saved.Messages) != 2 || saved.Messages[1].Role != "tool" || saved.Messages[1].Content != "Alice" {
+		t.Fatalf("ask_user answer was not inserted correctly: %#v", saved.Messages)
+	}
+}
+
 func TestCreateChat_HasTimestampTitle(t *testing.T) {
 	setupServerTest(t)
 
@@ -603,8 +641,8 @@ func TestHandleMCPTools_Empty(t *testing.T) {
 
 	var tools []map[string]any
 	json.Unmarshal(w.Body.Bytes(), &tools)
-	if len(tools) != 10 {
-		t.Errorf("expected 10 sandbox tools, got %d", len(tools))
+	if len(tools) != 11 {
+		t.Errorf("expected 11 builtin tools, got %d", len(tools))
 	}
 }
 

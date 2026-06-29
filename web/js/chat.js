@@ -136,6 +136,9 @@ var ChatList = {
         }
         var chat = await resp.json();
         Messages.render(chat.messages || [], document.getElementById('messages'));
+        if (window.AskUserPrompt) {
+            window.AskUserPrompt.maybeShow(chat);
+        }
     },
 
     dupe: async function (title) {

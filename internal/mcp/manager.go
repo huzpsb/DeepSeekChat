@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"hschat/internal/builtin"
+	"hschat/internal/builtin/askuser"
 	"hschat/internal/builtin/coding"
 	"hschat/internal/builtin/sandbox"
 	"hschat/internal/builtin/web"
@@ -54,6 +55,10 @@ func (m *Manager) LoadAndConnect() error {
 
 	if err := m.registerBuiltin(sandbox.New(&m.config.Sandbox)); err != nil {
 		log.Printf("Builtin [Sandbox] init failed: %v", err)
+	}
+
+	if err := m.registerBuiltin(askuser.New()); err != nil {
+		log.Printf("Builtin [AskUser] init failed: %v", err)
 	}
 
 	if m.config.EnableCodingTools {
@@ -162,6 +167,10 @@ func (m *Manager) reconcileTools() {
 
 	var cleanedApproved []string
 	for _, fullName := range m.config.ApprovedTools {
+		if isAskUserTool(fullName) {
+			removed++
+			continue
+		}
 		mcpName, toolName := splitToolName(fullName)
 		if m.isToolAvailable(mcpName, toolName) || !m.isMCPConnected(mcpName) {
 			cleanedApproved = append(cleanedApproved, fullName)
@@ -315,6 +324,10 @@ func (m *Manager) SetToolStatus(mcpName, toolName, status string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	if mcpName == "AskUser" && toolName == "ask_user" && status == "approved" {
+		return fmt.Errorf("ask_user cannot be approved")
+	}
+
 	fullName := mcpName + "::" + toolName
 
 	var newApproved []string
@@ -356,6 +369,11 @@ func (m *Manager) SetToolStatus(mcpName, toolName, status string) error {
 	m.config.ManuallyApprovedTools = newManual
 
 	return storage.SaveConfig(m.config)
+}
+
+func isAskUserTool(fullName string) bool {
+	mcpName, toolName := splitToolName(fullName)
+	return mcpName == "AskUser" && toolName == "ask_user"
 }
 
 func (m *Manager) IsToolApproved(toolFullName string) (approved bool, manuallyApproved bool) {

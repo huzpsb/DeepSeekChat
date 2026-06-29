@@ -43,6 +43,7 @@
             html += '<h4 style="color:var(--accent);margin-bottom:8px">' + Messages.escHtml(mcpName) + '</h4>';
             groups[mcpName].forEach(function (tool) {
                 var fullName = tool.mcp_name + '::' + tool.tool_name;
+                var isAskUser = tool.mcp_name === 'AskUser' && tool.tool_name === 'ask_user';
                 var statusClass = '';
                 if (tool.status === 'approved') statusClass = 'style="color:var(--success)"';
                 else if (tool.status === 'manually_approved') statusClass = 'style="color:var(--warning)"';
@@ -53,7 +54,7 @@
                     html += '<span style="font-size:11px;color:var(--text-secondary)">(disconnected)</span>';
                 }
                 html += '<select class="tool-status-select" style="background:var(--bg-primary);color:var(--text-primary);border:1px solid var(--border);padding:2px 6px;border-radius:3px;font-size:12px">';
-                html += '<option value="approved" ' + (tool.status === 'approved' ? 'selected' : '') + '>Approved</option>';
+                html += '<option value="approved" ' + (tool.status === 'approved' ? 'selected' : '') + (isAskUser ? ' disabled' : '') + '>Approved</option>';
                 html += '<option value="manually_approved" ' + (tool.status === 'manually_approved' ? 'selected' : '') + '>Manual</option>';
                 html += '<option value="unapproved" ' + (tool.status === 'unapproved' ? 'selected' : '') + '>Unapproved</option>';
                 html += '</select>';
@@ -62,7 +63,7 @@
             html += '</div>';
             if (Object.keys(groups).length > 1) {
                 html += '<div style="text-align:right;margin-top:4px">';
-                html += '<button onclick="this.closest(\'div\').previousElementSibling.querySelectorAll(\'.tool-status-select\').forEach(function(s){s.value=\'approved\';s.dispatchEvent(new Event(\'change\'))})" style="font-size:11px;background:var(--bg-tertiary);color:var(--text-primary);border:1px solid var(--border);padding:2px 8px;border-radius:3px;cursor:pointer">All Approved</button> ';
+                html += '<button onclick="this.closest(\'div\').previousElementSibling.querySelectorAll(\'.tool-status-select\').forEach(function(s){if(!s.querySelector(\'option[value=approved]\').disabled){s.value=\'approved\';s.dispatchEvent(new Event(\'change\'))}})" style="font-size:11px;background:var(--bg-tertiary);color:var(--text-primary);border:1px solid var(--border);padding:2px 8px;border-radius:3px;cursor:pointer">All Approved</button> ';
                 html += '<button onclick="this.closest(\'div\').previousElementSibling.querySelectorAll(\'.tool-status-select\').forEach(function(s){s.value=\'manually_approved\';s.dispatchEvent(new Event(\'change\'))})" style="font-size:11px;background:var(--bg-tertiary);color:var(--text-primary);border:1px solid var(--border);padding:2px 8px;border-radius:3px;cursor:pointer">All Manual</button>';
                 html += '</div>';
             }
@@ -79,6 +80,10 @@
                 var row = this.closest('.tool-row');
                 var fullName = row.dataset.fullname;
                 var status = this.value;
+                if (fullName === 'AskUser::ask_user' && status === 'approved') {
+                    this.value = 'unapproved';
+                    status = 'unapproved';
+                }
                 var update = {};
                 update[fullName] = status;
                 try {

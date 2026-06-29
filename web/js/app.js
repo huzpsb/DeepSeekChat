@@ -69,6 +69,7 @@
 
         initNoobMode();
         initSkipConfirm();
+        initStopSoundSettings();
         ChatList.init();
     }
 
@@ -131,6 +132,24 @@
     window.isSkipConfirm = function () {
         return localStorage.getItem('skip_confirm') === 'true';
     };
+
+    function initStopSoundSettings() {
+        bindStoredCheckbox('stop-sound', 'stop_sound');
+        bindStoredCheckbox('loop-sound', 'loop_stop_sound');
+    }
+
+    function bindStoredCheckbox(id, key) {
+        var cb = document.getElementById(id);
+        if (!cb) return;
+        cb.checked = localStorage.getItem(key) === 'true';
+        cb.addEventListener('change', function () {
+            if (cb.checked) {
+                localStorage.setItem(key, 'true');
+            } else {
+                localStorage.removeItem(key);
+            }
+        });
+    }
 
     document.getElementById('btn-export').addEventListener('click', function () {
         Messages.exportToHtml();

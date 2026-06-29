@@ -33,8 +33,8 @@ func TestManager_LoadAndConnect_EmptyConfig(t *testing.T) {
 	if mgr.config == nil {
 		t.Fatalf("expected config to be loaded")
 	}
-	if len(mgr.clients) != 1 {
-		t.Errorf("expected 1 client (Sandbox), got %d", len(mgr.clients))
+	if len(mgr.clients) != 2 {
+		t.Errorf("expected 2 clients (Sandbox + AskUser), got %d", len(mgr.clients))
 	}
 }
 
@@ -64,8 +64,24 @@ func TestManager_GetTools_Empty(t *testing.T) {
 	mgr := NewManager()
 	mgr.LoadAndConnect()
 	tools := mgr.GetTools()
-	if len(tools) != 10 {
-		t.Errorf("expected 10 sandbox tools, got %d", len(tools))
+	if len(tools) != 11 {
+		t.Errorf("expected 11 builtin tools, got %d", len(tools))
+	}
+}
+
+func TestManager_AskUserCannotBeApproved(t *testing.T) {
+	setupManagerTest(t)
+	seedConfig(&model.MCPConfig{})
+
+	mgr := NewManager()
+	mgr.LoadAndConnect()
+
+	if err := mgr.SetToolStatus("AskUser", "ask_user", "approved"); err == nil {
+		t.Fatalf("expected approving ask_user to fail")
+	}
+
+	if err := mgr.SetToolStatus("AskUser", "ask_user", "manually_approved"); err != nil {
+		t.Fatalf("expected manually approving ask_user to succeed: %v", err)
 	}
 }
 

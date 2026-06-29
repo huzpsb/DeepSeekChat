@@ -8,6 +8,9 @@
     var messagesBeforeStream = 0;
     var toastTimer = null;
     var reconnectMode = false;
+    var stopSoundTimer = null;
+    var stopSoundContext = null;
+    var activeAskToolCallId = null;
 
     function showToast(msg) {
         var toast = document.getElementById('error-toast');
@@ -89,6 +92,7 @@
     }
 
     async function doContinue(reconnect) {
+        stopStopSound();
         var title = ChatList.getCurrentTitle();
         if (!title) {
             showToast('Please create or open a session');
@@ -187,7 +191,52 @@
             reconnectMode = false;
             setRunning(false);
             abortController = null;
+            playStopSound();
             await ChatList.loadMessages();
+        }
+    }
+
+    function playStopSound() {
+        if (localStorage.getItem('stop_sound') !== 'true') return;
+        stopStopSound();
+        playBeep();
+        if (localStorage.getItem('loop_stop_sound') === 'true') {
+            stopSoundTimer = setInterval(playBeep, 1200);
+            setTimeout(function () {
+                document.addEventListener('pointerdown', stopStopSound, {once: true});
+                document.addEventListener('keydown', stopStopSound, {once: true});
+            }, 0);
+        }
+    }
+
+    function stopStopSound() {
+        if (stopSoundTimer) {
+            clearInterval(stopSoundTimer);
+            stopSoundTimer = null;
+        }
+    }
+
+    function playBeep() {
+        try {
+            var AudioCtx = window.AudioContext || window.webkitAudioContext;
+            if (!AudioCtx) return;
+            if (!stopSoundContext) stopSoundContext = new AudioCtx();
+            var ctx = stopSoundContext;
+            if (ctx.state === 'suspended') ctx.resume();
+
+            var osc = ctx.createOscillator();
+            var gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(880, ctx.currentTime);
+            osc.frequency.setValueAtTime(660, ctx.currentTime + 0.12);
+            gain.gain.setValueAtTime(0.001, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.18, ctx.currentTime + 0.02);
+            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start();
+            osc.stop(ctx.currentTime + 0.32);
+        } catch (e) {
         }
     }
 
@@ -450,5 +499,106 @@
             return isRunning;
         },
         doInterrupt: doInterrupt
+    };
+
+    function extractAskQuestion(tc) {
+        var args = tc && tc.function ? tc.function.arguments : '{}';
+        try {
+            var parsed = JSON.parse(args || '{}');
+            return parsed.question || parsed.prompt || 'The assistant needs more information.';
+        } catch (e) {
+            return 'The assistant needs more information.';
+        }
+    }
+
+    function getPendingAsk(chat) {
+        if (!chat || !chat.messages || chat.messages.length === 0) return null;
+        var idx = chat.messages.length - 1;
+        var last = chat.messages[idx];
+        if (!last || last.role !== 'assistant' || !last.tool_calls || last.tool_calls.length === 0) return null;
+        var tc = last.tool_calls[last.tool_calls.length - 1];
+        if (!tc || !tc.function || tc.function.name !== 'ask_user' || !tc.id) return null;
+        return {messageIndex: idx, toolCall: tc, question: extractAskQuestion(tc)};
+    }
+
+    function maybeShowAskUser(chat) {
+        if (isRunning) return;
+        var pending = getPendingAsk(chat);
+        if (!pending) {
+            closeAskUserModal();
+            return;
+        }
+        if (activeAskToolCallId === pending.toolCall.id) return;
+        showAskUserModal(pending);
+    }
+
+    function showAskUserModal(pending) {
+        var overlay = document.getElementById('ask-user-overlay');
+        var questionEl = document.getElementById('ask-user-question');
+        var inputEl = document.getElementById('ask-user-input');
+        var submitBtn = document.getElementById('ask-user-submit');
+        if (!overlay || !questionEl || !inputEl || !submitBtn) return;
+
+        activeAskToolCallId = pending.toolCall.id;
+        questionEl.textContent = pending.question;
+        inputEl.value = '';
+        overlay.classList.remove('hidden');
+        setTimeout(function () {
+            inputEl.focus();
+        }, 0);
+
+        submitBtn.onclick = async function () {
+            var answer = inputEl.value.trim();
+            if (!answer) return;
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Submitting...';
+            try {
+                var title = ChatList.getCurrentTitle();
+                var resp = await fetch('/api/chat/' + encodeURIComponent(title) + '/message/' + (pending.messageIndex + 1), {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        role: 'tool',
+                        name: 'ask_user',
+                        tool_call_id: pending.toolCall.id,
+                        content: answer,
+                        send_to_server: true
+                    })
+                });
+                if (resp.ok) {
+                    closeAskUserModal();
+                    await ChatList.loadMessages();
+                } else {
+                    var data = await resp.json();
+                    showToast(data.error || 'Failed to submit answer');
+                }
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Submit';
+            }
+        };
+    }
+
+    function closeAskUserModal() {
+        var overlay = document.getElementById('ask-user-overlay');
+        if (overlay) overlay.classList.add('hidden');
+        activeAskToolCallId = null;
+        stopStopSound();
+    }
+
+    document.getElementById('ask-user-close').addEventListener('click', closeAskUserModal);
+    document.getElementById('ask-user-cancel').addEventListener('click', closeAskUserModal);
+    document.getElementById('ask-user-overlay').addEventListener('click', function (e) {
+        if (e.target === this) closeAskUserModal();
+    });
+    document.getElementById('ask-user-input').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+            e.preventDefault();
+            document.getElementById('ask-user-submit').click();
+        }
+    });
+
+    window.AskUserPrompt = {
+        maybeShow: maybeShowAskUser
     };
 })();

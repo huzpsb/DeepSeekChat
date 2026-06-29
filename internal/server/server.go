@@ -510,10 +510,6 @@ func (s *Server) handleEditMessage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleInsertMessage(w http.ResponseWriter, r *http.Request) {
-	if s.mode == "readonly" {
-		s.writeError(w, "readonly mode", http.StatusForbidden)
-		return
-	}
 	title := r.PathValue("title")
 	idx, err := strconv.Atoi(r.PathValue("index"))
 	if err != nil {
@@ -538,7 +534,16 @@ func (s *Server) handleInsertMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	errors, err := cont.InsertMessage(chat, idx, &newMsg, s.mode)
+	insertMode := s.mode
+	if s.mode == "readonly" {
+		if !isReadonlyAskUserInsert(chat, idx, &newMsg) {
+			s.writeError(w, "readonly mode", http.StatusForbidden)
+			return
+		}
+		insertMode = "writable"
+	}
+
+	errors, err := cont.InsertMessage(chat, idx, &newMsg, insertMode)
 	if err != nil {
 		s.writeError(w, err.Error(), http.StatusBadRequest)
 		return
@@ -554,6 +559,23 @@ func (s *Server) handleInsertMessage(w http.ResponseWriter, r *http.Request) {
 	} else {
 		s.writeJSON(w, map[string]bool{"ok": true})
 	}
+}
+
+func isReadonlyAskUserInsert(chat *model.Chat, idx int, msg *model.Message) bool {
+	if chat == nil || msg == nil || idx != len(chat.Messages) || len(chat.Messages) == 0 {
+		return false
+	}
+	if msg.Role != "tool" || msg.Name != "ask_user" || msg.ToolCallID == "" || !msg.SendToServer {
+		return false
+	}
+
+	last := chat.Messages[len(chat.Messages)-1]
+	if last.Role != "assistant" || len(last.ToolCalls) == 0 {
+		return false
+	}
+
+	tc := last.ToolCalls[len(last.ToolCalls)-1]
+	return tc.ID == msg.ToolCallID && tc.Function.Name == "ask_user"
 }
 
 func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
