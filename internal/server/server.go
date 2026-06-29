@@ -256,6 +256,13 @@ func (s *Server) handleContinue(w http.ResponseWriter, r *http.Request) {
 	flusher.Flush()
 
 	if s.engine.IsInferencingWith(req.Title) {
+		if req.Reconnect {
+			s.engine.RequestInterrupt()
+			s.engine.WaitForIdle()
+			fmt.Fprintf(w, "event: error\ndata: %s\n\n", `{"error":"no active stream for reconnect"}`)
+			flusher.Flush()
+			return
+		}
 		reader := s.engine.Subscribe(req.Title)
 		if reader == nil {
 			fmt.Fprintf(w, "event: error\ndata: %s\n\n", `{"error":"internal error"}`)
