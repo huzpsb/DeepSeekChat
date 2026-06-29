@@ -136,7 +136,34 @@ func (e *StreamEngine) StartInference(title, input string, autoContinue bool) er
 	e.cancelFunc = cancel
 
 	go func() {
+		emit := func(evt cont.ContinueEvent) {
+			e.mu.Lock()
+			e.events = append(e.events, evt)
+			e.mu.Unlock()
+		}
+
 		defer cancel()
+
+		defer func() {
+			if r := recover(); r != nil {
+				emit(cont.ContinueEvent{
+					Type: "error",
+					Error: &cont.ErrorDetail{
+						Type:   "internal_error",
+						Detail: fmt.Sprintf("internal panic: %v", r),
+					},
+				})
+			}
+
+			storage.SaveChat(chat)
+
+			e.mu.Lock()
+			e.savedPos = len(e.events)
+			e.streamDone = true
+			e.state = StateIdle
+			e.mu.Unlock()
+			cancel()
+		}()
 
 		save := func() {
 			storage.SaveChat(chat)
@@ -153,21 +180,7 @@ func (e *StreamEngine) StartInference(title, input string, autoContinue bool) er
 			return e.interrupt
 		}
 
-		emit := func(evt cont.ContinueEvent) {
-			e.mu.Lock()
-			e.events = append(e.events, evt)
-			e.mu.Unlock()
-		}
-
 		engine.Continue(ctx, chat, input, autoContinue, emit, interrupted)
-
-		storage.SaveChat(chat)
-
-		e.mu.Lock()
-		e.savedPos = len(e.events)
-		e.streamDone = true
-		e.state = StateIdle
-		e.mu.Unlock()
 	}()
 
 	return nil

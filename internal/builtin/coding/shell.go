@@ -53,7 +53,11 @@ func (p *Provider) runShellTool(tool model.ShellTool) string {
 	defer cancel()
 
 	var cmd *exec.Cmd
-	if os.PathSeparator == '\\' {
+	if p.rawShell != nil && p.rawShell.Enabled {
+		fullCmd := strings.Replace(p.rawShell.Preamble, "$original", tool.Command, -1)
+		args := append(p.rawShell.Shell[1:], fullCmd)
+		cmd = exec.CommandContext(ctx, p.rawShell.Shell[0], args...)
+	} else if os.PathSeparator == '\\' {
 		cmd = exec.CommandContext(ctx, "cmd.exe", "/c", tool.Command)
 	} else {
 		cmd = exec.CommandContext(ctx, "sh", "-c", tool.Command)

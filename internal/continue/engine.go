@@ -27,7 +27,7 @@ type ContinueEvent struct {
 	Content    string          `json:"content,omitempty"`
 	ToolCall   *model.ToolCall `json:"tool_call,omitempty"`
 	ToolResult *toolResultEvt  `json:"tool_result,omitempty"`
-	Error      *errorDetail    `json:"error,omitempty"`
+	Error      *ErrorDetail    `json:"error,omitempty"`
 	Message    *model.Message  `json:"message,omitempty"`
 }
 
@@ -35,7 +35,7 @@ type toolResultEvt struct {
 	Message model.Message `json:"message"`
 }
 
-type errorDetail struct {
+type ErrorDetail struct {
 	Type   string   `json:"type"`
 	Detail string   `json:"detail,omitempty"`
 	IDs    []string `json:"ids,omitempty"`
@@ -129,7 +129,7 @@ func (e *Engine) continueAssistant(ctx context.Context, chat *model.Chat, autoCo
 		}
 		emit(ContinueEvent{
 			Type: "error",
-			Error: &errorDetail{
+			Error: &ErrorDetail{
 				Type:   "invalid_tool_calls",
 				Detail: fmt.Sprintf("Invalid tool calls found: %v", invalidIDs),
 				IDs:    invalidIDs,
@@ -151,7 +151,7 @@ func (e *Engine) continueAssistant(ctx context.Context, chat *model.Chat, autoCo
 	} else {
 		emit(ContinueEvent{
 			Type: "error",
-			Error: &errorDetail{
+			Error: &ErrorDetail{
 				Type:   "unapproved_state",
 				Detail: "Unexpected unapproved state",
 			},
@@ -168,7 +168,7 @@ func (e *Engine) continueTool(ctx context.Context, chat *model.Chat, autoContinu
 	if origIdx < 0 {
 		emit(ContinueEvent{
 			Type: "error",
-			Error: &errorDetail{
+			Error: &ErrorDetail{
 				Type:   "orphan_tool",
 				Detail: "No originating assistant found for tool message",
 			},
@@ -183,7 +183,7 @@ func (e *Engine) continueTool(ctx context.Context, chat *model.Chat, autoContinu
 				if other.Role == "tool" && other.ToolCallID == m.ToolCallID {
 					emit(ContinueEvent{
 						Type: "error",
-						Error: &errorDetail{
+						Error: &ErrorDetail{
 							Type:   "duplicate_tool_id",
 							Detail: fmt.Sprintf("Duplicate tool_call_id in backtrack: %s", m.ToolCallID),
 							IDs:    []string{m.ToolCallID},
@@ -206,7 +206,7 @@ func (e *Engine) continueTool(ctx context.Context, chat *model.Chat, autoContinu
 	if !found {
 		emit(ContinueEvent{
 			Type: "error",
-			Error: &errorDetail{
+			Error: &ErrorDetail{
 				Type:   "orphan_tool",
 				Detail: fmt.Sprintf("tool_call_id %s not in originating assistant", chat.Messages[toolIdx].ToolCallID),
 				IDs:    []string{chat.Messages[toolIdx].ToolCallID},
@@ -229,7 +229,7 @@ func (e *Engine) continueTool(ctx context.Context, chat *model.Chat, autoContinu
 		}
 		emit(ContinueEvent{
 			Type: "error",
-			Error: &errorDetail{
+			Error: &ErrorDetail{
 				Type:   "invalid_tool_calls",
 				Detail: fmt.Sprintf("Invalid tool calls in assistant: %v", invalidIDs),
 				IDs:    invalidIDs,
@@ -259,7 +259,7 @@ func (e *Engine) continueTool(ctx context.Context, chat *model.Chat, autoContinu
 		} else if needsApproval {
 			emit(ContinueEvent{
 				Type: "error",
-				Error: &errorDetail{
+				Error: &ErrorDetail{
 					Type:   "unapproved_tools",
 					Detail: "There are unapproved tool calls",
 				},
@@ -267,7 +267,7 @@ func (e *Engine) continueTool(ctx context.Context, chat *model.Chat, autoContinu
 		} else {
 			emit(ContinueEvent{
 				Type: "error",
-				Error: &errorDetail{
+				Error: &ErrorDetail{
 					Type:   "unapproved_state",
 					Detail: "Unexpected unapproved state",
 				},
@@ -400,7 +400,7 @@ func (e *Engine) streamDeepSeek(ctx context.Context, chat *model.Chat, emit func
 		chat.Messages = chat.Messages[:assistantIdx]
 		emit(ContinueEvent{
 			Type: "error",
-			Error: &errorDetail{
+			Error: &ErrorDetail{
 				Type:   "deepseek_error",
 				Detail: streamErr.Error(),
 			},

@@ -10,6 +10,7 @@ type Provider struct {
 	rootDir       string
 	shellTools    map[string]model.ShellTool
 	fileBlacklist []string
+	rawShell      *model.RawShellConfig
 }
 
 func New(rootDir string) builtin.Provider {
@@ -51,6 +52,20 @@ func (p *Provider) Initialize(configPath string) error {
 		cfg.ShellTools[name] = tool
 	}
 	p.shellTools = cfg.ShellTools
+
+	if cfg.RawShell == nil {
+		cfg.RawShell = &model.RawShellConfig{
+			Enabled: false,
+			Shell:   []string{"powershell", "-NoProfile", "-Command"},
+			Preamble: "function python { & \"E:\\rl\\rt3913\\python\" $args }; " +
+				"function pip { & \"E:\\rl\\rt3913\\python\" -m pip $args }; " +
+				"$env:all_proxy = \"socks5://127.0.0.1:1080\"; " +
+				"$env:https_proxy = \"socks5://127.0.0.1:1080\"; " +
+				"$env:http_proxy = \"socks5://127.0.0.1:1080\"; " +
+				"$original",
+		}
+	}
+	p.rawShell = cfg.RawShell
 
 	storage.SaveCodingConfig(cfg)
 
