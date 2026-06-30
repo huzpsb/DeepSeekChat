@@ -3,6 +3,7 @@ package coding
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -138,4 +139,15 @@ func TestRunShellTool_StderrCapture(t *testing.T) {
 	checkContains(t, result, "stderr_text")
 	checkContains(t, result, "--- Stdout ---")
 	checkContains(t, result, "--- Stderr ---")
+}
+
+func TestShellOutputString_WindowsGB18030(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows shell output decoding is only used on Windows")
+	}
+
+	got := shellOutputString([]byte{0xc4, 0xe3, 0xba, 0xc3, 0xca, 0xc0, 0xbd, 0xe7})
+	if got != "你好世界" {
+		t.Fatalf("expected decoded Chinese output, got %q", got)
+	}
 }
