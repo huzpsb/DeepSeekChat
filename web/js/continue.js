@@ -8,9 +8,10 @@
     var messagesBeforeStream = 0;
     var toastTimer = null;
     var reconnectMode = false;
-    var stopSoundTimer = null;
+    var stopSoundFlag = false;
+    var lastSoundAt = 0;
     var stopSoundContext = null;
-    var activeAskToolCallId = null;
+    var activeAskKey = null;
 
     function showToast(msg) {
         var toast = document.getElementById('error-toast');
@@ -91,16 +92,21 @@
         setRunning(false);
     }
 
-    async function doContinue(reconnect) {
-        stopStopSound();
+    async function doContinue(reconnect, forcedInput) {
+        clearStopSoundFlag();
         var title = ChatList.getCurrentTitle();
         if (!title) {
             showToast('Please create or open a session');
             return;
         }
 
+        if (!reconnect && await reopenPendingAsk(title)) {
+            showToast('Please answer the pending question first');
+            return;
+        }
+
         var inputArea = document.getElementById('user-input');
-        var input = inputArea.value.trim();
+        var input = forcedInput !== undefined ? forcedInput : inputArea.value.trim();
         var autoContinue = document.getElementById('auto-continue').checked;
 
         if (!reconnect) {
@@ -108,7 +114,9 @@
         }
         reconnectMode = !!reconnect;
         abortController = new AbortController();
-        inputArea.value = '';
+        if (forcedInput === undefined) {
+            inputArea.value = '';
+        }
         currentAssistant = null;
         streamingTitle = title;
 
@@ -191,29 +199,60 @@
             reconnectMode = false;
             setRunning(false);
             abortController = null;
-            playStopSound();
+            setStopSoundFlag();
             await ChatList.loadMessages();
         }
     }
 
-    function playStopSound() {
-        if (localStorage.getItem('stop_sound') !== 'true') return;
-        stopStopSound();
-        playBeep();
-        if (localStorage.getItem('loop_stop_sound') === 'true') {
-            stopSoundTimer = setInterval(playBeep, 1200);
-            setTimeout(function () {
-                document.addEventListener('pointerdown', stopStopSound, {once: true});
-                document.addEventListener('keydown', stopStopSound, {once: true});
-            }, 0);
+    async function reopenPendingAsk(title) {
+        try {
+            var resp = await fetch('/api/chats/' + encodeURIComponent(title));
+            if (!resp.ok) return false;
+            var chat = await resp.json();
+            var pending = getPendingAsk(chat);
+            if (!pending) return false;
+            showAskUserModal(pending);
+            return true;
+        } catch (e) {
+            return false;
         }
     }
 
-    function stopStopSound() {
-        if (stopSoundTimer) {
-            clearInterval(stopSoundTimer);
-            stopSoundTimer = null;
+    function setStopSoundFlag() {
+        stopSoundFlag = true;
+        lastSoundAt = 0;
+        updateMuteButton();
+        pollStopSound();
+    }
+
+    function clearStopSoundFlag() {
+        stopSoundFlag = false;
+        updateMuteButton();
+    }
+
+    function pollStopSound() {
+        if (!stopSoundFlag) return;
+        if (localStorage.getItem('stop_sound') !== 'true') {
+            clearStopSoundFlag();
+            return;
         }
+
+        var now = Date.now();
+        if (now - lastSoundAt < 1000) return;
+        lastSoundAt = now;
+        playBeep();
+
+        if (localStorage.getItem('loop_stop_sound') !== 'true') {
+            clearStopSoundFlag();
+        }
+    }
+
+    function updateMuteButton() {
+        var btn = document.getElementById('btn-mute-sound');
+        if (!btn) return;
+        btn.style.display = stopSoundFlag
+        && localStorage.getItem('stop_sound') === 'true'
+        && localStorage.getItem('loop_stop_sound') === 'true' ? '' : 'none';
     }
 
     function playBeep() {
@@ -230,12 +269,12 @@
             osc.frequency.setValueAtTime(880, ctx.currentTime);
             osc.frequency.setValueAtTime(660, ctx.currentTime + 0.12);
             gain.gain.setValueAtTime(0.001, ctx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.18, ctx.currentTime + 0.02);
-            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+            gain.gain.exponentialRampToValueAtTime(0.35, ctx.currentTime + 0.02);
+            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.38);
             osc.connect(gain);
             gain.connect(ctx.destination);
             osc.start();
-            osc.stop(ctx.currentTime + 0.32);
+            osc.stop(ctx.currentTime + 0.4);
         } catch (e) {
         }
     }
@@ -514,76 +553,150 @@
     function getPendingAsk(chat) {
         if (!chat || !chat.messages || chat.messages.length === 0) return null;
         var idx = chat.messages.length - 1;
-        var last = chat.messages[idx];
-        if (!last || last.role !== 'assistant' || !last.tool_calls || last.tool_calls.length === 0) return null;
-        var tc = last.tool_calls[last.tool_calls.length - 1];
-        if (!tc || !tc.function || tc.function.name !== 'ask_user' || !tc.id) return null;
-        return {messageIndex: idx, toolCall: tc, question: extractAskQuestion(tc)};
+        var answered = {};
+        while (idx >= 0 && chat.messages[idx].role === 'tool') {
+            answered[chat.messages[idx].tool_call_id] = true;
+            idx--;
+        }
+        var assistant = chat.messages[idx];
+        if (!assistant || assistant.role !== 'assistant' || !assistant.tool_calls || assistant.tool_calls.length === 0) return null;
+
+        var questions = [];
+        assistant.tool_calls.forEach(function (tc) {
+            if (tc && tc.function && tc.function.name === 'ask_user' && tc.id && !answered[tc.id]) {
+                questions.push({toolCall: tc, question: extractAskQuestion(tc)});
+            }
+        });
+        if (questions.length === 0) return null;
+        return {messageIndex: idx, questions: questions};
     }
 
     function maybeShowAskUser(chat) {
         if (isRunning) return;
         var pending = getPendingAsk(chat);
         if (!pending) {
-            closeAskUserModal();
+            hideAskUserModal();
             return;
         }
-        if (activeAskToolCallId === pending.toolCall.id) return;
+        var key = pending.questions.map(function (q) {
+            return q.toolCall.id;
+        }).join('|');
+        if (activeAskKey === key) return;
         showAskUserModal(pending);
     }
 
     function showAskUserModal(pending) {
         var overlay = document.getElementById('ask-user-overlay');
-        var questionEl = document.getElementById('ask-user-question');
-        var inputEl = document.getElementById('ask-user-input');
-        var submitBtn = document.getElementById('ask-user-submit');
-        if (!overlay || !questionEl || !inputEl || !submitBtn) return;
+        var listEl = document.getElementById('ask-user-list');
+        if (!overlay || !listEl) return;
 
-        activeAskToolCallId = pending.toolCall.id;
-        questionEl.textContent = pending.question;
-        inputEl.value = '';
-        overlay.classList.remove('hidden');
-        setTimeout(function () {
-            inputEl.focus();
-        }, 0);
+        activeAskKey = pending.questions.map(function (q) {
+            return q.toolCall.id;
+        }).join('|');
+        listEl.innerHTML = '';
+        pending.questions.forEach(function (q, index) {
+            var item = document.createElement('div');
+            item.className = 'ask-user-item';
+            item.dataset.toolCallId = q.toolCall.id;
 
-        submitBtn.onclick = async function () {
-            var answer = inputEl.value.trim();
-            if (!answer) return;
-            submitBtn.disabled = true;
-            submitBtn.textContent = 'Submitting...';
-            try {
-                var title = ChatList.getCurrentTitle();
-                var resp = await fetch('/api/chat/' + encodeURIComponent(title) + '/message/' + (pending.messageIndex + 1), {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        role: 'tool',
-                        name: 'ask_user',
-                        tool_call_id: pending.toolCall.id,
-                        content: answer,
-                        send_to_server: true
-                    })
-                });
-                if (resp.ok) {
-                    closeAskUserModal();
-                    await ChatList.loadMessages();
-                } else {
-                    var data = await resp.json();
-                    showToast(data.error || 'Failed to submit answer');
-                }
-            } finally {
-                submitBtn.disabled = false;
-                submitBtn.textContent = 'Submit';
+            var question = document.createElement('div');
+            question.className = 'ask-user-question';
+            question.textContent = q.question;
+
+            var textarea = document.createElement('textarea');
+            textarea.className = 'ask-user-answer';
+            textarea.placeholder = 'Type your answer...';
+            textarea.rows = 4;
+
+            var row = document.createElement('div');
+            row.className = 'ask-user-item-actions';
+            var status = document.createElement('span');
+            status.className = 'ask-user-status';
+            var saveBtn = document.createElement('button');
+            saveBtn.type = 'button';
+            saveBtn.textContent = 'Save';
+            saveBtn.addEventListener('click', function () {
+                saveAskAnswer(pending, q, textarea, saveBtn, status, item);
+            });
+
+            row.appendChild(status);
+            row.appendChild(saveBtn);
+            item.appendChild(question);
+            item.appendChild(textarea);
+            item.appendChild(row);
+            listEl.appendChild(item);
+
+            if (index === 0) {
+                setTimeout(function () {
+                    textarea.focus();
+                }, 0);
             }
-        };
+        });
+        overlay.classList.remove('hidden');
+    }
+
+    async function saveAskAnswer(pending, q, textarea, saveBtn, status, item) {
+        var answer = textarea.value.trim();
+        if (!answer) return;
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving...';
+        status.textContent = '';
+        try {
+            var title = ChatList.getCurrentTitle();
+            var chatResp = await fetch('/api/chats/' + encodeURIComponent(title));
+            if (!chatResp.ok) throw new Error('Failed to reload chat');
+            var chat = await chatResp.json();
+            var resp = await fetch('/api/chat/' + encodeURIComponent(title) + '/message/' + chat.messages.length, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    role: 'tool',
+                    name: 'ask_user',
+                    tool_call_id: q.toolCall.id,
+                    content: answer,
+                    send_to_server: true
+                })
+            });
+            if (!resp.ok) {
+                var data = await resp.json();
+                throw new Error(data.error || 'Failed to save answer');
+            }
+
+            textarea.disabled = true;
+            saveBtn.textContent = 'Saved';
+            status.textContent = 'Saved';
+            item.classList.add('saved');
+
+            if (allAskAnswersSaved()) {
+                closeAskUserModal();
+                await ChatList.loadMessages();
+                doContinue(false, '');
+            }
+        } catch (e) {
+            saveBtn.disabled = false;
+            saveBtn.textContent = 'Save';
+            status.textContent = e.message || 'Failed';
+        }
+    }
+
+    function allAskAnswersSaved() {
+        var items = document.querySelectorAll('#ask-user-list .ask-user-item');
+        if (!items.length) return false;
+        for (var i = 0; i < items.length; i++) {
+            if (!items[i].classList.contains('saved')) return false;
+        }
+        return true;
     }
 
     function closeAskUserModal() {
+        hideAskUserModal();
+        clearStopSoundFlag();
+    }
+
+    function hideAskUserModal() {
         var overlay = document.getElementById('ask-user-overlay');
         if (overlay) overlay.classList.add('hidden');
-        activeAskToolCallId = null;
-        stopStopSound();
+        activeAskKey = null;
     }
 
     document.getElementById('ask-user-close').addEventListener('click', closeAskUserModal);
@@ -591,14 +704,17 @@
     document.getElementById('ask-user-overlay').addEventListener('click', function (e) {
         if (e.target === this) closeAskUserModal();
     });
-    document.getElementById('ask-user-input').addEventListener('keydown', function (e) {
-        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-            e.preventDefault();
-            document.getElementById('ask-user-submit').click();
-        }
-    });
+    document.addEventListener('keydown', clearStopSoundFlag);
+    document.addEventListener('mousemove', clearStopSoundFlag);
+
+    var muteBtn = document.getElementById('btn-mute-sound');
+    if (muteBtn) {
+        muteBtn.addEventListener('click', clearStopSoundFlag);
+    }
+    setInterval(pollStopSound, 1000);
 
     window.AskUserPrompt = {
-        maybeShow: maybeShowAskUser
+        maybeShow: maybeShowAskUser,
+        updateMuteButton: updateMuteButton
     };
 })();

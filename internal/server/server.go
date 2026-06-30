@@ -569,13 +569,23 @@ func isReadonlyAskUserInsert(chat *model.Chat, idx int, msg *model.Message) bool
 		return false
 	}
 
-	last := chat.Messages[len(chat.Messages)-1]
-	if last.Role != "assistant" || len(last.ToolCalls) == 0 {
+	origIdx := len(chat.Messages) - 1
+	for origIdx >= 0 && chat.Messages[origIdx].Role == "tool" {
+		if chat.Messages[origIdx].ToolCallID == msg.ToolCallID {
+			return false
+		}
+		origIdx--
+	}
+	if origIdx < 0 || chat.Messages[origIdx].Role != "assistant" {
 		return false
 	}
 
-	tc := last.ToolCalls[len(last.ToolCalls)-1]
-	return tc.ID == msg.ToolCallID && tc.Function.Name == "ask_user"
+	for _, tc := range chat.Messages[origIdx].ToolCalls {
+		if tc.ID == msg.ToolCallID && tc.Function.Name == "ask_user" {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {

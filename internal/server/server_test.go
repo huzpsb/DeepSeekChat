@@ -235,6 +235,38 @@ func TestHandleInsertMessage_ReadonlyAskUserAllowed(t *testing.T) {
 	}
 }
 
+func TestHandleInsertMessage_ReadonlyParallelAskUserAllowed(t *testing.T) {
+	setupServerTest(t)
+	chat := &model.Chat{
+		Title: "chat",
+		Messages: []model.Message{
+			{
+				Role:         "assistant",
+				SendToServer: true,
+				ToolCalls: []model.ToolCall{
+					{ID: "call_ask_1", Function: model.FunctionCall{Name: "ask_user", Arguments: `{"question":"Name?"}`}},
+					{ID: "call_ask_2", Function: model.FunctionCall{Name: "ask_user", Arguments: `{"question":"Age?"}`}},
+				},
+			},
+			{Role: "tool", Name: "ask_user", ToolCallID: "call_ask_1", Content: "Alice", SendToServer: true},
+		},
+	}
+	storage.SaveChat(chat)
+
+	srv := New(testStaticFS)
+	srv.mode = "readonly"
+
+	body := `{"role":"tool","name":"ask_user","tool_call_id":"call_ask_2","content":"42","send_to_server":true}`
+	req := httptest.NewRequest("POST", "/api/chat/chat/message/2", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for second readonly ask_user answer, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestCreateChat_HasTimestampTitle(t *testing.T) {
 	setupServerTest(t)
 

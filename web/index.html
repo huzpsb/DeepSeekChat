@@ -25,21 +25,8 @@
                 <button class="mode-btn" data-mode="sudo">Sudo</button>
             </div>
             <button id="btn-validate">Validate</button>
-            <label id="auto-continue-label">
-                <input checked id="auto-continue" type="checkbox"> Auto
-            </label>
-            <label id="noob-mode-label" style="display:none">
-                <input id="noob-mode" type="checkbox"> Noob Mode
-            </label>
-            <label id="skip-confirm-label">
-                <input id="skip-confirm" type="checkbox"> Skip Confirm
-            </label>
-            <label id="stop-sound-label">
-                <input id="stop-sound" type="checkbox"> Stop Sound
-            </label>
-            <label id="loop-sound-label">
-                <input id="loop-sound" type="checkbox"> Loop Sound
-            </label>
+            <button id="btn-mute-sound" style="display:none">Mute</button>
+            <button id="btn-preferences" title="Preferences">p</button>
             <button id="btn-version" title="Version Info">v</button>
         </div>
         <div id="messages"></div>
@@ -103,6 +90,43 @@
     </div>
 </div>
 
+<div class="hidden" id="preferences-overlay">
+    <div id="preferences-content">
+        <div id="preferences-header">
+            <h3>Preferences</h3>
+            <button id="preferences-close">&times;</button>
+        </div>
+        <div id="preferences-body">
+            <div class="pref-group">
+                <h4>Chat</h4>
+                <label class="pref-row">
+                    <span>Auto continue</span>
+                    <input checked id="auto-continue" type="checkbox">
+                </label>
+                <label class="pref-row" id="noob-mode-label">
+                    <span>Noob Mode</span>
+                    <input id="noob-mode" type="checkbox">
+                </label>
+                <label class="pref-row">
+                    <span>Skip delete confirmation</span>
+                    <input id="skip-confirm" type="checkbox">
+                </label>
+            </div>
+            <div class="pref-group">
+                <h4>Sound</h4>
+                <label class="pref-row">
+                    <span>Play sound when stopped</span>
+                    <input id="stop-sound" type="checkbox">
+                </label>
+                <label class="pref-row">
+                    <span>Loop until muted</span>
+                    <input id="loop-sound" type="checkbox">
+                </label>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="hidden" id="ask-user-overlay">
     <div class="ask-user-card">
         <div class="ask-user-header">
@@ -110,12 +134,10 @@
             <button id="ask-user-close">&times;</button>
         </div>
         <div class="ask-user-body">
-            <div id="ask-user-question"></div>
-            <textarea id="ask-user-input" placeholder="Type your answer..." rows="5"></textarea>
+            <div id="ask-user-list"></div>
         </div>
         <div class="ask-user-footer">
             <button id="ask-user-cancel">Cancel</button>
-            <button id="ask-user-submit">Submit</button>
         </div>
     </div>
 </div>

@@ -25,23 +25,16 @@
     function handleModeChangeForNoob() {
         var label = document.getElementById('noob-mode-label');
         var cb = document.getElementById('noob-mode');
-        if (currentMode === 'readonly') {
-            label.style.display = '';
-        } else {
-            label.style.display = 'none';
-            cb.checked = false;
-            localStorage.removeItem('noob_mode');
-        }
+        var disabled = currentMode !== 'readonly';
+        cb.disabled = disabled;
+        label.classList.toggle('disabled', disabled);
         applyNoobModeUI();
     }
 
     function initNoobMode() {
         var cb = document.getElementById('noob-mode');
-        var label = document.getElementById('noob-mode-label');
-        if (currentMode === 'readonly') {
-            label.style.display = '';
-            cb.checked = localStorage.getItem('noob_mode') === 'true';
-        }
+        cb.checked = localStorage.getItem('noob_mode') === 'true';
+        handleModeChangeForNoob();
         applyNoobModeUI();
 
         cb.addEventListener('change', function () {
@@ -68,6 +61,7 @@
         }
 
         initNoobMode();
+        initPreferencesModal();
         initSkipConfirm();
         initStopSoundSettings();
         ChatList.init();
@@ -94,6 +88,21 @@
             versionOverlay.classList.add('hidden');
         }
     });
+
+    function initPreferencesModal() {
+        var overlay = document.getElementById('preferences-overlay');
+        document.getElementById('btn-preferences').addEventListener('click', function () {
+            overlay.classList.remove('hidden');
+        });
+        document.getElementById('preferences-close').addEventListener('click', function () {
+            overlay.classList.add('hidden');
+        });
+        overlay.addEventListener('click', function (e) {
+            if (e.target === overlay) {
+                overlay.classList.add('hidden');
+            }
+        });
+    }
 
     document.addEventListener('DOMContentLoaded', init);
 
@@ -147,6 +156,9 @@
                 localStorage.setItem(key, 'true');
             } else {
                 localStorage.removeItem(key);
+            }
+            if (window.AskUserPrompt && window.AskUserPrompt.updateMuteButton) {
+                window.AskUserPrompt.updateMuteButton();
             }
         });
     }

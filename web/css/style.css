@@ -181,7 +181,8 @@ html, body {
     background: var(--danger);
 }
 
-#btn-validate {
+#btn-validate,
+#btn-mute-sound {
     padding: 4px 12px;
     background: var(--bg-tertiary);
     color: var(--text-primary);
@@ -199,30 +200,10 @@ html, body {
     background: var(--danger);
 }
 
-#auto-continue-label {
-    font-size: 12px;
-    color: var(--text-secondary);
-    display: flex;
-    align-items: center;
-    gap: 4px;
-}
-
-#noob-mode-label {
-    font-size: 12px;
-    color: var(--text-secondary);
-    display: flex;
-    align-items: center;
-    gap: 4px;
-}
-
-#skip-confirm-label,
-#stop-sound-label,
-#loop-sound-label {
-    font-size: 12px;
-    color: var(--text-secondary);
-    display: flex;
-    align-items: center;
-    gap: 4px;
+#btn-mute-sound {
+    background: var(--warning);
+    color: #111;
+    font-weight: 600;
 }
 
 #ask-user-overlay {
@@ -283,13 +264,31 @@ html, body {
     padding: 16px;
 }
 
-#ask-user-question {
+.ask-user-item {
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.ask-user-item:first-child {
+    padding-top: 0;
+}
+
+.ask-user-item:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+.ask-user-item.saved {
+    opacity: 0.7;
+}
+
+.ask-user-question {
     margin-bottom: 10px;
     color: var(--text-primary);
     white-space: pre-wrap;
 }
 
-#ask-user-input {
+.ask-user-answer {
     width: 100%;
     min-height: 120px;
     background: var(--bg-primary);
@@ -302,8 +301,22 @@ html, body {
     resize: vertical;
 }
 
+.ask-user-item-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 8px;
+}
+
+.ask-user-status {
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
 #ask-user-cancel,
-#ask-user-submit {
+#ask-user-submit,
+.ask-user-item-actions button {
     padding: 6px 14px;
     border-radius: 4px;
     cursor: pointer;
@@ -316,7 +329,8 @@ html, body {
     border: 1px solid var(--border);
 }
 
-#ask-user-submit {
+#ask-user-submit,
+.ask-user-item-actions button {
     background: var(--accent);
     color: #fff;
     border: none;
@@ -1035,6 +1049,7 @@ html, body {
     border-color: var(--accent);
 }
 
+#btn-preferences,
 #btn-version {
     margin-left: auto;
     padding: 2px 10px;
@@ -1047,9 +1062,95 @@ html, body {
     font-family: 'Consolas', 'Fira Code', monospace;
 }
 
+#btn-version {
+    margin-left: 0;
+}
+
+#btn-preferences:hover,
 #btn-version:hover {
     color: var(--text-primary);
     border-color: var(--accent);
+}
+
+#preferences-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+}
+
+#preferences-overlay.hidden {
+    display: none;
+}
+
+#preferences-content {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    width: 420px;
+    max-width: calc(100vw - 32px);
+    display: flex;
+    flex-direction: column;
+}
+
+#preferences-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+}
+
+#preferences-header h3 {
+    font-size: 16px;
+}
+
+#preferences-close {
+    background: none;
+    border: none;
+    color: var(--text-primary);
+    font-size: 20px;
+    cursor: pointer;
+}
+
+#preferences-body {
+    padding: 16px;
+}
+
+.pref-group {
+    margin-bottom: 16px;
+}
+
+.pref-group:last-child {
+    margin-bottom: 0;
+}
+
+.pref-group h4 {
+    color: var(--accent);
+    font-size: 13px;
+    margin-bottom: 8px;
+}
+
+.pref-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-secondary);
+    font-size: 13px;
+}
+
+.pref-row:last-child {
+    border-bottom: none;
+}
+
+.pref-row.disabled {
+    opacity: 0.5;
 }
 
 #version-overlay {
