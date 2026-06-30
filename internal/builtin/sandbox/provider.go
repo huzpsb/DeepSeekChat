@@ -47,26 +47,49 @@ func (p *Provider) Close() error {
 }
 
 func SafePath(rootDir, rel string) (string, error) {
-	cleanRel := filepath.Clean(rel)
+	path, _, err := SafePathWithWarning(rootDir, rel)
+	return path, err
+}
 
-	cleanRel = strings.TrimPrefix(cleanRel, "/")
-	cleanRel = strings.TrimPrefix(cleanRel, "\\")
+func SafePathWithWarning(rootDir, rel string) (string, bool, error) {
+	absRoot, err := filepath.Abs(rootDir)
+	if err != nil {
+		return "", false, err
+	}
 
-	target := filepath.Join(rootDir, cleanRel)
+	warn := false
+	target := rel
+	if filepath.IsAbs(rel) {
+		warn = true
+		target = filepath.Clean(rel)
+	} else {
+		cleanRel := filepath.Clean(rel)
+		if strings.HasPrefix(cleanRel, "/") || strings.HasPrefix(cleanRel, "\\") {
+			warn = true
+		}
+
+		cleanRel = strings.TrimPrefix(cleanRel, "/")
+		cleanRel = strings.TrimPrefix(cleanRel, "\\")
+		target = filepath.Join(absRoot, cleanRel)
+	}
+
 	absTarget, err := filepath.Abs(target)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 
-	absRoot, _ := filepath.Abs(rootDir)
 	relPath, err := filepath.Rel(absRoot, absTarget)
-	if err != nil || strings.HasPrefix(relPath, "..") {
-		return "", fmt.Errorf("sandbox fs error: access denied (-1)")
+	if err != nil || relPath == ".." || strings.HasPrefix(relPath, ".."+string(os.PathSeparator)) {
+		return "", false, fmt.Errorf("sandbox fs error: access denied (-1)")
 	}
 
-	return absTarget, nil
+	return absTarget, warn, nil
 }
 
 func (p *Provider) getSafePath(rel string) (string, error) {
 	return SafePath(p.rootDir, rel)
+}
+
+func (p *Provider) getSafePathWithWarning(rel string) (string, bool, error) {
+	return SafePathWithWarning(p.rootDir, rel)
 }

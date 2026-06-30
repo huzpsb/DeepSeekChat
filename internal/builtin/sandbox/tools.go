@@ -432,7 +432,7 @@ func (p *Provider) replaceContent(args map[string]any) string {
 
 func (p *Provider) createDir(args map[string]any) string {
 	dir, _ := args["dir"].(string)
-	path, err := p.getSafePath(dir)
+	path, warn, err := p.getSafePathWithWarning(dir)
 	if err != nil {
 		return fmt.Sprintf("Error: %v", err)
 	}
@@ -440,7 +440,7 @@ func (p *Provider) createDir(args map[string]any) string {
 		return fmt.Sprintf("Error: %v", err)
 	}
 	result := "Success"
-	if strings.HasPrefix(dir, "/") {
+	if warn {
 		result += "\nWARNING: Please use relative path."
 	}
 	return result
@@ -449,7 +449,7 @@ func (p *Provider) createDir(args map[string]any) string {
 func (p *Provider) createFile(args map[string]any) string {
 	file, _ := args["file"].(string)
 	content, _ := args["content"].(string)
-	path, err := p.getSafePath(file)
+	path, warn, err := p.getSafePathWithWarning(file)
 	if err != nil {
 		return fmt.Sprintf("Error: %v", err)
 	}
@@ -463,7 +463,7 @@ func (p *Provider) createFile(args map[string]any) string {
 		return fmt.Sprintf("Error: %v", err)
 	}
 	result := "Success"
-	if strings.HasPrefix(file, "/") {
+	if warn {
 		result += "\nWARNING: Please use relative path."
 	}
 	return result
