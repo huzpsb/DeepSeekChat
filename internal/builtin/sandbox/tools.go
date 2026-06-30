@@ -156,6 +156,12 @@ func (p *Provider) CallTool(name string, args map[string]any) (*model.ToolResult
 	}, nil
 }
 
+func unifyNewlines(s string) string {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\r", "\n")
+	return s
+}
+
 func (p *Provider) tree(args map[string]any) string {
 	depth := 2
 	if v, ok := args["depth"].(float64); ok {
@@ -297,7 +303,7 @@ func (p *Provider) searchContent(args map[string]any) string {
 			return nil
 		}
 
-		lines := strings.Split(string(data), "\n")
+		lines := strings.Split(unifyNewlines(string(data)), "\n")
 		hits := 0
 		var spans []span
 
@@ -378,7 +384,7 @@ func (p *Provider) readContent(args map[string]any) string {
 		return fmt.Sprintf("Error: %v", err)
 	}
 
-	lines := strings.Split(string(data), "\n")
+	lines := strings.Split(unifyNewlines(string(data)), "\n")
 	if start >= len(lines) {
 		return fmt.Sprintf("Error: file has only %d lines", len(lines))
 	}
@@ -414,7 +420,9 @@ func (p *Provider) replaceContent(args map[string]any) string {
 		return fmt.Sprintf("Error: %v", err)
 	}
 
-	content := string(data)
+	content := unifyNewlines(string(data))
+	orig = unifyNewlines(orig)
+	newStr = unifyNewlines(newStr)
 	count := strings.Count(content, orig)
 	if count == 0 {
 		return "Error: original content not found"
@@ -459,7 +467,7 @@ func (p *Provider) createFile(args map[string]any) string {
 	if _, err := os.Stat(path); err == nil {
 		return "Error: file already exists, create_file cannot overwrite existing files"
 	}
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(unifyNewlines(content)), 0644); err != nil {
 		return fmt.Sprintf("Error: %v", err)
 	}
 	result := "Success"
@@ -519,7 +527,7 @@ func (p *Provider) rewriteFile(args map[string]any) string {
 	}
 
 	_ = p.moveToTrash(path)
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(unifyNewlines(content)), 0644); err != nil {
 		return fmt.Sprintf("Error: %v", err)
 	}
 	return "Success"
