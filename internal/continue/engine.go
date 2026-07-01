@@ -55,6 +55,7 @@ func (e *Engine) SetMode(mode string) {
 }
 
 func (e *Engine) Continue(ctx context.Context, chat *model.Chat, input string, autoContinue bool, emit func(ContinueEvent), interrupted func() bool) {
+	logContinue("continue_start mode=%s input_len=%d auto_continue=%v messages=%d last=%s", e.mode, len(input), autoContinue, len(chat.Messages), describeLastMessage(chat))
 	if input != "" {
 		msg := model.Message{
 			Role:         "user",
@@ -62,26 +63,33 @@ func (e *Engine) Continue(ctx context.Context, chat *model.Chat, input string, a
 			SendToServer: true,
 		}
 		chat.Messages = append(chat.Messages, msg)
+		logContinue("user_added input_len=%d messages=%d last=%s", len(input), len(chat.Messages), describeLastMessage(chat))
 		emit(ContinueEvent{Type: "user_added", Content: input})
 	}
 
 	e.doContinue(ctx, chat, autoContinue, emit, interrupted)
+	logContinue("continue_end messages=%d last=%s", len(chat.Messages), describeLastMessage(chat))
 }
 
 func (e *Engine) doContinue(ctx context.Context, chat *model.Chat, autoContinue bool, emit func(ContinueEvent), interrupted func() bool) {
 	if len(chat.Messages) == 0 {
+		logContinue("do_continue_return reason=empty_chat")
 		return
 	}
 	if interrupted() {
+		logContinue("do_continue_return reason=interrupted messages=%d last=%s", len(chat.Messages), describeLastMessage(chat))
 		return
 	}
 
 	lastIdx := len(chat.Messages) - 1
 	last := chat.Messages[lastIdx]
+	logContinue("do_continue_route last_idx=%d last_role=%s auto_continue=%v last=%s", lastIdx, last.Role, autoContinue, describeMessage(lastIdx, last))
 
 	switch last.Role {
 	case "user", "system":
+		logContinue("route_stream_deepseek from_role=%s", last.Role)
 		if err := e.streamDeepSeek(ctx, chat, emit, interrupted); err != nil {
+			logContinue("route_stream_deepseek_error err=%q", err.Error())
 			return
 		}
 		if autoContinue {
@@ -89,37 +97,49 @@ func (e *Engine) doContinue(ctx context.Context, chat *model.Chat, autoContinue 
 		}
 
 	case "assistant":
+		logContinue("route_continue_assistant idx=%d tool_calls=%d", lastIdx, len(last.ToolCalls))
 		e.continueAssistant(ctx, chat, autoContinue, lastIdx, emit, interrupted)
 
 	case "tool":
+		logContinue("route_continue_tool idx=%d tool_call_id=%q name=%q", lastIdx, last.ToolCallID, last.Name)
 		e.continueTool(ctx, chat, autoContinue, lastIdx, emit, interrupted)
+
+	default:
+		logContinue("do_continue_return reason=unknown_role role=%q idx=%d", last.Role, lastIdx)
 	}
 }
 
 func (e *Engine) continueAssistant(ctx context.Context, chat *model.Chat, autoContinue bool, idx int, emit func(ContinueEvent), interrupted func() bool) {
 	if interrupted() {
+		logContinue("continue_assistant_return reason=interrupted idx=%d", idx)
 		return
 	}
 
 	msg := chat.Messages[idx]
+	logContinue("continue_assistant_start idx=%d mode=%s tool_calls=%d approved=%v content_len=%d reasoning_len=%d", idx, e.mode, len(msg.ToolCalls), msg.Approved, len(msg.Content), len(msg.ReasoningContent))
 
 	if len(msg.ToolCalls) == 0 {
 		if e.mode == "sudo" {
+			logContinue("continue_assistant_no_tools_sudo_stream idx=%d", idx)
 			if err := e.streamDeepSeek(ctx, chat, emit, interrupted); err != nil {
+				logContinue("continue_assistant_sudo_stream_error idx=%d err=%q", idx, err.Error())
 				return
 			}
 			if autoContinue {
 				e.checkAutoContinue(ctx, chat, autoContinue, emit, interrupted)
 			}
 		}
+		logContinue("continue_assistant_return reason=no_tool_calls idx=%d mode=%s", idx, e.mode)
 		return
 	}
 
 	invalidIDs := e.findInvalidToolCalls(msg)
 	if len(invalidIDs) > 0 {
+		logContinue("continue_assistant_invalid_tools idx=%d mode=%s invalid_ids=%v", idx, e.mode, invalidIDs)
 		if e.mode == "readonly" {
 			e.markInvalidAsNotFound(chat, msg, invalidIDs, emit)
 			if err := e.streamDeepSeek(ctx, chat, emit, interrupted); err != nil {
+				logContinue("continue_assistant_invalid_stream_error idx=%d err=%q", idx, err.Error())
 				return
 			}
 			if autoContinue {
@@ -143,12 +163,15 @@ func (e *Engine) continueAssistant(ctx context.Context, chat *model.Chat, autoCo
 		allApproved = true
 		needsApproval = false
 	}
+	logContinue("continue_assistant_approval idx=%d all_approved=%v needs_approval=%v msg_approved=%v", idx, allApproved, needsApproval, msg.Approved)
 
 	if allApproved && !needsApproval {
 		e.executeToolCall(ctx, chat, autoContinue, idx, 0, emit, interrupted)
 	} else if needsApproval {
+		logContinue("continue_assistant_return reason=needs_approval idx=%d", idx)
 		return
 	} else {
+		logContinue("continue_assistant_error reason=unapproved_state idx=%d", idx)
 		emit(ContinueEvent{
 			Type: "error",
 			Error: &ErrorDetail{
@@ -161,11 +184,14 @@ func (e *Engine) continueAssistant(ctx context.Context, chat *model.Chat, autoCo
 
 func (e *Engine) continueTool(ctx context.Context, chat *model.Chat, autoContinue bool, toolIdx int, emit func(ContinueEvent), interrupted func() bool) {
 	if interrupted() {
+		logContinue("continue_tool_return reason=interrupted tool_idx=%d", toolIdx)
 		return
 	}
+	logContinue("continue_tool_start tool_idx=%d message=%s", toolIdx, describeMessage(toolIdx, chat.Messages[toolIdx]))
 
 	origIdx := e.backtrackToAssistant(chat, toolIdx)
 	if origIdx < 0 {
+		logContinue("continue_tool_error reason=orphan_no_assistant tool_idx=%d", toolIdx)
 		emit(ContinueEvent{
 			Type: "error",
 			Error: &ErrorDetail{
@@ -177,10 +203,12 @@ func (e *Engine) continueTool(ctx context.Context, chat *model.Chat, autoContinu
 	}
 
 	backtrack := chat.Messages[origIdx+1 : toolIdx+1]
+	logContinue("continue_tool_backtrack orig_idx=%d tool_idx=%d backtrack_len=%d assistant_tool_calls=%d", origIdx, toolIdx, len(backtrack), len(chat.Messages[origIdx].ToolCalls))
 	for i, m := range backtrack {
 		if m.Role == "tool" {
 			for _, other := range backtrack[i+1:] {
 				if other.Role == "tool" && other.ToolCallID == m.ToolCallID {
+					logContinue("continue_tool_error reason=duplicate_tool_id tool_call_id=%q", m.ToolCallID)
 					emit(ContinueEvent{
 						Type: "error",
 						Error: &ErrorDetail{
@@ -204,6 +232,7 @@ func (e *Engine) continueTool(ctx context.Context, chat *model.Chat, autoContinu
 		}
 	}
 	if !found {
+		logContinue("continue_tool_error reason=tool_id_not_in_assistant tool_idx=%d tool_call_id=%q orig_idx=%d", toolIdx, chat.Messages[toolIdx].ToolCallID, origIdx)
 		emit(ContinueEvent{
 			Type: "error",
 			Error: &ErrorDetail{
@@ -217,9 +246,11 @@ func (e *Engine) continueTool(ctx context.Context, chat *model.Chat, autoContinu
 
 	invalidIDs := e.findInvalidToolCalls(assistant)
 	if len(invalidIDs) > 0 {
+		logContinue("continue_tool_invalid_tools orig_idx=%d invalid_ids=%v mode=%s", origIdx, invalidIDs, e.mode)
 		if e.mode == "readonly" {
 			e.markInvalidAsNotFound(chat, assistant, invalidIDs, emit)
 			if err := e.streamDeepSeek(ctx, chat, emit, interrupted); err != nil {
+				logContinue("continue_tool_invalid_stream_error orig_idx=%d err=%q", origIdx, err.Error())
 				return
 			}
 			if autoContinue {
@@ -244,6 +275,7 @@ func (e *Engine) continueTool(ctx context.Context, chat *model.Chat, autoContinu
 		allApproved = true
 		needsApproval = false
 	}
+	logContinue("continue_tool_executed orig_idx=%d executed=%v all_approved=%v needs_approval=%v msg_approved=%v", origIdx, executed, allApproved, needsApproval, assistant.Approved)
 
 	nextIdx := -1
 	for i, tc := range assistant.ToolCalls {
@@ -254,9 +286,11 @@ func (e *Engine) continueTool(ctx context.Context, chat *model.Chat, autoContinu
 	}
 
 	if nextIdx >= 0 {
+		logContinue("continue_tool_next_tool orig_idx=%d next_tool_idx=%d tool_call_id=%q", origIdx, nextIdx, assistant.ToolCalls[nextIdx].ID)
 		if allApproved && !needsApproval {
 			e.executeToolCall(ctx, chat, autoContinue, origIdx, nextIdx, emit, interrupted)
 		} else if needsApproval {
+			logContinue("continue_tool_error reason=needs_approval orig_idx=%d", origIdx)
 			emit(ContinueEvent{
 				Type: "error",
 				Error: &ErrorDetail{
@@ -265,6 +299,7 @@ func (e *Engine) continueTool(ctx context.Context, chat *model.Chat, autoContinu
 				},
 			})
 		} else {
+			logContinue("continue_tool_error reason=unapproved_state orig_idx=%d", origIdx)
 			emit(ContinueEvent{
 				Type: "error",
 				Error: &ErrorDetail{
@@ -274,7 +309,9 @@ func (e *Engine) continueTool(ctx context.Context, chat *model.Chat, autoContinu
 			})
 		}
 	} else {
+		logContinue("continue_tool_all_done_stream orig_idx=%d tool_idx=%d", origIdx, toolIdx)
 		if err := e.streamDeepSeek(ctx, chat, emit, interrupted); err != nil {
+			logContinue("continue_tool_stream_error orig_idx=%d err=%q", origIdx, err.Error())
 			return
 		}
 		if autoContinue {
@@ -285,14 +322,17 @@ func (e *Engine) continueTool(ctx context.Context, chat *model.Chat, autoContinu
 
 func (e *Engine) executeToolCall(ctx context.Context, chat *model.Chat, autoContinue bool, assistantIdx int, toolCallIdx int, emit func(ContinueEvent), interrupted func() bool) {
 	if interrupted() {
+		logContinue("execute_tool_return reason=interrupted assistant_idx=%d tool_call_idx=%d", assistantIdx, toolCallIdx)
 		return
 	}
 
 	assistant := chat.Messages[assistantIdx]
 	if toolCallIdx >= len(assistant.ToolCalls) {
+		logContinue("execute_tool_return reason=tool_call_idx_out_of_range assistant_idx=%d tool_call_idx=%d tool_calls=%d", assistantIdx, toolCallIdx, len(assistant.ToolCalls))
 		return
 	}
 	tc := assistant.ToolCalls[toolCallIdx]
+	logContinue("execute_tool_start assistant_idx=%d tool_call_idx=%d tool_call_id=%q name=%q args_len=%d", assistantIdx, toolCallIdx, tc.ID, tc.Function.Name, len(tc.Function.Arguments))
 
 	emit(ContinueEvent{
 		Type:     "tool_execute",
@@ -304,6 +344,7 @@ func (e *Engine) executeToolCall(ctx context.Context, chat *model.Chat, autoCont
 		var content string
 		if err != nil {
 			content = "Error executing tool: " + err.Error()
+			logContinue("execute_tool_error tool_call_id=%q name=%q err=%q", tc.ID, tc.Function.Name, err.Error())
 		} else if result != nil && len(result.Content) > 0 {
 			content = result.Content[0].Text
 		} else {
@@ -318,6 +359,7 @@ func (e *Engine) executeToolCall(ctx context.Context, chat *model.Chat, autoCont
 			SendToServer: true,
 		}
 		chat.Messages = append(chat.Messages, toolMsg)
+		logContinue("execute_tool_appended tool_call_id=%q name=%q result_len=%d messages=%d last=%s", tc.ID, tc.Function.Name, len(content), len(chat.Messages), describeLastMessage(chat))
 
 		emit(ContinueEvent{
 			Type: "tool_result",
@@ -327,6 +369,7 @@ func (e *Engine) executeToolCall(ctx context.Context, chat *model.Chat, autoCont
 		})
 
 		if e.saveFunc != nil {
+			logContinue("execute_tool_save tool_call_id=%q", tc.ID)
 			e.saveFunc()
 		}
 
@@ -338,6 +381,7 @@ func (e *Engine) executeToolCall(ctx context.Context, chat *model.Chat, autoCont
 
 func (e *Engine) streamDeepSeek(ctx context.Context, chat *model.Chat, emit func(ContinueEvent), interrupted func() bool) error {
 	if interrupted() {
+		logContinue("stream_deepseek_return reason=interrupted_before_start messages=%d last=%s", len(chat.Messages), describeLastMessage(chat))
 		return nil
 	}
 
@@ -345,21 +389,25 @@ func (e *Engine) streamDeepSeek(ctx context.Context, chat *model.Chat, emit func
 	if e.toolExecutor != nil {
 		tools = e.toolExecutor.GetAllowedTools()
 	}
+	logContinue("stream_deepseek_start messages=%d tools=%d last=%s", len(chat.Messages), len(tools), describeLastMessage(chat))
 
 	assistantIdx := len(chat.Messages)
 	chat.Messages = append(chat.Messages, model.Message{
 		Role:         "assistant",
 		SendToServer: true,
 	})
+	logContinue("stream_deepseek_assistant_appended assistant_idx=%d messages=%d", assistantIdx, len(chat.Messages))
 
 	var streamErr error
 	err := e.deepseekClient.StreamChat(ctx, chat.Messages[:assistantIdx], tools, func(evt deepseek.StreamEvent) {
 		switch evt.Type {
 		case "delta":
 			chat.Messages[assistantIdx].Content += evt.Content
+			logContinue("deepseek_event type=delta assistant_idx=%d delta_len=%d content_len=%d", assistantIdx, len(evt.Content), len(chat.Messages[assistantIdx].Content))
 			emit(ContinueEvent{Type: "delta", Content: evt.Content})
 		case "reasoning_delta":
 			chat.Messages[assistantIdx].ReasoningContent += evt.Content
+			logContinue("deepseek_event type=reasoning_delta assistant_idx=%d delta_len=%d reasoning_len=%d", assistantIdx, len(evt.Content), len(chat.Messages[assistantIdx].ReasoningContent))
 			emit(ContinueEvent{Type: "reasoning_delta", Content: evt.Content})
 		case "tool_call":
 			tc := model.ToolCall{
@@ -380,24 +428,29 @@ func (e *Engine) streamDeepSeek(ctx context.Context, chat *model.Chat, emit func
 			if !found {
 				chat.Messages[assistantIdx].ToolCalls = append(chat.Messages[assistantIdx].ToolCalls, tc)
 			}
+			logContinue("deepseek_event type=tool_call assistant_idx=%d tool_call_id=%q name=%q args_len=%d found=%v total_tool_calls=%d", assistantIdx, tc.ID, tc.Function.Name, len(tc.Function.Arguments), found, len(chat.Messages[assistantIdx].ToolCalls))
 			emit(ContinueEvent{
 				Type:     "tool_call",
 				ToolCall: &tc,
 			})
 		case "done":
+			logContinue("deepseek_event type=done assistant_idx=%d content_len=%d reasoning_len=%d tool_calls=%d", assistantIdx, len(chat.Messages[assistantIdx].Content), len(chat.Messages[assistantIdx].ReasoningContent), len(chat.Messages[assistantIdx].ToolCalls))
 		}
 	})
 
 	if err != nil {
 		streamErr = err
+		logContinue("stream_deepseek_error assistant_idx=%d err=%q interrupted=%v", assistantIdx, err.Error(), interrupted())
 	}
 
 	if streamErr != nil {
 		if interrupted() {
+			logContinue("stream_deepseek_interrupted assistant_idx=%d content_len=%d reasoning_len=%d tool_calls=%d", assistantIdx, len(chat.Messages[assistantIdx].Content), len(chat.Messages[assistantIdx].ReasoningContent), len(chat.Messages[assistantIdx].ToolCalls))
 			emit(ContinueEvent{Type: "assistant_done"})
 			return nil
 		}
 		chat.Messages = chat.Messages[:assistantIdx]
+		logContinue("stream_deepseek_rollback assistant_idx=%d messages=%d", assistantIdx, len(chat.Messages))
 		emit(ContinueEvent{
 			Type: "error",
 			Error: &ErrorDetail{
@@ -411,9 +464,12 @@ func (e *Engine) streamDeepSeek(ctx context.Context, chat *model.Chat, emit func
 	msg := chat.Messages[assistantIdx]
 	if msg.Content == "" && msg.ReasoningContent == "" && len(msg.ToolCalls) == 0 {
 		chat.Messages = chat.Messages[:assistantIdx]
+		logContinue("stream_deepseek_remove_empty_assistant assistant_idx=%d messages=%d", assistantIdx, len(chat.Messages))
 	}
+	logContinue("stream_deepseek_done assistant_idx=%d messages=%d last=%s", assistantIdx, len(chat.Messages), describeLastMessage(chat))
 	emit(ContinueEvent{Type: "assistant_done"})
 	if e.saveFunc != nil {
+		logContinue("stream_deepseek_save assistant_idx=%d", assistantIdx)
 		e.saveFunc()
 	}
 	return nil
@@ -421,7 +477,10 @@ func (e *Engine) streamDeepSeek(ctx context.Context, chat *model.Chat, emit func
 
 func (e *Engine) checkAutoContinue(ctx context.Context, chat *model.Chat, autoContinue bool, emit func(ContinueEvent), interrupted func() bool) {
 	if autoContinue && !interrupted() {
+		logContinue("auto_continue_enter messages=%d last=%s", len(chat.Messages), describeLastMessage(chat))
 		e.doContinue(ctx, chat, true, emit, interrupted)
+	} else {
+		logContinue("auto_continue_skip auto_continue=%v interrupted=%v messages=%d last=%s", autoContinue, interrupted(), len(chat.Messages), describeLastMessage(chat))
 	}
 }
 
@@ -649,6 +708,21 @@ func findDuplicateIDs(groups []messageGroup) map[int]string {
 		}
 	}
 	return dups
+}
+
+func logContinue(format string, args ...any) {
+	fmt.Printf("[continue] "+format+"\n", args...)
+}
+
+func describeLastMessage(chat *model.Chat) string {
+	if chat == nil || len(chat.Messages) == 0 {
+		return "none"
+	}
+	return describeMessage(len(chat.Messages)-1, chat.Messages[len(chat.Messages)-1])
+}
+
+func describeMessage(idx int, msg model.Message) string {
+	return fmt.Sprintf("idx=%d role=%s content_len=%d reasoning_len=%d tool_calls=%d tool_call_id=%q name=%q send=%v approved=%v", idx, msg.Role, len(msg.Content), len(msg.ReasoningContent), len(msg.ToolCalls), msg.ToolCallID, msg.Name, msg.SendToServer, msg.Approved)
 }
 
 func (e *Engine) collectExecutedToolIDs(chat *model.Chat, assistantIdx int) map[string]bool {
