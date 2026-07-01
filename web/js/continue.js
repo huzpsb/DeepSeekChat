@@ -156,6 +156,8 @@
             var reader = resp.body.getReader();
             var decoder = new TextDecoder();
             var buffer = '';
+            var eventType = '';
+            var eventData = '';
 
             try {
                 while (true) {
@@ -166,9 +168,6 @@
                     var lines = buffer.split('\n');
                     buffer = lines.pop() || '';
 
-                    var eventType = '';
-                    var eventData = '';
-
                     for (var i = 0; i < lines.length; i++) {
                         var line = lines[i];
                         if (line.startsWith('event: ')) {
@@ -176,6 +175,23 @@
                         } else if (line.startsWith('data: ')) {
                             eventData = line.substring(6).trim();
                         } else if (line === '') {
+                            if (eventType && eventData) {
+                                handleEvent(eventType, eventData);
+                            }
+                            eventType = '';
+                            eventData = '';
+                        }
+                    }
+                }
+                if (buffer) {
+                    var finalLines = (buffer + '\n').split('\n');
+                    for (var j = 0; j < finalLines.length; j++) {
+                        var finalLine = finalLines[j];
+                        if (finalLine.startsWith('event: ')) {
+                            eventType = finalLine.substring(7).trim();
+                        } else if (finalLine.startsWith('data: ')) {
+                            eventData = finalLine.substring(6).trim();
+                        } else if (finalLine === '') {
                             if (eventType && eventData) {
                                 handleEvent(eventType, eventData);
                             }

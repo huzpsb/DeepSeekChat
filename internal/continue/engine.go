@@ -495,6 +495,9 @@ func (e *Engine) checkApproval(msg *model.Message) (allApproved bool, needsAppro
 	}
 	allApproved = true
 	for _, tc := range msg.ToolCalls {
+		if tc.Function.Name == "ask_user" {
+			continue
+		}
 		approved, manually := e.toolExecutor.IsToolApproved(tc.Function.Name)
 		if manually {
 			needsApproval = true
