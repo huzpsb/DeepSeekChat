@@ -11,9 +11,10 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"golang.org/x/text/encoding/simplifiedchinese"
 	"hschat/internal/builtin/sandbox"
 	"hschat/internal/model"
+
+	"golang.org/x/text/encoding/simplifiedchinese"
 )
 
 func (p *Provider) runShellTool(tool model.ShellTool) string {
