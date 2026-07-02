@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"hschat/internal/encoding"
 	"hschat/internal/model"
 )
 
@@ -146,7 +147,7 @@ func TestShellOutputString_WindowsGB18030(t *testing.T) {
 		t.Skip("Windows shell output decoding is only used on Windows")
 	}
 
-	got := shellOutputString([]byte{0xc4, 0xe3, 0xba, 0xc3, 0xca, 0xc0, 0xbd, 0xe7})
+	got := encoding.DecodeGB18030([]byte{0xc4, 0xe3, 0xba, 0xc3, 0xca, 0xc0, 0xbd, 0xe7})
 	if got != "你好世界" {
 		t.Fatalf("expected decoded Chinese output, got %q", got)
 	}

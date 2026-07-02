@@ -9,12 +9,10 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"hschat/internal/builtin/sandbox"
+	"hschat/internal/encoding"
 	"hschat/internal/model"
-
-	"golang.org/x/text/encoding/simplifiedchinese"
 )
 
 func (p *Provider) runShellTool(tool model.ShellTool) string {
@@ -72,18 +70,5 @@ func (p *Provider) runShellTool(tool model.ShellTool) string {
 	cmd.Stderr = &errBuf
 
 	err := cmd.Run()
-	return fmt.Sprintf("Exit Code: %v\n\n--- Stdout ---\n%s\n--- Stderr ---\n%s", err, shellOutputString(outBuf.Bytes()), shellOutputString(errBuf.Bytes()))
-}
-
-func shellOutputString(data []byte) string {
-	if utf8.Valid(data) {
-		return string(data)
-	}
-	if os.PathSeparator == '\\' {
-		decoded, err := simplifiedchinese.GB18030.NewDecoder().Bytes(data)
-		if err == nil {
-			return string(decoded)
-		}
-	}
-	return string(data)
+	return fmt.Sprintf("Exit Code: %v\n\n--- Stdout ---\n%s\n--- Stderr ---\n%s", err, encoding.DecodeGB18030(outBuf.Bytes()), encoding.DecodeGB18030(errBuf.Bytes()))
 }
