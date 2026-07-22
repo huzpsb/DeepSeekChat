@@ -63,7 +63,9 @@ func (p *Provider) runShellTool(tool model.ShellTool) string {
 	} else {
 		cmd = exec.CommandContext(ctx, "sh", "-c", tool.Command)
 	}
-	cmd.Dir = p.rootDir
+	if tool.RelativeOverwrite == nil || *tool.RelativeOverwrite {
+		cmd.Dir = p.rootDir
+	}
 
 	var outBuf, errBuf bytes.Buffer
 	cmd.Stdout = &outBuf

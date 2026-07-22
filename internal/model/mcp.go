@@ -1,13 +1,20 @@
 package model
 
 type MCPConfig struct {
-	APIKey                string        `json:"api_key"`
-	Sandbox               SandboxConfig `json:"sandbox"`
-	EnableCodingTools     bool          `json:"enable_coding_tools"`
-	EnableWebTools        bool          `json:"enable_web_tools"`
-	MCPServers            []MCPServer   `json:"mcp_servers"`
-	ApprovedTools         []string      `json:"approved_tools"`
-	ManuallyApprovedTools []string      `json:"manually_approved_tools"`
+	APIKey                string           `json:"api_key"`
+	Sandbox               SandboxConfig    `json:"sandbox"`
+	EnableCodingTools     bool             `json:"enable_coding_tools"`
+	EnableWebTools        bool             `json:"enable_web_tools"`
+	MCPServers            []MCPServer      `json:"mcp_servers"`
+	ApprovedTools         []string         `json:"approved_tools"`
+	ManuallyApprovedTools []string         `json:"manually_approved_tools"`
+	ThirdParty            ThirdPartyConfig `json:"3rd_party"`
+}
+
+type ThirdPartyConfig struct {
+	Enabled  bool   `json:"enabled"`
+	Endpoint string `json:"endpoint"`
+	Model    string `json:"model"`
 }
 
 type MCPServer struct {

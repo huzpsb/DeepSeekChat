@@ -42,7 +42,7 @@ func New(staticFS embed.FS) *Server {
 		fmt.Println("MCP init warning:", err)
 	}
 
-	dsClient := deepseek.NewClient(cfg.APIKey)
+	dsClient := deepseek.NewClient(cfg.APIKey, cfg.ThirdParty)
 
 	s := &Server{
 		mode:     "readonly",

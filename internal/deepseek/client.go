@@ -3,6 +3,7 @@ package deepseek
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -28,14 +29,28 @@ type StreamEvent struct {
 type Client struct {
 	apiKey     string
 	httpClient *http.Client
+	endpoint   string
+	model      string
 }
 
-func NewClient(apiKey string) *Client {
+func NewClient(apiKey string, thirdParty model.ThirdPartyConfig) *Client {
+	client := &http.Client{
+		Timeout: 5 * time.Minute,
+	}
+	endpoint := deepseekURL
+	model := "deepseek-v4-pro"
+	if thirdParty.Enabled {
+		client.Transport = &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		}
+		endpoint = thirdParty.Endpoint
+		model = thirdParty.Model
+	}
 	return &Client{
-		apiKey: apiKey,
-		httpClient: &http.Client{
-			Timeout: 5 * time.Minute,
-		},
+		apiKey:     apiKey,
+		httpClient: client,
+		endpoint:   endpoint,
+		model:      model,
 	}
 }
 
@@ -46,7 +61,7 @@ func (c *Client) SetAPIKey(key string) {
 func (c *Client) StreamChat(ctx context.Context, messages []model.Message, tools []model.ToolDef, onEvent func(StreamEvent)) error {
 	apiMessages := buildAPIMessages(messages)
 	reqBody := map[string]any{
-		"model":            "deepseek-v4-pro",
+		"model":            c.model,
 		"messages":         apiMessages,
 		"thinking":         map[string]string{"type": "enabled"},
 		"reasoning_effort": "high",
@@ -77,7 +92,7 @@ func (c *Client) StreamChat(ctx context.Context, messages []model.Message, tools
 		return fmt.Errorf("marshal request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", deepseekURL, strings.NewReader(string(body)))
+	req, err := http.NewRequestWithContext(ctx, "POST", c.endpoint, strings.NewReader(string(body)))
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}

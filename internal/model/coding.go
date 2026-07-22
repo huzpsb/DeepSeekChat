@@ -7,9 +7,10 @@ type CodingConfig struct {
 }
 
 type ShellTool struct {
-	Description string `json:"description"`
-	Command     string `json:"command"`
-	Timeout     int    `json:"timeout"`
+	Description       string `json:"description"`
+	Command           string `json:"command"`
+	Timeout           int    `json:"timeout"`
+	RelativeOverwrite *bool  `json:"relative_overwrite,omitempty"`
 }
 
 type RawShellConfig struct {

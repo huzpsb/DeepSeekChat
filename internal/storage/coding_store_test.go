@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"encoding/json"
 	"os"
 	"testing"
 
@@ -59,9 +60,40 @@ func TestSaveAndLoadCodingConfig(t *testing.T) {
 	if loaded.ShellTools["build"].Timeout != 120 {
 		t.Errorf("expected timeout 120, got %d", loaded.ShellTools["build"].Timeout)
 	}
+	if loaded.ShellTools["build"].RelativeOverwrite != nil {
+		t.Errorf("expected nil relative_overwrite when unset, got %v", *loaded.ShellTools["build"].RelativeOverwrite)
+	}
 	if len(loaded.Blacklist) != 2 || loaded.Blacklist[0] != "os/exec" {
 		t.Errorf("expected blacklist ['os/exec','net/http'], got %v", loaded.Blacklist)
 	}
+}
+
+func TestShellToolRelativeOverwriteJSON(t *testing.T) {
+	data := []byte(`{"description":"Run go test","command":"go test ./...","timeout":60,"relative_overwrite":false}`)
+	var tool model.ShellTool
+	if err := json.Unmarshal(data, &tool); err != nil {
+		t.Fatalf("json.Unmarshal failed: %v", err)
+	}
+	if tool.RelativeOverwrite == nil || *tool.RelativeOverwrite {
+		t.Fatalf("expected relative_overwrite=false, got %v", tool.RelativeOverwrite)
+	}
+
+	out, err := json.Marshal(tool)
+	if err != nil {
+		t.Fatalf("json.Marshal failed: %v", err)
+	}
+	if !containsString(string(out), `"relative_overwrite":false`) {
+		t.Fatalf("expected marshaled relative_overwrite=false, got %s", out)
+	}
+}
+
+func containsString(text, sub string) bool {
+	for i := 0; i <= len(text)-len(sub); i++ {
+		if text[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
 }
 
 func TestSaveCodingConfig_Overwrite(t *testing.T) {

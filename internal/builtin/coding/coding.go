@@ -6,6 +6,10 @@ import (
 	"hschat/internal/storage"
 )
 
+func boolPtr(v bool) *bool {
+	return &v
+}
+
 type Provider struct {
 	rootDir       string
 	shellTools    map[string]model.ShellTool
@@ -39,15 +43,19 @@ func (p *Provider) Initialize(configPath string) error {
 	if cfg.ShellTools == nil {
 		cfg.ShellTools = map[string]model.ShellTool{
 			"go_test": {
-				Description: "Run go test",
-				Command:     "go test ./...",
-				Timeout:     60,
+				Description:       "Run go test",
+				Command:           "go test ./...",
+				Timeout:           60,
+				RelativeOverwrite: boolPtr(true),
 			},
 		}
 	}
 	for name, tool := range cfg.ShellTools {
 		if tool.Timeout <= 0 {
 			tool.Timeout = 60
+		}
+		if tool.RelativeOverwrite == nil {
+			tool.RelativeOverwrite = boolPtr(true)
 		}
 		cfg.ShellTools[name] = tool
 	}

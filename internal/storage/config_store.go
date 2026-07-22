@@ -44,6 +44,11 @@ func defaultConfig() *model.MCPConfig {
 				Command: []string{"./mcp_server.exe", "--verbose"},
 			},
 		},
+		ThirdParty: model.ThirdPartyConfig{
+			Enabled:  false,
+			Endpoint: "https://opencode.ai/zen/v1/chat/completions",
+			Model:    "deepseek-v4-flash-free",
+		},
 	}
 }
 

@@ -142,6 +142,49 @@ func TestRunShellTool_StderrCapture(t *testing.T) {
 	checkContains(t, result, "--- Stderr ---")
 }
 
+func TestRunShellTool_RelativeOverwriteDefaultUsesSandbox(t *testing.T) {
+	p := setupProvider(t)
+	p.fileBlacklist = []string{}
+	os.WriteFile(filepath.Join(p.rootDir, "sandbox_only.txt"), []byte("ok"), 0644)
+	command := "cat sandbox_only.txt"
+	if runtime.GOOS == "windows" {
+		command = "type sandbox_only.txt"
+	}
+
+	result := p.runShellTool(model.ShellTool{
+		Command: command,
+		Timeout: 10,
+	})
+	checkContains(t, result, "ok")
+}
+
+func TestRunShellTool_RelativeOverwriteFalseUsesCurrentDir(t *testing.T) {
+	p := setupProvider(t)
+	p.fileBlacklist = []string{}
+	currentDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd failed: %v", err)
+	}
+	marker := "relative_overwrite_current_marker.txt"
+	markerPath := filepath.Join(currentDir, marker)
+	if err := os.WriteFile(markerPath, []byte("current-dir-ok"), 0644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+	defer os.Remove(markerPath)
+	relativeOverwrite := false
+	command := "cat " + marker
+	if runtime.GOOS == "windows" {
+		command = "type " + marker
+	}
+
+	result := p.runShellTool(model.ShellTool{
+		Command:           command,
+		Timeout:           10,
+		RelativeOverwrite: &relativeOverwrite,
+	})
+	checkContains(t, result, "current-dir-ok")
+}
+
 func TestShellOutputString_WindowsGB18030(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("Windows shell output decoding is only used on Windows")
