@@ -2,9 +2,10 @@ package log
 
 import (
 	"fmt"
-	"internal/runtime/exithook"
 	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -12,6 +13,7 @@ var (
 	mu       sync.Mutex
 	file     *os.File
 	lastSync time.Time
+	initOnce sync.Once
 )
 
 func Init(path string) error {
@@ -26,17 +28,26 @@ func Init(path string) error {
 	}
 	file = f
 
-	exithook.Add(exithook.Hook{
-		F: func() {
-			mu.Lock()
-			defer mu.Unlock()
-			file.Close()
-		},
-		RunOnFailure: true,
+	initOnce.Do(func() {
+		ch := make(chan os.Signal, 1)
+		signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
+		go func() {
+			<-ch
+			Close()
+			os.Exit(0)
+		}()
 	})
 
 	return nil
+}
 
+func Close() {
+	mu.Lock()
+	defer mu.Unlock()
+	if file != nil {
+		file.Close()
+		file = nil
+	}
 }
 
 func Printf(format string, args ...any) {
@@ -47,8 +58,7 @@ func Printf(format string, args ...any) {
 	line := fmt.Sprintf("[%s] %s\n", ts, msg)
 	if file != nil {
 		file.WriteString(line)
-		now := time.Now()
-		if now.Sub(lastSync) > time.Second {
+		if now := time.Now(); now.Sub(lastSync) > 50*time.Millisecond {
 			lastSync = now
 			file.Sync()
 		}
