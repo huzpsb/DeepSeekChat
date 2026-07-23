@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"hschat/internal/deepseek"
+	"hschat/internal/log"
 	"hschat/internal/model"
 )
 
@@ -711,7 +712,7 @@ func findDuplicateIDs(groups []messageGroup) map[int]string {
 }
 
 func logContinue(format string, args ...any) {
-	fmt.Printf("[continue] "+format+"\n", args...)
+	log.Printf("[continue] "+format, args...)
 }
 
 func describeLastMessage(chat *model.Chat) string {

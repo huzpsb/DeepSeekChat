@@ -15,6 +15,7 @@ import (
 	cont "hschat/internal/continue"
 	"hschat/internal/deepseek"
 	"hschat/internal/engine"
+	"hschat/internal/log"
 	"hschat/internal/mcp"
 	"hschat/internal/model"
 	"hschat/internal/storage"
@@ -32,6 +33,10 @@ type Server struct {
 }
 
 func New(staticFS embed.FS) *Server {
+	if err := log.Init("states.log"); err != nil {
+		fmt.Printf("failed to init log: %v\n", err)
+	}
+
 	cfg, err := storage.LoadConfig()
 	if err != nil {
 		cfg = &model.MCPConfig{}
@@ -39,7 +44,7 @@ func New(staticFS embed.FS) *Server {
 
 	mcpMgr := mcp.NewManager()
 	if err := mcpMgr.LoadAndConnect(); err != nil {
-		fmt.Println("MCP init warning:", err)
+		log.Printf("MCP init warning: %v", err)
 	}
 
 	dsClient := deepseek.NewClient(cfg.APIKey, cfg.ThirdParty)
@@ -239,15 +244,15 @@ func (s *Server) handleContinue(w http.ResponseWriter, r *http.Request) {
 		Reconnect    bool   `json:"reconnect"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		fmt.Printf("[server] continue_bad_request err=%q\n", err.Error())
+		log.Printf("[server] continue_bad_request err=%q\n", err.Error())
 		s.writeError(w, "invalid body", http.StatusBadRequest)
 		return
 	}
-	fmt.Printf("[server] continue_request title=%q input_len=%d auto_continue=%v reconnect=%v inferencing=%v active_title=%q mode=%s\n", req.Title, len(req.Input), req.AutoContinue, req.Reconnect, s.engine.IsInferencing(), s.engine.ActiveTitle(), s.mode)
+	log.Printf("[server] continue_request title=%q input_len=%d auto_continue=%v reconnect=%v inferencing=%v active_title=%q mode=%s\n", req.Title, len(req.Input), req.AutoContinue, req.Reconnect, s.engine.IsInferencing(), s.engine.ActiveTitle(), s.mode)
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		fmt.Printf("[server] continue_error title=%q reason=streaming_not_supported\n", req.Title)
+		log.Printf("[server] continue_error title=%q reason=streaming_not_supported\n", req.Title)
 		s.writeError(w, "streaming not supported", http.StatusInternalServerError)
 		return
 	}
@@ -257,12 +262,12 @@ func (s *Server) handleContinue(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
-	fmt.Printf("[server] continue_sse_open title=%q reconnect=%v\n", req.Title, req.Reconnect)
+	log.Printf("[server] continue_sse_open title=%q reconnect=%v\n", req.Title, req.Reconnect)
 
 	if s.engine.IsInferencingWith(req.Title) {
-		fmt.Printf("[server] continue_active_same_chat title=%q reconnect=%v\n", req.Title, req.Reconnect)
+		log.Printf("[server] continue_active_same_chat title=%q reconnect=%v\n", req.Title, req.Reconnect)
 		if req.Reconnect {
-			fmt.Printf("[server] continue_reconnect_interrupt_active title=%q\n", req.Title)
+			log.Printf("[server] continue_reconnect_interrupt_active title=%q\n", req.Title)
 			s.engine.RequestInterrupt()
 			s.engine.WaitForIdle()
 			fmt.Fprintf(w, "event: error\ndata: %s\n\n", `{"error":"no active stream for reconnect"}`)
@@ -271,48 +276,48 @@ func (s *Server) handleContinue(w http.ResponseWriter, r *http.Request) {
 		}
 		reader := s.engine.Subscribe(req.Title)
 		if reader == nil {
-			fmt.Printf("[server] continue_subscribe_error title=%q reason=nil_reader\n", req.Title)
+			log.Printf("[server] continue_subscribe_error title=%q reason=nil_reader\n", req.Title)
 			fmt.Fprintf(w, "event: error\ndata: %s\n\n", `{"error":"internal error"}`)
 			flusher.Flush()
 			return
 		}
-		fmt.Printf("[server] continue_subscribe_stream title=%q\n", req.Title)
+		log.Printf("[server] continue_subscribe_stream title=%q\n", req.Title)
 		s.streamSSE(w, r, flusher, reader)
-		fmt.Printf("[server] continue_subscribe_stream_done title=%q\n", req.Title)
+		log.Printf("[server] continue_subscribe_stream_done title=%q\n", req.Title)
 		return
 	}
 
 	if req.Reconnect {
-		fmt.Printf("[server] continue_reconnect_no_active title=%q\n", req.Title)
+		log.Printf("[server] continue_reconnect_no_active title=%q\n", req.Title)
 		fmt.Fprintf(w, "event: error\ndata: %s\n\n", `{"error":"no active stream for reconnect"}`)
 		flusher.Flush()
 		return
 	}
 
 	if s.engine.IsInferencing() {
-		fmt.Printf("[server] continue_error title=%q reason=another_chat active_title=%q\n", req.Title, s.engine.ActiveTitle())
+		log.Printf("[server] continue_error title=%q reason=another_chat active_title=%q\n", req.Title, s.engine.ActiveTitle())
 		fmt.Fprintf(w, "event: error\ndata: %s\n\n", `{"error":"another chat is being processed"}`)
 		flusher.Flush()
 		return
 	}
 
 	if err := s.engine.StartInference(req.Title, req.Input, req.AutoContinue); err != nil {
-		fmt.Printf("[server] continue_start_error title=%q err=%q\n", req.Title, err.Error())
+		log.Printf("[server] continue_start_error title=%q err=%q\n", req.Title, err.Error())
 		fmt.Fprintf(w, "event: error\ndata: %s\n\n", `{"error":"`+err.Error()+`"}`)
 		flusher.Flush()
 		return
 	}
-	fmt.Printf("[server] continue_started title=%q\n", req.Title)
+	log.Printf("[server] continue_started title=%q\n", req.Title)
 
 	reader := s.engine.Subscribe(req.Title)
 	if reader == nil {
-		fmt.Printf("[server] continue_subscribe_error title=%q reason=nil_reader_after_start\n", req.Title)
+		log.Printf("[server] continue_subscribe_error title=%q reason=nil_reader_after_start\n", req.Title)
 		fmt.Fprintf(w, "event: error\ndata: %s\n\n", `{"error":"internal error"}`)
 		flusher.Flush()
 		return
 	}
 	s.streamSSE(w, r, flusher, reader)
-	fmt.Printf("[server] continue_stream_done title=%q\n", req.Title)
+	log.Printf("[server] continue_stream_done title=%q\n", req.Title)
 }
 
 func (s *Server) streamSSE(w http.ResponseWriter, r *http.Request, flusher http.Flusher, reader *engine.EventReader) {
@@ -320,11 +325,11 @@ func (s *Server) streamSSE(w http.ResponseWriter, r *http.Request, flusher http.
 	for {
 		events, done := reader.Wait(ctx)
 		if len(events) > 0 || done {
-			fmt.Printf("[server] sse_batch events=%d done=%v\n", len(events), done)
+			log.Printf("[server] sse_batch events=%d done=%v\n", len(events), done)
 		}
 		for _, evt := range events {
 			data, _ := json.Marshal(evt)
-			fmt.Printf("[server] sse_emit event=%s bytes=%d\n", evt.Type, len(data))
+			log.Printf("[server] sse_emit event=%s bytes=%d\n", evt.Type, len(data))
 			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", evt.Type, string(data))
 			flusher.Flush()
 		}
@@ -335,10 +340,10 @@ func (s *Server) streamSSE(w http.ResponseWriter, r *http.Request, flusher http.
 }
 
 func (s *Server) handleInterrupt(w http.ResponseWriter, r *http.Request) {
-	fmt.Printf("[server] interrupt_request inferencing=%v active_title=%q\n", s.engine.IsInferencing(), s.engine.ActiveTitle())
+	log.Printf("[server] interrupt_request inferencing=%v active_title=%q\n", s.engine.IsInferencing(), s.engine.ActiveTitle())
 	s.engine.RequestInterrupt()
 	s.engine.WaitForIdle()
-	fmt.Printf("[server] interrupt_done inferencing=%v active_title=%q\n", s.engine.IsInferencing(), s.engine.ActiveTitle())
+	log.Printf("[server] interrupt_done inferencing=%v active_title=%q\n", s.engine.IsInferencing(), s.engine.ActiveTitle())
 	s.writeJSON(w, map[string]bool{"ok": true})
 }
 
@@ -347,15 +352,15 @@ func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 		Title string `json:"title"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		fmt.Printf("[server] stop_bad_request err=%q\n", err.Error())
+		log.Printf("[server] stop_bad_request err=%q\n", err.Error())
 		s.writeError(w, "invalid body", http.StatusBadRequest)
 		return
 	}
-	fmt.Printf("[server] stop_request title=%q active_title=%q inferencing=%v\n", req.Title, s.engine.ActiveTitle(), s.engine.IsInferencing())
+	log.Printf("[server] stop_request title=%q active_title=%q inferencing=%v\n", req.Title, s.engine.ActiveTitle(), s.engine.IsInferencing())
 	if s.engine.ActiveTitle() == req.Title {
 		s.engine.RequestInterrupt()
 	}
-	fmt.Printf("[server] stop_done title=%q active_title=%q inferencing=%v\n", req.Title, s.engine.ActiveTitle(), s.engine.IsInferencing())
+	log.Printf("[server] stop_done title=%q active_title=%q inferencing=%v\n", req.Title, s.engine.ActiveTitle(), s.engine.IsInferencing())
 	s.writeJSON(w, map[string]bool{"ok": true})
 }
 
@@ -404,28 +409,28 @@ func (s *Server) handleDeleteMessage(w http.ResponseWriter, r *http.Request) {
 	title := r.PathValue("title")
 	idx, err := strconv.Atoi(r.PathValue("index"))
 	if err != nil {
-		fmt.Printf("[server] delete_message_bad_index title=%q raw_index=%q\n", title, r.PathValue("index"))
+		log.Printf("[server] delete_message_bad_index title=%q raw_index=%q\n", title, r.PathValue("index"))
 		s.writeError(w, "invalid index", http.StatusBadRequest)
 		return
 	}
-	fmt.Printf("[server] delete_message_request title=%q idx=%d mode=%s inferencing=%v active_title=%q\n", title, idx, s.mode, s.engine.IsInferencing(), s.engine.ActiveTitle())
+	log.Printf("[server] delete_message_request title=%q idx=%d mode=%s inferencing=%v active_title=%q\n", title, idx, s.mode, s.engine.IsInferencing(), s.engine.ActiveTitle())
 
 	if s.engine.IsInferencingWith(title) {
-		fmt.Printf("[server] delete_message_reject title=%q idx=%d reason=inferencing_same_chat\n", title, idx)
+		log.Printf("[server] delete_message_reject title=%q idx=%d reason=inferencing_same_chat\n", title, idx)
 		s.writeError(w, "chat is currently being processed", http.StatusConflict)
 		return
 	}
 
 	chat, err := storage.GetChat(title)
 	if err != nil {
-		fmt.Printf("[server] delete_message_load_error title=%q idx=%d err=%q\n", title, idx, err.Error())
+		log.Printf("[server] delete_message_load_error title=%q idx=%d err=%q\n", title, idx, err.Error())
 		s.writeError(w, err.Error(), http.StatusNotFound)
 		return
 	}
-	fmt.Printf("[server] delete_message_loaded title=%q idx=%d messages=%d last=%s target=%s\n", title, idx, len(chat.Messages), describeServerLastMessage(chat), describeServerMessage(chat, idx))
+	log.Printf("[server] delete_message_loaded title=%q idx=%d messages=%d last=%s target=%s\n", title, idx, len(chat.Messages), describeServerLastMessage(chat), describeServerMessage(chat, idx))
 
 	if s.mode == "readonly" && idx != len(chat.Messages)-1 {
-		fmt.Printf("[server] delete_message_reject title=%q idx=%d reason=readonly_non_last messages=%d\n", title, idx, len(chat.Messages))
+		log.Printf("[server] delete_message_reject title=%q idx=%d reason=readonly_non_last messages=%d\n", title, idx, len(chat.Messages))
 		s.writeError(w, "readonly mode", http.StatusForbidden)
 		return
 	}
@@ -437,18 +442,18 @@ func (s *Server) handleDeleteMessage(w http.ResponseWriter, r *http.Request) {
 
 	errors, err := cont.DeleteMessage(chat, idx, delMode)
 	if err != nil {
-		fmt.Printf("[server] delete_message_error title=%q idx=%d err=%q\n", title, idx, err.Error())
+		log.Printf("[server] delete_message_error title=%q idx=%d err=%q\n", title, idx, err.Error())
 		s.writeError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	fmt.Printf("[server] delete_message_after title=%q idx=%d del_mode=%s messages=%d last=%s validation_errors=%d\n", title, idx, delMode, len(chat.Messages), describeServerLastMessage(chat), len(errors))
+	log.Printf("[server] delete_message_after title=%q idx=%d del_mode=%s messages=%d last=%s validation_errors=%d\n", title, idx, delMode, len(chat.Messages), describeServerLastMessage(chat), len(errors))
 
 	if err := storage.SaveChat(chat); err != nil {
-		fmt.Printf("[server] delete_message_save_error title=%q idx=%d err=%q\n", title, idx, err.Error())
+		log.Printf("[server] delete_message_save_error title=%q idx=%d err=%q\n", title, idx, err.Error())
 		s.writeError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	fmt.Printf("[server] delete_message_saved title=%q idx=%d messages=%d last=%s\n", title, idx, len(chat.Messages), describeServerLastMessage(chat))
+	log.Printf("[server] delete_message_saved title=%q idx=%d messages=%d last=%s\n", title, idx, len(chat.Messages), describeServerLastMessage(chat))
 
 	if errors != nil {
 		s.writeJSON(w, map[string]any{"ok": true, "errors": errors})

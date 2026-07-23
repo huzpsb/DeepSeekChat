@@ -8,6 +8,7 @@ import (
 
 	cont "hschat/internal/continue"
 	"hschat/internal/deepseek"
+	"hschat/internal/log"
 	"hschat/internal/model"
 	"hschat/internal/storage"
 )
@@ -102,11 +103,11 @@ func (e *StreamEngine) IsInterrupted() bool {
 func (e *StreamEngine) RequestInterrupt() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	fmt.Printf("[stream] interrupt_requested state=%s active_title=%q events=%d saved_pos=%d stream_done=%v interrupt=%v\n", e.state, e.activeTitle, len(e.events), e.savedPos, e.streamDone, e.interrupt)
+	log.Printf("[stream] interrupt_requested state=%s active_title=%q events=%d saved_pos=%d stream_done=%v interrupt=%v\n", e.state, e.activeTitle, len(e.events), e.savedPos, e.streamDone, e.interrupt)
 	if e.state == StateInferencing {
 		e.interrupt = true
 		if e.cancelFunc != nil {
-			fmt.Printf("[stream] interrupt_cancel active_title=%q\n", e.activeTitle)
+			log.Printf("[stream] interrupt_cancel active_title=%q\n", e.activeTitle)
 			e.cancelFunc()
 		}
 	}
@@ -118,12 +119,12 @@ func (e *StreamEngine) WaitForIdle() {
 	for {
 		e.mu.Lock()
 		if e.state == StateIdle {
-			fmt.Printf("[stream] wait_for_idle_done elapsed_ms=%d active_title=%q events=%d saved_pos=%d stream_done=%v interrupt=%v\n", time.Since(start).Milliseconds(), e.activeTitle, len(e.events), e.savedPos, e.streamDone, e.interrupt)
+			log.Printf("[stream] wait_for_idle_done elapsed_ms=%d active_title=%q events=%d saved_pos=%d stream_done=%v interrupt=%v\n", time.Since(start).Milliseconds(), e.activeTitle, len(e.events), e.savedPos, e.streamDone, e.interrupt)
 			e.mu.Unlock()
 			return
 		}
 		if !logged || time.Since(start) > time.Second {
-			fmt.Printf("[stream] wait_for_idle_waiting elapsed_ms=%d state=%s active_title=%q events=%d saved_pos=%d stream_done=%v interrupt=%v\n", time.Since(start).Milliseconds(), e.state, e.activeTitle, len(e.events), e.savedPos, e.streamDone, e.interrupt)
+			log.Printf("[stream] wait_for_idle_waiting elapsed_ms=%d state=%s active_title=%q events=%d saved_pos=%d stream_done=%v interrupt=%v\n", time.Since(start).Milliseconds(), e.state, e.activeTitle, len(e.events), e.savedPos, e.streamDone, e.interrupt)
 			logged = true
 		}
 		e.mu.Unlock()
@@ -134,19 +135,19 @@ func (e *StreamEngine) WaitForIdle() {
 func (e *StreamEngine) StartInference(title, input string, autoContinue bool) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	fmt.Printf("[stream] start_inference_request title=%q input_len=%d auto_continue=%v state=%s active_title=%q events=%d saved_pos=%d stream_done=%v\n", title, len(input), autoContinue, e.state, e.activeTitle, len(e.events), e.savedPos, e.streamDone)
+	log.Printf("[stream] start_inference_request title=%q input_len=%d auto_continue=%v state=%s active_title=%q events=%d saved_pos=%d stream_done=%v\n", title, len(input), autoContinue, e.state, e.activeTitle, len(e.events), e.savedPos, e.streamDone)
 
 	if e.state == StateInferencing {
-		fmt.Printf("[stream] start_inference_reject title=%q reason=already_inferencing active_title=%q\n", title, e.activeTitle)
+		log.Printf("[stream] start_inference_reject title=%q reason=already_inferencing active_title=%q\n", title, e.activeTitle)
 		return fmt.Errorf("another chat is being processed")
 	}
 
 	chat, err := storage.GetChat(title)
 	if err != nil {
-		fmt.Printf("[stream] start_inference_reject title=%q reason=load_chat_error err=%q\n", title, err.Error())
+		log.Printf("[stream] start_inference_reject title=%q reason=load_chat_error err=%q\n", title, err.Error())
 		return fmt.Errorf("chat not found: %w", err)
 	}
-	fmt.Printf("[stream] start_inference_loaded title=%q messages=%d last=%s\n", title, len(chat.Messages), describeLastMessage(chat))
+	log.Printf("[stream] start_inference_loaded title=%q messages=%d last=%s\n", title, len(chat.Messages), describeLastMessage(chat))
 
 	e.state = StateInferencing
 	e.interrupt = false
@@ -155,27 +156,27 @@ func (e *StreamEngine) StartInference(title, input string, autoContinue bool) er
 	e.events = nil
 	e.savedPos = 0
 	e.streamDone = false
-	fmt.Printf("[stream] start_inference_state_set title=%q state=%s events=%d saved_pos=%d stream_done=%v\n", title, e.state, len(e.events), e.savedPos, e.streamDone)
+	log.Printf("[stream] start_inference_state_set title=%q state=%s events=%d saved_pos=%d stream_done=%v\n", title, e.state, len(e.events), e.savedPos, e.streamDone)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	e.cancelFunc = cancel
 
 	go func() {
-		fmt.Printf("[stream] goroutine_start title=%q messages=%d last=%s\n", title, len(chat.Messages), describeLastMessage(chat))
+		log.Printf("[stream] goroutine_start title=%q messages=%d last=%s\n", title, len(chat.Messages), describeLastMessage(chat))
 		emit := func(evt cont.ContinueEvent) {
 			e.mu.Lock()
 			e.events = append(e.events, evt)
 			eventCount := len(e.events)
 			savedPos := e.savedPos
 			e.mu.Unlock()
-			fmt.Printf("[stream] emit title=%q event=%s event_count=%d saved_pos=%d %s\n", title, evt.Type, eventCount, savedPos, describeEvent(evt))
+			log.Printf("[stream] emit title=%q event=%s event_count=%d saved_pos=%d %s\n", title, evt.Type, eventCount, savedPos, describeEvent(evt))
 		}
 
 		defer cancel()
 
 		defer func() {
 			if r := recover(); r != nil {
-				fmt.Printf("[stream] goroutine_panic title=%q panic=%v\n", title, r)
+				log.Printf("[stream] goroutine_panic title=%q panic=%v\n", title, r)
 				emit(cont.ContinueEvent{
 					Type: "error",
 					Error: &cont.ErrorDetail{
@@ -185,32 +186,32 @@ func (e *StreamEngine) StartInference(title, input string, autoContinue bool) er
 				})
 			}
 
-			fmt.Printf("[stream] defer_save_start title=%q messages=%d last=%s\n", title, len(chat.Messages), describeLastMessage(chat))
+			log.Printf("[stream] defer_save_start title=%q messages=%d last=%s\n", title, len(chat.Messages), describeLastMessage(chat))
 			if err := storage.SaveChat(chat); err != nil {
-				fmt.Printf("[stream] defer_save_error title=%q err=%q\n", title, err.Error())
+				log.Printf("[stream] defer_save_error title=%q err=%q\n", title, err.Error())
 			} else {
-				fmt.Printf("[stream] defer_save_ok title=%q messages=%d last=%s\n", title, len(chat.Messages), describeLastMessage(chat))
+				log.Printf("[stream] defer_save_ok title=%q messages=%d last=%s\n", title, len(chat.Messages), describeLastMessage(chat))
 			}
 
 			e.mu.Lock()
 			e.savedPos = len(e.events)
 			e.streamDone = true
 			e.state = StateIdle
-			fmt.Printf("[stream] goroutine_done title=%q state=%s events=%d saved_pos=%d stream_done=%v interrupt=%v\n", title, e.state, len(e.events), e.savedPos, e.streamDone, e.interrupt)
+			log.Printf("[stream] goroutine_done title=%q state=%s events=%d saved_pos=%d stream_done=%v interrupt=%v\n", title, e.state, len(e.events), e.savedPos, e.streamDone, e.interrupt)
 			e.mu.Unlock()
 			cancel()
 		}()
 
 		save := func() {
-			fmt.Printf("[stream] save_func_start title=%q messages=%d last=%s\n", title, len(chat.Messages), describeLastMessage(chat))
+			log.Printf("[stream] save_func_start title=%q messages=%d last=%s\n", title, len(chat.Messages), describeLastMessage(chat))
 			if err := storage.SaveChat(chat); err != nil {
-				fmt.Printf("[stream] save_func_error title=%q err=%q\n", title, err.Error())
+				log.Printf("[stream] save_func_error title=%q err=%q\n", title, err.Error())
 			} else {
-				fmt.Printf("[stream] save_func_ok title=%q messages=%d last=%s\n", title, len(chat.Messages), describeLastMessage(chat))
+				log.Printf("[stream] save_func_ok title=%q messages=%d last=%s\n", title, len(chat.Messages), describeLastMessage(chat))
 			}
 			e.mu.Lock()
 			e.savedPos = len(e.events)
-			fmt.Printf("[stream] save_func_mark_saved title=%q events=%d saved_pos=%d stream_done=%v\n", title, len(e.events), e.savedPos, e.streamDone)
+			log.Printf("[stream] save_func_mark_saved title=%q events=%d saved_pos=%d stream_done=%v\n", title, len(e.events), e.savedPos, e.streamDone)
 			e.mu.Unlock()
 		}
 
@@ -223,7 +224,7 @@ func (e *StreamEngine) StartInference(title, input string, autoContinue bool) er
 		}
 
 		engine.Continue(ctx, chat, input, autoContinue, emit, interrupted)
-		fmt.Printf("[stream] engine_continue_returned title=%q messages=%d last=%s\n", title, len(chat.Messages), describeLastMessage(chat))
+		log.Printf("[stream] engine_continue_returned title=%q messages=%d last=%s\n", title, len(chat.Messages), describeLastMessage(chat))
 	}()
 
 	return nil
@@ -237,14 +238,14 @@ type EventReader struct {
 func (e *StreamEngine) Subscribe(title string) *EventReader {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	fmt.Printf("[stream] subscribe_request title=%q active_title=%q state=%s events=%d saved_pos=%d stream_done=%v interrupt=%v\n", title, e.activeTitle, e.state, len(e.events), e.savedPos, e.streamDone, e.interrupt)
+	log.Printf("[stream] subscribe_request title=%q active_title=%q state=%s events=%d saved_pos=%d stream_done=%v interrupt=%v\n", title, e.activeTitle, e.state, len(e.events), e.savedPos, e.streamDone, e.interrupt)
 
 	if e.activeTitle != title {
-		fmt.Printf("[stream] subscribe_reject title=%q active_title=%q\n", title, e.activeTitle)
+		log.Printf("[stream] subscribe_reject title=%q active_title=%q\n", title, e.activeTitle)
 		return nil
 	}
 
-	fmt.Printf("[stream] subscribe_ok title=%q start_pos=%d events=%d stream_done=%v\n", title, e.savedPos, len(e.events), e.streamDone)
+	log.Printf("[stream] subscribe_ok title=%q start_pos=%d events=%d stream_done=%v\n", title, e.savedPos, len(e.events), e.streamDone)
 	return &EventReader{eng: e, pos: e.savedPos}
 }
 
@@ -272,7 +273,7 @@ func (r *EventReader) Wait(ctx context.Context) ([]cont.ContinueEvent, bool) {
 
 	done := e.streamDone && r.pos >= len(e.events)
 	if len(batch) > 0 || done {
-		fmt.Printf("[stream] reader_wait_return active_title=%q batch=%d pos=%d events=%d saved_pos=%d stream_done=%v done=%v\n", e.activeTitle, len(batch), r.pos, len(e.events), e.savedPos, e.streamDone, done)
+		log.Printf("[stream] reader_wait_return active_title=%q batch=%d pos=%d events=%d saved_pos=%d stream_done=%v done=%v\n", e.activeTitle, len(batch), r.pos, len(e.events), e.savedPos, e.streamDone, done)
 	}
 	return batch, done
 }
