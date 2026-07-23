@@ -39,7 +39,13 @@ jobs:
           cache: false
 
       - name: Install UPX
-        run: sudo apt-get update && sudo apt-get install -y upx
+        run: |
+          UPX_VERSION=v5.2.0
+          curl -sSL "https://github.com/upx/upx/releases/download/${UPX_VERSION}/upx-${UPX_VERSION#v}-amd64_linux.tar.xz" -o upx.tar.xz
+          tar -xf upx.tar.xz
+          sudo mv upx-${UPX_VERSION#v}-amd64_linux/upx /usr/local/bin/
+          rm -rf upx.tar.xz upx-${UPX_VERSION#v}-amd64_linux
+          upx --version
 
       - name: Remove Windows-only object for non-Windows builds
         if: matrix.os != 'windows'
