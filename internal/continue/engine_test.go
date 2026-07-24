@@ -59,6 +59,10 @@ func (m *mockToolExecutor) GetAllowedTools() []model.ToolDef {
 	return nil
 }
 
+func (m *mockToolExecutor) GetToolDef(name string) *model.ToolDef {
+	return nil
+}
+
 func makeMsg(role string) model.Message {
 	return model.Message{Role: role, SendToServer: true}
 }
@@ -1592,6 +1596,32 @@ func TestContinue_ToolExecutionErrors(t *testing.T) {
 		makeAssistantMsg("", []model.ToolCall{makeToolCall("id1", "tool_a", `{}`)}),
 	}}
 	events := runContinue(engine, chat, "", false)
+	foundError := false
+	for _, e := range events {
+		if e.Type == "error" && e.Error != nil && e.Error.Type == "tool_error" {
+			foundError = true
+			if !strings.Contains(e.Error.Detail, "Error executing") {
+				t.Errorf("expected error detail to contain 'Error executing', got: '%s'", e.Error.Detail)
+			}
+		}
+	}
+	if !foundError {
+		t.Errorf("expected tool_error event on execution error")
+	}
+}
+
+func TestContinue_ToolExecutionErrors_ContinueOnError(t *testing.T) {
+	executor := &mockToolExecutor{
+		approvedTools: map[string]bool{"tool_a": true},
+		existingTools: map[string]bool{"tool_a": true},
+		executeErr:    fmt.Errorf("MCP connection failed"),
+	}
+	engine := newTestEngine("writable", executor)
+	engine.ContinueOnToolError = true
+	chat := &model.Chat{Messages: []model.Message{
+		makeAssistantMsg("", []model.ToolCall{makeToolCall("id1", "tool_a", `{}`)}),
+	}}
+	events := runContinue(engine, chat, "", false)
 	foundToolResult := false
 	for _, e := range events {
 		if e.Type == "tool_result" {
@@ -1602,7 +1632,7 @@ func TestContinue_ToolExecutionErrors(t *testing.T) {
 		}
 	}
 	if !foundToolResult {
-		t.Errorf("expected tool_result even on execution error")
+		t.Errorf("expected tool_result when ContinueOnToolError is true")
 	}
 }
 

@@ -69,7 +69,7 @@ func (p *Provider) runShellTool(tool model.ShellTool) string {
 	} else {
 		cmd = exec.CommandContext(ctx, "sh", "-c", tool.Command)
 	}
-	if !rawEnabled && (tool.RelativeOverwrite == nil || *tool.RelativeOverwrite) {
+	if tool.RelativeOverwrite == nil || *tool.RelativeOverwrite {
 		cmd.Dir = p.rootDir
 	}
 

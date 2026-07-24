@@ -2,6 +2,7 @@ package cont
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"hschat/internal/deepseek"
@@ -10,10 +11,11 @@ import (
 )
 
 type Engine struct {
-	deepseekClient *deepseek.Client
-	mode           string
-	toolExecutor   ToolExecutor
-	saveFunc       func()
+	deepseekClient      *deepseek.Client
+	mode                string
+	toolExecutor        ToolExecutor
+	saveFunc            func()
+	ContinueOnToolError bool
 }
 
 type ToolExecutor interface {
@@ -21,6 +23,7 @@ type ToolExecutor interface {
 	ToolExists(fullName string) bool
 	ExecuteTool(fullName string, arguments string) (*model.ToolResult, error)
 	GetAllowedTools() []model.ToolDef
+	GetToolDef(name string) *model.ToolDef
 }
 
 type ContinueEvent struct {
@@ -157,6 +160,13 @@ func (e *Engine) continueAssistant(ctx context.Context, chat *model.Chat, autoCo
 			},
 		})
 		return
+	}
+
+	for _, tc := range msg.ToolCalls {
+		if tc.Function.Name == "ask_user" && e.toolExecutor != nil && e.toolExecutor.ToolExists("ask_user") {
+			logContinue("continue_assistant_return reason=ask_user idx=%d", idx)
+			return
+		}
 	}
 
 	allApproved, needsApproval := e.checkApproval(&msg)
@@ -341,6 +351,43 @@ func (e *Engine) executeToolCall(ctx context.Context, chat *model.Chat, autoCont
 	})
 
 	if e.toolExecutor != nil {
+		argsErr := e.validateArgs(tc.Function.Name, tc.Function.Arguments)
+		if argsErr != "" {
+			logContinue("execute_tool_invalid_args tool_call_id=%q name=%q err=%q", tc.ID, tc.Function.Name, argsErr)
+			if !e.ContinueOnToolError {
+				emit(ContinueEvent{
+					Type: "error",
+					Error: &ErrorDetail{
+						Type:   "invalid_args",
+						Detail: argsErr,
+					},
+				})
+				return
+			}
+			content := "Error: " + argsErr
+			toolMsg := model.Message{
+				Role:         "tool",
+				ToolCallID:   tc.ID,
+				Name:         tc.Function.Name,
+				Content:      content,
+				SendToServer: true,
+			}
+			chat.Messages = append(chat.Messages, toolMsg)
+			emit(ContinueEvent{
+				Type: "tool_result",
+				ToolResult: &toolResultEvt{
+					Message: toolMsg,
+				},
+			})
+			if e.saveFunc != nil {
+				e.saveFunc()
+			}
+			if autoContinue {
+				e.checkAutoContinue(ctx, chat, autoContinue, emit, interrupted)
+			}
+			return
+		}
+
 		result, err := e.toolExecutor.ExecuteTool(tc.Function.Name, tc.Function.Arguments)
 		var content string
 		if err != nil {
@@ -350,6 +397,18 @@ func (e *Engine) executeToolCall(ctx context.Context, chat *model.Chat, autoCont
 			content = result.Content[0].Text
 		} else {
 			content = "Tool executed with no output"
+		}
+
+		if err != nil && !e.ContinueOnToolError {
+			emit(ContinueEvent{
+				Type: "error",
+				Error: &ErrorDetail{
+					Type:   "tool_error",
+					Detail: content,
+				},
+			})
+			logContinue("execute_tool_halt_on_error tool_call_id=%q name=%q", tc.ID, tc.Function.Name)
+			return
 		}
 
 		toolMsg := model.Message{
@@ -1020,4 +1079,74 @@ func removeIndices(msgs []model.Message, indices []int) []model.Message {
 		}
 	}
 	return result
+}
+
+func (e *Engine) validateArgs(toolName string, arguments string) string {
+	if e.toolExecutor == nil {
+		return ""
+	}
+	def := e.toolExecutor.GetToolDef(toolName)
+	if def == nil {
+		return ""
+	}
+	schema, ok := def.InputSchema.(map[string]any)
+	if !ok {
+		return ""
+	}
+
+	var args map[string]any
+	if arguments != "" {
+		if err := json.Unmarshal([]byte(arguments), &args); err != nil {
+			return "invalid JSON arguments: " + err.Error()
+		}
+	}
+	if args == nil {
+		args = map[string]any{}
+	}
+
+	props, _ := schema["properties"].(map[string]any)
+	required, _ := schema["required"].([]any)
+	requiredSet := make(map[string]bool, len(required))
+	for _, r := range required {
+		if s, ok := r.(string); ok {
+			requiredSet[s] = true
+		}
+	}
+
+	for key := range requiredSet {
+		if _, exists := args[key]; !exists {
+			return fmt.Sprintf("missing required argument '%s'", key)
+		}
+	}
+
+	for key, val := range args {
+		if props == nil {
+			break
+		}
+		prop, ok := props[key]
+		if !ok {
+			return fmt.Sprintf("unknown argument '%s'", key)
+		}
+		propMap, ok := prop.(map[string]any)
+		if !ok {
+			continue
+		}
+		expectedType, _ := propMap["type"].(string)
+		switch expectedType {
+		case "string":
+			if _, ok := val.(string); !ok {
+				return fmt.Sprintf("argument '%s' must be a string", key)
+			}
+		case "number", "integer":
+			if _, ok := val.(float64); !ok {
+				return fmt.Sprintf("argument '%s' must be a number", key)
+			}
+		case "boolean":
+			if _, ok := val.(bool); !ok {
+				return fmt.Sprintf("argument '%s' must be a boolean", key)
+			}
+		}
+	}
+
+	return ""
 }

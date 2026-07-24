@@ -210,7 +210,7 @@ func (p *Provider) tree(args map[string]any) string {
 		result = "Empty directory"
 	}
 
-	if !p.disablePathWarnings && strings.HasPrefix(dirStr, "/") {
+	if !p.sandboxDisabled && strings.HasPrefix(dirStr, "/") {
 		result += "\nWARNING: Please use relative path."
 	}
 	return result
@@ -448,7 +448,7 @@ func (p *Provider) createDir(args map[string]any) string {
 		return fmt.Sprintf("Error: %v", err)
 	}
 	result := "Success"
-	if !p.disablePathWarnings && warn {
+	if !p.sandboxDisabled && warn {
 		result += "\nWARNING: Please use relative path."
 	}
 	return result
@@ -471,7 +471,7 @@ func (p *Provider) createFile(args map[string]any) string {
 		return fmt.Sprintf("Error: %v", err)
 	}
 	result := "Success"
-	if !p.disablePathWarnings && warn {
+	if !p.sandboxDisabled && warn {
 		result += "\nWARNING: Please use relative path."
 	}
 	return result

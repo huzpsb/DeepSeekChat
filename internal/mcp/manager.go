@@ -31,6 +31,7 @@ type Manager struct {
 	allTools        map[string][]model.ToolDef
 	unapprovedTools []string
 	sandboxProvider *sandbox.Provider
+	SkipAskUser     bool
 }
 
 func NewManager() *Manager {
@@ -60,8 +61,10 @@ func (m *Manager) LoadAndConnect() error {
 	}
 	m.sandboxProvider = sp.(*sandbox.Provider)
 
-	if err := m.registerBuiltin(askuser.New()); err != nil {
-		log.Printf("Builtin [AskUser] init failed: %v", err)
+	if !m.SkipAskUser {
+		if err := m.registerBuiltin(askuser.New()); err != nil {
+			log.Printf("Builtin [AskUser] init failed: %v", err)
+		}
 	}
 
 	if m.config.EnableCodingTools {
@@ -70,7 +73,7 @@ func (m *Manager) LoadAndConnect() error {
 		}
 		cfg, err := storage.LoadCodingConfig()
 		if err == nil && cfg != nil && cfg.RawShell != nil && cfg.RawShell.Enabled && m.sandboxProvider != nil {
-			m.sandboxProvider.SetDisablePathWarnings(true)
+			m.sandboxProvider.SetSandboxDisabled(true)
 		}
 	}
 
@@ -458,6 +461,32 @@ func (m *Manager) GetAllowedTools() []model.ToolDef {
 		}
 	}
 	return result
+}
+
+func (m *Manager) GetToolDef(name string) *model.ToolDef {
+	mcpName, toolName := splitToolName(name)
+	if toolName != "" {
+		m.mu.RLock()
+		defer m.mu.RUnlock()
+		if tools, ok := m.allTools[mcpName]; ok {
+			for _, t := range tools {
+				if t.Name == toolName {
+					return &t
+				}
+			}
+		}
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, tools := range m.allTools {
+		for _, t := range tools {
+			if t.Name == name {
+				return &t
+			}
+		}
+	}
+	return nil
 }
 
 func (m *Manager) ExecuteTool(fullName string, arguments string) (*model.ToolResult, error) {

@@ -180,7 +180,7 @@ func TestRunShellTool_RawShellSkipsBlacklist(t *testing.T) {
 	checkContains(t, result, "raw_shell_pass")
 }
 
-func TestRunShellTool_RawShellNoRelativeDir(t *testing.T) {
+func TestRunShellTool_RawShellSetsRootDir(t *testing.T) {
 	p := setupProvider(t)
 	p.fileBlacklist = []string{}
 	if runtime.GOOS == "windows" {
@@ -192,8 +192,7 @@ func TestRunShellTool_RawShellNoRelativeDir(t *testing.T) {
 	os.WriteFile(filepath.Join(p.rootDir, "sandbox_only.txt"), []byte("sandbox"), 0644)
 
 	marker := "raw_shell_cwd_marker.txt"
-	os.WriteFile(marker, []byte("cwd_content"), 0644)
-	defer os.Remove(marker)
+	os.WriteFile(filepath.Join(p.rootDir, marker), []byte("cwd_content"), 0644)
 
 	command := "type " + marker
 	if runtime.GOOS != "windows" {

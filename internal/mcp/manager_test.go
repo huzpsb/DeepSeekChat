@@ -498,3 +498,60 @@ func TestManager_GetTools_AllStatuses(t *testing.T) {
 		t.Errorf("manually_approved tool entry not found")
 	}
 }
+
+// TestManager_CLIRunner_ApproveAllTools simulates the CLI runner pattern:
+// GetTools() → SetToolStatus("approved") for each → GetAllowedTools() should return them.
+// Also verifies that SetToolStatus on a non-existent tool does not affect GetAllowedTools.
+func TestManager_CLIRunner_ApproveAllTools(t *testing.T) {
+	setupManagerTest(t)
+	storage.SaveConfig(&model.MCPConfig{})
+
+	mgr := NewManager()
+	mgr.SkipAskUser = true // same as CLI runner
+	mgr.LoadAndConnect()
+
+	tools := mgr.GetTools()
+	if len(tools) == 0 {
+		t.Fatalf("expected at least one built-in tool")
+	}
+
+	// Approve every tool returned by GetTools (CLI runner pattern)
+	for _, tt := range tools {
+		if err := mgr.SetToolStatus(tt.MCPName, tt.ToolName, "approved"); err != nil {
+			t.Errorf("SetToolStatus(%q, %q, approved) failed: %v", tt.MCPName, tt.ToolName, err)
+		}
+	}
+
+	// Verify all available tools made it into GetAllowedTools
+	allowed := mgr.GetAllowedTools()
+	if len(allowed) == 0 {
+		t.Fatalf("expected non-empty GetAllowedTools after approving all tools")
+	}
+
+	for _, tt := range tools {
+		if !tt.Available {
+			continue // unavailable config-only entries are not expected in GetAllowedTools
+		}
+		found := false
+		for _, a := range allowed {
+			if a.Name == tt.ToolName {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("available tool %s::%s should be in GetAllowedTools after approval", tt.MCPName, tt.ToolName)
+		}
+	}
+
+	// SetToolStatus on a tool that does not exist in any MCP should not error
+	// and should not appear in GetAllowedTools
+	if err := mgr.SetToolStatus("nonexistent_mcp", "nonexistent_tool", "approved"); err != nil {
+		t.Errorf("SetToolStatus on non-existent tool should succeed (config-only): %v", err)
+	}
+	for _, a := range mgr.GetAllowedTools() {
+		if a.Name == "nonexistent_tool" {
+			t.Errorf("non-existent tool should not appear in GetAllowedTools")
+		}
+	}
+}

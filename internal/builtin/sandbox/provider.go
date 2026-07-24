@@ -11,27 +11,28 @@ import (
 )
 
 type Provider struct {
-	rootDir             string
-	extBlacklist        []string
-	disablePathWarnings bool
+	rootDir         string
+	extBlacklist    []string
+	sandboxDisabled bool
 }
 
 func New(cfg *model.SandboxConfig) builtin.Provider {
 	p := &Provider{
-		extBlacklist:        cfg.ExtBlacklist,
-		disablePathWarnings: cfg.DisablePathWarnings,
+		extBlacklist:    cfg.ExtBlacklist,
+		sandboxDisabled: cfg.SandboxDisabled,
 	}
 
-	if cfg.RootDir == "" {
-		cfg.RootDir = filepath.Join(".", "agent")
+	rootDir := cfg.RootDir
+	if rootDir == "" {
+		rootDir = filepath.Join(".", "agent")
 	}
-	if abs, err := filepath.Abs(cfg.RootDir); err == nil {
-		cfg.RootDir = abs
+	if abs, err := filepath.Abs(rootDir); err == nil {
+		rootDir = abs
 	}
-	if err := os.MkdirAll(cfg.RootDir, 0755); err != nil {
-		panic(fmt.Sprintf("failed to create root directory %s: %v", cfg.RootDir, err))
+	if err := os.MkdirAll(rootDir, 0755); err != nil {
+		panic(fmt.Sprintf("failed to create root directory %s: %v", rootDir, err))
 	}
-	p.rootDir = cfg.RootDir
+	p.rootDir = rootDir
 
 	return p
 }
@@ -48,16 +49,20 @@ func (p *Provider) Close() error {
 	return nil
 }
 
-func (p *Provider) SetDisablePathWarnings(disable bool) {
-	p.disablePathWarnings = disable
+func (p *Provider) SetSandboxDisabled(disabled bool) {
+	p.sandboxDisabled = disabled
 }
 
 func SafePath(rootDir, rel string) (string, error) {
-	path, _, err := SafePathWithWarning(rootDir, rel)
+	path, _, err := safePath(rootDir, rel, false)
 	return path, err
 }
 
 func SafePathWithWarning(rootDir, rel string) (string, bool, error) {
+	return safePath(rootDir, rel, false)
+}
+
+func safePath(rootDir, rel string, sandboxDisabled bool) (string, bool, error) {
 	absRoot, err := filepath.Abs(rootDir)
 	if err != nil {
 		return "", false, err
@@ -84,18 +89,21 @@ func SafePathWithWarning(rootDir, rel string) (string, bool, error) {
 		return "", false, err
 	}
 
-	relPath, err := filepath.Rel(absRoot, absTarget)
-	if err != nil || relPath == ".." || strings.HasPrefix(relPath, ".."+string(os.PathSeparator)) {
-		return "", false, fmt.Errorf("sandbox fs error: access denied (-1)")
+	if !sandboxDisabled {
+		relPath, err := filepath.Rel(absRoot, absTarget)
+		if err != nil || relPath == ".." || strings.HasPrefix(relPath, ".."+string(os.PathSeparator)) {
+			return "", false, fmt.Errorf("sandbox fs error: access denied (-1)")
+		}
 	}
 
 	return absTarget, warn, nil
 }
 
 func (p *Provider) getSafePath(rel string) (string, error) {
-	return SafePath(p.rootDir, rel)
+	path, _, err := safePath(p.rootDir, rel, p.sandboxDisabled)
+	return path, err
 }
 
 func (p *Provider) getSafePathWithWarning(rel string) (string, bool, error) {
-	return SafePathWithWarning(p.rootDir, rel)
+	return safePath(p.rootDir, rel, p.sandboxDisabled)
 }
