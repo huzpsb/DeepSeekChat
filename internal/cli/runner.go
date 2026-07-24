@@ -32,9 +32,17 @@ func Run(prompt, title string) error {
 		title = time.Now().Format("2006-01-02 150405")
 	}
 
+	messages := []model.Message{}
+	if cfg.DefaultPrompt != "" {
+		messages = append(messages, model.Message{
+			Role:         "system",
+			Content:      cfg.DefaultPrompt,
+			SendToServer: true,
+		})
+	}
 	chat := &model.Chat{
 		Title:    title,
-		Messages: []model.Message{},
+		Messages: messages,
 	}
 	if err := storage.SaveChat(chat); err != nil {
 		return fmt.Errorf("create chat: %w", err)

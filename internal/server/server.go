@@ -151,9 +151,17 @@ func (s *Server) handleListChats(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCreateChat(w http.ResponseWriter, r *http.Request) {
+	messages := []model.Message{}
+	if s.config.DefaultPrompt != "" {
+		messages = append(messages, model.Message{
+			Role:         "system",
+			Content:      s.config.DefaultPrompt,
+			SendToServer: true,
+		})
+	}
 	chat := &model.Chat{
 		Title:    time.Now().Format("2006-01-02 150405"),
-		Messages: []model.Message{},
+		Messages: messages,
 	}
 	if err := storage.SaveChat(chat); err != nil {
 		s.writeError(w, err.Error(), http.StatusInternalServerError)

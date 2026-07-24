@@ -6,6 +6,7 @@ type MCPConfig struct {
 	EnableCodingTools     bool             `json:"enable_coding_tools"`
 	EnableWebTools        bool             `json:"enable_web_tools"`
 	MCPServers            []MCPServer      `json:"mcp_servers"`
+	DefaultPrompt         string           `json:"default_prompt"`
 	ApprovedTools         []string         `json:"approved_tools"`
 	ManuallyApprovedTools []string         `json:"manually_approved_tools"`
 	ThirdParty            ThirdPartyConfig `json:"3rd_party"`

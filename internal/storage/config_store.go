@@ -32,6 +32,7 @@ func defaultConfig() *model.MCPConfig {
 		},
 		EnableCodingTools: true,
 		EnableWebTools:    true,
+		DefaultPrompt:     "You are a helpful assistant.",
 		MCPServers: []model.MCPServer{
 			{
 				Name: "SSE_Example",
