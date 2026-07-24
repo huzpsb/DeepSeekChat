@@ -1093,10 +1093,16 @@ func (e *Engine) validateArgs(toolName string, arguments string) string {
 	}
 
 	props, _ := schema["properties"].(map[string]any)
-	required, _ := schema["required"].([]any)
-	requiredSet := make(map[string]bool, len(required))
-	for _, r := range required {
-		if s, ok := r.(string); ok {
+	requiredSet := make(map[string]bool)
+	switch r := schema["required"].(type) {
+	case []any:
+		for _, v := range r {
+			if s, ok := v.(string); ok {
+				requiredSet[s] = true
+			}
+		}
+	case []string:
+		for _, s := range r {
 			requiredSet[s] = true
 		}
 	}

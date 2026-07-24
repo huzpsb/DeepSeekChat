@@ -1626,7 +1626,7 @@ func TestContinue_InvalidArgs_HaltByDefault(t *testing.T) {
 					"properties": map[string]any{
 						"path": map[string]any{"type": "string"},
 					},
-					"required": []any{"path"},
+					"required": []string{"path"},
 				},
 			},
 		},
@@ -1659,7 +1659,7 @@ func TestContinue_InvalidArgs_ContinueWhenEnabled(t *testing.T) {
 					"properties": map[string]any{
 						"path": map[string]any{"type": "string"},
 					},
-					"required": []any{"path"},
+					"required": []string{"path"},
 				},
 			},
 		},

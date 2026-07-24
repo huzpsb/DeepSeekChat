@@ -55,6 +55,8 @@ func (m *Manager) LoadAndConnect() error {
 		}
 	}
 
+	m.config.Sandbox.RootDir = sandbox.ResolveRootDir(m.config.Sandbox.RootDir)
+
 	sp := sandbox.New(&m.config.Sandbox)
 	if err := m.registerBuiltin(sp); err != nil {
 		log.Printf("Builtin [Sandbox] init failed: %v", err)
