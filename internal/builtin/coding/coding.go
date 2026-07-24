@@ -1,9 +1,8 @@
 package coding
 
 import (
-	"path/filepath"
-
 	"hschat/internal/builtin"
+	"hschat/internal/builtin/sandbox"
 	"hschat/internal/model"
 	"hschat/internal/storage"
 )
@@ -21,12 +20,7 @@ type Provider struct {
 }
 
 func New(rootDir string) builtin.Provider {
-	if rootDir == "" {
-		rootDir = filepath.Join(".", "agent")
-	}
-	if abs, err := filepath.Abs(rootDir); err == nil {
-		rootDir = abs
-	}
+	rootDir = sandbox.ResolveRootDir(rootDir)
 	return &Provider{
 		rootDir:       rootDir,
 		shellTools:    make(map[string]model.ShellTool),

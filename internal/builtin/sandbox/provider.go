@@ -22,13 +22,7 @@ func New(cfg *model.SandboxConfig) builtin.Provider {
 		sandboxDisabled: cfg.SandboxDisabled,
 	}
 
-	rootDir := cfg.RootDir
-	if rootDir == "" {
-		rootDir = filepath.Join(".", "agent")
-	}
-	if abs, err := filepath.Abs(rootDir); err == nil {
-		rootDir = abs
-	}
+	rootDir := ResolveRootDir(cfg.RootDir)
 	if err := os.MkdirAll(rootDir, 0755); err != nil {
 		panic(fmt.Sprintf("failed to create root directory %s: %v", rootDir, err))
 	}
@@ -51,6 +45,16 @@ func (p *Provider) Close() error {
 
 func (p *Provider) SetSandboxDisabled(disabled bool) {
 	p.sandboxDisabled = disabled
+}
+
+func ResolveRootDir(dir string) string {
+	if dir == "" {
+		dir = filepath.Join(".", "agent")
+	}
+	if abs, err := filepath.Abs(dir); err == nil {
+		return abs
+	}
+	return dir
 }
 
 func SafePath(rootDir, rel string) (string, error) {
