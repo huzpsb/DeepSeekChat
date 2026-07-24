@@ -22,7 +22,13 @@ func MoveToTrash(rootDir, path string) error {
 	_ = os.MkdirAll(trashDir, 0755)
 	timestamp := (time.Now().UnixMilli()) % 1_000_000
 	dest := filepath.Join(trashDir, fmt.Sprintf("%d_%s", timestamp, filepath.Base(path)))
-	return os.Rename(path, dest)
+	if err := os.Rename(path, dest); err != nil {
+		if copyErr := copyFile(path, dest); copyErr != nil {
+			return fmt.Errorf("rename failed: %v; copy fallback failed: %v", err, copyErr)
+		}
+		return os.Remove(path)
+	}
+	return nil
 }
 
 func IsIgnoredName(name string) bool {

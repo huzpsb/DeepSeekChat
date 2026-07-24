@@ -32,6 +32,7 @@ type Manager struct {
 	unapprovedTools []string
 	sandboxProvider *sandbox.Provider
 	SkipAskUser     bool
+	ApproveAll      bool
 }
 
 func NewManager() *Manager {
@@ -55,9 +56,10 @@ func (m *Manager) LoadAndConnect() error {
 		}
 	}
 
-	m.config.Sandbox.RootDir = sandbox.ResolveRootDir(m.config.Sandbox.RootDir)
+	sandboxCfg := m.config.Sandbox
+	sandboxCfg.RootDir = sandbox.ResolveRootDir(sandboxCfg.RootDir)
 
-	sp := sandbox.New(&m.config.Sandbox)
+	sp := sandbox.New(&sandboxCfg)
 	if err := m.registerBuiltin(sp); err != nil {
 		log.Printf("Builtin [Sandbox] init failed: %v", err)
 	}
@@ -70,7 +72,7 @@ func (m *Manager) LoadAndConnect() error {
 	}
 
 	if m.config.EnableCodingTools {
-		if err := m.registerBuiltin(coding.New(m.config.Sandbox.RootDir)); err != nil {
+		if err := m.registerBuiltin(coding.New(sandboxCfg.RootDir)); err != nil {
 			log.Printf("Builtin [Coding] init failed: %v", err)
 		}
 		cfg, err := storage.LoadCodingConfig()
@@ -80,7 +82,7 @@ func (m *Manager) LoadAndConnect() error {
 	}
 
 	if m.config.EnableWebTools {
-		if err := m.registerBuiltin(web.New(m.config.Sandbox.RootDir)); err != nil {
+		if err := m.registerBuiltin(web.New(sandboxCfg.RootDir)); err != nil {
 			log.Printf("Builtin [WebMCP] init failed: %v", err)
 		}
 	}
@@ -392,6 +394,23 @@ func (m *Manager) IsToolApproved(toolFullName string) (approved bool, manuallyAp
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	if m.ApproveAll {
+		mcpName, toolName := splitToolName(toolFullName)
+		if toolName != "" {
+			if m.isToolAvailable(mcpName, toolName) {
+				return true, false
+			}
+		} else {
+			for _, tools := range m.allTools {
+				for _, t := range tools {
+					if t.Name == toolFullName {
+						return true, false
+					}
+				}
+			}
+		}
+	}
+
 	for _, t := range m.config.ApprovedTools {
 		if t == toolFullName {
 			return true, false
@@ -457,7 +476,7 @@ func (m *Manager) GetAllowedTools() []model.ToolDef {
 	for mcpName, tools := range m.allTools {
 		for _, tool := range tools {
 			fullName := mcpName + "::" + tool.Name
-			if approvedMap[fullName] || manualMap[fullName] {
+			if m.ApproveAll || approvedMap[fullName] || manualMap[fullName] {
 				result = append(result, tool)
 			}
 		}

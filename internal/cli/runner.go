@@ -21,13 +21,9 @@ func Run(prompt, title string) error {
 
 	mcpMgr := mcp.NewManager()
 	mcpMgr.SkipAskUser = true
+	mcpMgr.ApproveAll = true
 	if err := mcpMgr.LoadAndConnect(); err != nil {
 		return fmt.Errorf("mcp init: %w", err)
-	}
-
-	tools := mcpMgr.GetTools()
-	for _, t := range tools {
-		mcpMgr.SetToolStatus(t.MCPName, t.ToolName, "approved")
 	}
 
 	dsClient := deepseek.NewClient(cfg.APIKey, cfg.ThirdParty)

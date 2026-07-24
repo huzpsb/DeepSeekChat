@@ -499,15 +499,18 @@ func TestManager_GetTools_AllStatuses(t *testing.T) {
 	}
 }
 
-// TestManager_CLIRunner_ApproveAllTools simulates the CLI runner pattern:
-// GetTools() → SetToolStatus("approved") for each → GetAllowedTools() should return them.
-// Also verifies that SetToolStatus on a non-existent tool does not affect GetAllowedTools.
+// TestManager_CLIRunner_ApproveAllTools verifies the headless CLI runner pattern:
+// ApproveAll=true treats every available tool as approved in memory only,
+// without persisting anything to the shared config file.
 func TestManager_CLIRunner_ApproveAllTools(t *testing.T) {
 	setupManagerTest(t)
-	storage.SaveConfig(&model.MCPConfig{})
+	storage.SaveConfig(&model.MCPConfig{
+		ManuallyApprovedTools: []string{"Sandbox::tree"},
+	})
 
 	mgr := NewManager()
 	mgr.SkipAskUser = true // same as CLI runner
+	mgr.ApproveAll = true  // same as CLI runner
 	mgr.LoadAndConnect()
 
 	tools := mgr.GetTools()
@@ -515,17 +518,9 @@ func TestManager_CLIRunner_ApproveAllTools(t *testing.T) {
 		t.Fatalf("expected at least one built-in tool")
 	}
 
-	// Approve every tool returned by GetTools (CLI runner pattern)
-	for _, tt := range tools {
-		if err := mgr.SetToolStatus(tt.MCPName, tt.ToolName, "approved"); err != nil {
-			t.Errorf("SetToolStatus(%q, %q, approved) failed: %v", tt.MCPName, tt.ToolName, err)
-		}
-	}
-
-	// Verify all available tools made it into GetAllowedTools
 	allowed := mgr.GetAllowedTools()
 	if len(allowed) == 0 {
-		t.Fatalf("expected non-empty GetAllowedTools after approving all tools")
+		t.Fatalf("expected non-empty GetAllowedTools with ApproveAll")
 	}
 
 	for _, tt := range tools {
@@ -540,18 +535,30 @@ func TestManager_CLIRunner_ApproveAllTools(t *testing.T) {
 			}
 		}
 		if !found {
-			t.Errorf("available tool %s::%s should be in GetAllowedTools after approval", tt.MCPName, tt.ToolName)
+			t.Errorf("available tool %s::%s should be in GetAllowedTools with ApproveAll", tt.MCPName, tt.ToolName)
+		}
+
+		approved, manual := mgr.IsToolApproved(tt.MCPName + "::" + tt.ToolName)
+		if !approved || manual {
+			t.Errorf("IsToolApproved(%s::%s) = (%v, %v), want (true, false)", tt.MCPName, tt.ToolName, approved, manual)
 		}
 	}
 
-	// SetToolStatus on a tool that does not exist in any MCP should not error
-	// and should not appear in GetAllowedTools
-	if err := mgr.SetToolStatus("nonexistent_mcp", "nonexistent_tool", "approved"); err != nil {
-		t.Errorf("SetToolStatus on non-existent tool should succeed (config-only): %v", err)
+	// A tool that does not exist must not be treated as approved
+	if approved, _ := mgr.IsToolApproved("nonexistent_mcp::nonexistent_tool"); approved {
+		t.Errorf("non-existent tool should not be approved even with ApproveAll")
 	}
-	for _, a := range mgr.GetAllowedTools() {
-		if a.Name == "nonexistent_tool" {
-			t.Errorf("non-existent tool should not appear in GetAllowedTools")
-		}
+
+	// The persisted config must remain untouched: no approvals written and
+	// the manually-approved list intact.
+	disk, err := storage.LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if len(disk.ApprovedTools) != 0 {
+		t.Errorf("ApproveAll must not persist approved tools, got %v", disk.ApprovedTools)
+	}
+	if len(disk.ManuallyApprovedTools) != 1 || disk.ManuallyApprovedTools[0] != "Sandbox::tree" {
+		t.Errorf("ApproveAll must not alter manually approved tools, got %v", disk.ManuallyApprovedTools)
 	}
 }
