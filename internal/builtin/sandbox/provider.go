@@ -11,13 +11,15 @@ import (
 )
 
 type Provider struct {
-	rootDir      string
-	extBlacklist []string
+	rootDir             string
+	extBlacklist        []string
+	disablePathWarnings bool
 }
 
 func New(cfg *model.SandboxConfig) builtin.Provider {
 	p := &Provider{
-		extBlacklist: cfg.ExtBlacklist,
+		extBlacklist:        cfg.ExtBlacklist,
+		disablePathWarnings: cfg.DisablePathWarnings,
 	}
 
 	if cfg.RootDir == "" {
@@ -44,6 +46,10 @@ func (p *Provider) Initialize(configPath string) error {
 
 func (p *Provider) Close() error {
 	return nil
+}
+
+func (p *Provider) SetDisablePathWarnings(disable bool) {
+	p.disablePathWarnings = disable
 }
 
 func SafePath(rootDir, rel string) (string, error) {

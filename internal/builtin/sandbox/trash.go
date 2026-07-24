@@ -25,10 +25,6 @@ func MoveToTrash(rootDir, path string) error {
 	return os.Rename(path, dest)
 }
 
-func (p *Provider) moveToTrash(path string) error {
-	return MoveToTrash(p.rootDir, path)
-}
-
 func IsIgnoredName(name string) bool {
 	return name == ".trash_can" || name == "_runtime"
 }

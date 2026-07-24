@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"hschat/internal/log"
 	"hschat/internal/model"
 	"hschat/internal/storage"
 )
@@ -21,7 +22,10 @@ func setupServerTest(t *testing.T) {
 	tmpDir := t.TempDir()
 	origDir, _ := os.Getwd()
 	os.Chdir(tmpDir)
-	t.Cleanup(func() { os.Chdir(origDir) })
+	t.Cleanup(func() {
+		log.Close()
+		os.Chdir(origDir)
+	})
 	storage.SaveConfig(&model.MCPConfig{})
 }
 

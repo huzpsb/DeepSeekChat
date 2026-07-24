@@ -69,11 +69,14 @@ func TestRunShellTool_Timeout(t *testing.T) {
 	p := setupProvider(t)
 	p.fileBlacklist = []string{}
 
+	cmd := "ping -n 10 127.0.0.1"
+	if runtime.GOOS != "windows" {
+		cmd = "ping -c 10 127.0.0.1"
+	}
 	result := p.runShellTool(model.ShellTool{
-		Command: "ping -n 10 127.0.0.1",
+		Command: cmd,
 		Timeout: 1,
 	})
-	// should mention exit code (timeout or killed)
 	checkContains(t, result, "Exit Code")
 }
 
@@ -132,8 +135,12 @@ func TestRunShellTool_StderrCapture(t *testing.T) {
 	p := setupProvider(t)
 	p.fileBlacklist = []string{}
 
+	cmd := `cmd /c "echo stdout_text & echo stderr_text 1>&2"`
+	if runtime.GOOS != "windows" {
+		cmd = "echo stdout_text; echo stderr_text 1>&2"
+	}
 	result := p.runShellTool(model.ShellTool{
-		Command: "cmd /c \"echo stdout_text & echo stderr_text 1>&2\"",
+		Command: cmd,
 		Timeout: 10,
 	})
 	checkContains(t, result, "stdout_text")
@@ -142,20 +149,78 @@ func TestRunShellTool_StderrCapture(t *testing.T) {
 	checkContains(t, result, "--- Stderr ---")
 }
 
-func TestRunShellTool_RelativeOverwriteDefaultUsesSandbox(t *testing.T) {
-	p := setupProvider(t)
-	p.fileBlacklist = []string{}
-	os.WriteFile(filepath.Join(p.rootDir, "sandbox_only.txt"), []byte("ok"), 0644)
-	command := "cat sandbox_only.txt"
-	if runtime.GOOS == "windows" {
-		command = "type sandbox_only.txt"
+func TestShellOutputString_WindowsGB18030(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows shell output decoding is only used on Windows")
 	}
 
+	got := encoding.DecodeGB18030([]byte{0xc4, 0xe3, 0xba, 0xc3, 0xca, 0xc0, 0xbd, 0xe7})
+	if got != "你好世界" {
+		t.Fatalf("expected decoded Chinese output, got %q", got)
+	}
+}
+
+func TestRunShellTool_RawShellSkipsBlacklist(t *testing.T) {
+	p := setupProvider(t)
+	os.WriteFile(filepath.Join(p.rootDir, "bad.go"), []byte("contains os/exec import\n"), 0644)
+	p.fileBlacklist = []string{"os/exec"}
+	if runtime.GOOS == "windows" {
+		p.rawShell = &model.RawShellConfig{Enabled: true, Shell: []string{"cmd.exe", "/c"}, Preamble: "$original"}
+	} else {
+		p.rawShell = &model.RawShellConfig{Enabled: true, Shell: []string{"sh", "-c"}, Preamble: "$original"}
+	}
+
+	result := p.runShellTool(model.ShellTool{
+		Command: "echo raw_shell_pass",
+		Timeout: 10,
+	})
+	if strings.Contains(result, "ClamAV") {
+		t.Errorf("raw_shell should skip blacklist, but got ClamAV block:\n%s", result)
+	}
+	checkContains(t, result, "raw_shell_pass")
+}
+
+func TestRunShellTool_RawShellNoRelativeDir(t *testing.T) {
+	p := setupProvider(t)
+	p.fileBlacklist = []string{}
+	if runtime.GOOS == "windows" {
+		p.rawShell = &model.RawShellConfig{Enabled: true, Shell: []string{"cmd.exe", "/c"}, Preamble: "$original"}
+	} else {
+		p.rawShell = &model.RawShellConfig{Enabled: true, Shell: []string{"sh", "-c"}, Preamble: "$original"}
+	}
+
+	os.WriteFile(filepath.Join(p.rootDir, "sandbox_only.txt"), []byte("sandbox"), 0644)
+
+	marker := "raw_shell_cwd_marker.txt"
+	os.WriteFile(marker, []byte("cwd_content"), 0644)
+	defer os.Remove(marker)
+
+	command := "type " + marker
+	if runtime.GOOS != "windows" {
+		command = "cat " + marker
+	}
 	result := p.runShellTool(model.ShellTool{
 		Command: command,
 		Timeout: 10,
 	})
-	checkContains(t, result, "ok")
+	checkContains(t, result, "cwd_content")
+}
+
+func TestRunShellTool_WithoutRawShellSetsRootDir(t *testing.T) {
+	p := setupProvider(t)
+	p.fileBlacklist = []string{}
+
+	os.WriteFile(filepath.Join(p.rootDir, "sandbox_only.txt"), []byte("sandbox_content"), 0644)
+
+	command := "type sandbox_only.txt"
+	if runtime.GOOS != "windows" {
+		command = "cat sandbox_only.txt"
+	}
+	result := p.runShellTool(model.ShellTool{
+		Command: command,
+		Timeout: 10,
+	})
+	checkContains(t, result, "sandbox_content")
 }
 
 func TestRunShellTool_RelativeOverwriteFalseUsesCurrentDir(t *testing.T) {
@@ -172,9 +237,9 @@ func TestRunShellTool_RelativeOverwriteFalseUsesCurrentDir(t *testing.T) {
 	}
 	defer os.Remove(markerPath)
 	relativeOverwrite := false
-	command := "cat " + marker
-	if runtime.GOOS == "windows" {
-		command = "type " + marker
+	command := "type " + marker
+	if runtime.GOOS != "windows" {
+		command = "cat " + marker
 	}
 
 	result := p.runShellTool(model.ShellTool{
@@ -183,15 +248,4 @@ func TestRunShellTool_RelativeOverwriteFalseUsesCurrentDir(t *testing.T) {
 		RelativeOverwrite: &relativeOverwrite,
 	})
 	checkContains(t, result, "current-dir-ok")
-}
-
-func TestShellOutputString_WindowsGB18030(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("Windows shell output decoding is only used on Windows")
-	}
-
-	got := encoding.DecodeGB18030([]byte{0xc4, 0xe3, 0xba, 0xc3, 0xca, 0xc0, 0xbd, 0xe7})
-	if got != "你好世界" {
-		t.Fatalf("expected decoded Chinese output, got %q", got)
-	}
 }

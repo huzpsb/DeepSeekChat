@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,7 +17,9 @@ import (
 )
 
 func (p *Provider) runShellTool(tool model.ShellTool) string {
-	if len(p.fileBlacklist) > 0 {
+	rawEnabled := p.rawShell != nil && p.rawShell.Enabled
+
+	if !rawEnabled && len(p.fileBlacklist) > 0 {
 		checkErr := filepath.Walk(p.rootDir, func(fp string, info os.FileInfo, err error) error {
 			if err != nil {
 				return nil
@@ -49,6 +52,9 @@ func (p *Provider) runShellTool(tool model.ShellTool) string {
 			return fmt.Sprintf("Error: ClamAV: %v", checkErr)
 		}
 	}
+	if rawEnabled && len(p.fileBlacklist) > 0 {
+		log.Printf("[WARNING] raw_shell is enabled, blacklist scan is bypassed. Blacklist entries: %v", p.fileBlacklist)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(tool.Timeout)*time.Second)
 	defer cancel()
@@ -63,7 +69,7 @@ func (p *Provider) runShellTool(tool model.ShellTool) string {
 	} else {
 		cmd = exec.CommandContext(ctx, "sh", "-c", tool.Command)
 	}
-	if tool.RelativeOverwrite == nil || *tool.RelativeOverwrite {
+	if !rawEnabled && (tool.RelativeOverwrite == nil || *tool.RelativeOverwrite) {
 		cmd.Dir = p.rootDir
 	}
 

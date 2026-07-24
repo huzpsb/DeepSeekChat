@@ -30,6 +30,7 @@ type Manager struct {
 	clients         map[string]Client
 	allTools        map[string][]model.ToolDef
 	unapprovedTools []string
+	sandboxProvider *sandbox.Provider
 }
 
 func NewManager() *Manager {
@@ -53,9 +54,11 @@ func (m *Manager) LoadAndConnect() error {
 		}
 	}
 
-	if err := m.registerBuiltin(sandbox.New(&m.config.Sandbox)); err != nil {
+	sp := sandbox.New(&m.config.Sandbox)
+	if err := m.registerBuiltin(sp); err != nil {
 		log.Printf("Builtin [Sandbox] init failed: %v", err)
 	}
+	m.sandboxProvider = sp.(*sandbox.Provider)
 
 	if err := m.registerBuiltin(askuser.New()); err != nil {
 		log.Printf("Builtin [AskUser] init failed: %v", err)
@@ -64,6 +67,10 @@ func (m *Manager) LoadAndConnect() error {
 	if m.config.EnableCodingTools {
 		if err := m.registerBuiltin(coding.New(m.config.Sandbox.RootDir)); err != nil {
 			log.Printf("Builtin [Coding] init failed: %v", err)
+		}
+		cfg, err := storage.LoadCodingConfig()
+		if err == nil && cfg != nil && cfg.RawShell != nil && cfg.RawShell.Enabled && m.sandboxProvider != nil {
+			m.sandboxProvider.SetDisablePathWarnings(true)
 		}
 	}
 

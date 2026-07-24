@@ -210,7 +210,7 @@ func (p *Provider) tree(args map[string]any) string {
 		result = "Empty directory"
 	}
 
-	if strings.HasPrefix(dirStr, "/") {
+	if !p.disablePathWarnings && strings.HasPrefix(dirStr, "/") {
 		result += "\nWARNING: Please use relative path."
 	}
 	return result
@@ -448,7 +448,7 @@ func (p *Provider) createDir(args map[string]any) string {
 		return fmt.Sprintf("Error: %v", err)
 	}
 	result := "Success"
-	if warn {
+	if !p.disablePathWarnings && warn {
 		result += "\nWARNING: Please use relative path."
 	}
 	return result
@@ -471,7 +471,7 @@ func (p *Provider) createFile(args map[string]any) string {
 		return fmt.Sprintf("Error: %v", err)
 	}
 	result := "Success"
-	if warn {
+	if !p.disablePathWarnings && warn {
 		result += "\nWARNING: Please use relative path."
 	}
 	return result
@@ -483,7 +483,7 @@ func (p *Provider) rm(args map[string]any) string {
 	if err != nil {
 		return fmt.Sprintf("Error: %v", err)
 	}
-	if err := p.moveToTrash(path); err != nil {
+	if err := MoveToTrash(p.rootDir, path); err != nil {
 		return fmt.Sprintf("Error: %v", err)
 	}
 	return "Success"
@@ -526,7 +526,7 @@ func (p *Provider) rewriteFile(args map[string]any) string {
 		return "Error: file is larger than 1MB"
 	}
 
-	_ = p.moveToTrash(path)
+	_ = MoveToTrash(p.rootDir, path)
 	if err := os.WriteFile(path, []byte(unifyNewlines(content)), 0644); err != nil {
 		return fmt.Sprintf("Error: %v", err)
 	}

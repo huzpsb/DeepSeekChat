@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestSafePathWithWarningAllowsAbsolutePathInsideRoot(t *testing.T) {
+func TestSafePathAllowsAbsolutePathInsideRoot(t *testing.T) {
 	root := t.TempDir()
 	want := filepath.Join(root, "file.txt")
 
@@ -23,7 +23,7 @@ func TestSafePathWithWarningAllowsAbsolutePathInsideRoot(t *testing.T) {
 	}
 }
 
-func TestSafePathWithWarningRejectsAbsolutePathOutsideRoot(t *testing.T) {
+func TestSafePathRejectsAbsolutePathOutsideRoot(t *testing.T) {
 	root := t.TempDir()
 	outside := filepath.Join(t.TempDir(), "file.txt")
 
@@ -32,7 +32,7 @@ func TestSafePathWithWarningRejectsAbsolutePathOutsideRoot(t *testing.T) {
 	}
 }
 
-func TestCreateFileAllowsAbsolutePathInsideRootWithWarning(t *testing.T) {
+func TestCreateFileWithAbsolutePath(t *testing.T) {
 	root := t.TempDir()
 	file := filepath.Join(root, "created.txt")
 	p := &Provider{rootDir: root}
@@ -51,5 +51,57 @@ func TestCreateFileAllowsAbsolutePathInsideRootWithWarning(t *testing.T) {
 	}
 	if string(data) != "hello" {
 		t.Fatalf("expected content %q, got %q", "hello", string(data))
+	}
+}
+
+func TestRmWithAbsolutePathTrashesFile(t *testing.T) {
+	root := t.TempDir()
+	file := filepath.Join(root, "to_delete.txt")
+	os.WriteFile(file, []byte("delete me"), 0644)
+
+	p := &Provider{rootDir: root}
+	result := p.rm(map[string]any{"file": file})
+	if !strings.Contains(result, "Success") {
+		t.Fatalf("expected Success, got %q", result)
+	}
+
+	if _, err := os.Stat(file); err == nil {
+		t.Fatalf("expected file to be removed from original location")
+	}
+
+	trashDir := filepath.Join(root, ".trash_can")
+	entries, err := os.ReadDir(trashDir)
+	if err != nil {
+		t.Fatalf("expected trashcan directory to exist: %v", err)
+	}
+	found := false
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), "_to_delete.txt") {
+			found = true
+			data, _ := os.ReadFile(filepath.Join(trashDir, e.Name()))
+			if string(data) != "delete me" {
+				t.Fatalf("expected trash content 'delete me', got %q", string(data))
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected file in trashcan, got entries: %v", entries)
+	}
+}
+
+func TestRmWithAbsolutePathOutsideRootRejected(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside.txt")
+	os.WriteFile(outside, []byte("danger"), 0644)
+
+	p := &Provider{rootDir: root}
+	result := p.rm(map[string]any{"file": outside})
+	if !strings.Contains(result, "access denied") {
+		t.Fatalf("expected access denied, got %q", result)
+	}
+
+	if _, err := os.Stat(outside); err != nil {
+		t.Fatalf("expected outside file to still exist: %v", err)
 	}
 }
