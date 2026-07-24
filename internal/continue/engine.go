@@ -93,7 +93,7 @@ func (e *Engine) doContinue(ctx context.Context, chat *model.Chat, autoContinue 
 			logContinue("route_stream_deepseek_error err=%q", err.Error())
 			return
 		}
-		if autoContinue {
+		if autoContinue && len(chat.Messages) > 0 && chat.Messages[len(chat.Messages)-1].Role != "user" {
 			e.checkAutoContinue(ctx, chat, autoContinue, emit, interrupted)
 		}
 
@@ -126,7 +126,7 @@ func (e *Engine) continueAssistant(ctx context.Context, chat *model.Chat, autoCo
 				logContinue("continue_assistant_sudo_stream_error idx=%d err=%q", idx, err.Error())
 				return
 			}
-			if autoContinue {
+			if autoContinue && len(chat.Messages) > 0 && chat.Messages[len(chat.Messages)-1].Role != "user" {
 				e.checkAutoContinue(ctx, chat, autoContinue, emit, interrupted)
 			}
 		}
@@ -143,7 +143,7 @@ func (e *Engine) continueAssistant(ctx context.Context, chat *model.Chat, autoCo
 				logContinue("continue_assistant_invalid_stream_error idx=%d err=%q", idx, err.Error())
 				return
 			}
-			if autoContinue {
+			if autoContinue && len(chat.Messages) > 0 && chat.Messages[len(chat.Messages)-1].Role != "user" {
 				e.checkAutoContinue(ctx, chat, autoContinue, emit, interrupted)
 			}
 			return
@@ -254,7 +254,7 @@ func (e *Engine) continueTool(ctx context.Context, chat *model.Chat, autoContinu
 				logContinue("continue_tool_invalid_stream_error orig_idx=%d err=%q", origIdx, err.Error())
 				return
 			}
-			if autoContinue {
+			if autoContinue && len(chat.Messages) > 0 && chat.Messages[len(chat.Messages)-1].Role != "user" {
 				e.checkAutoContinue(ctx, chat, autoContinue, emit, interrupted)
 			}
 			return
@@ -315,7 +315,7 @@ func (e *Engine) continueTool(ctx context.Context, chat *model.Chat, autoContinu
 			logContinue("continue_tool_stream_error orig_idx=%d err=%q", origIdx, err.Error())
 			return
 		}
-		if autoContinue {
+		if autoContinue && len(chat.Messages) > 0 && chat.Messages[len(chat.Messages)-1].Role != "user" {
 			e.checkAutoContinue(ctx, chat, autoContinue, emit, interrupted)
 		}
 	}

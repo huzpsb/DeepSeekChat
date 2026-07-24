@@ -38,19 +38,19 @@ func NewClient(apiKey string, thirdParty model.ThirdPartyConfig) *Client {
 		Timeout: 5 * time.Minute,
 	}
 	endpoint := deepseekURL
-	model := "deepseek-v4-pro"
+	modelName := "deepseek-v4-pro"
 	if thirdParty.Enabled {
 		client.Transport = &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		}
 		endpoint = thirdParty.Endpoint
-		model = thirdParty.Model
+		modelName = thirdParty.Model
 	}
 	return &Client{
 		apiKey:     apiKey,
 		httpClient: client,
 		endpoint:   endpoint,
-		model:      model,
+		model:      modelName,
 	}
 }
 
@@ -165,10 +165,10 @@ func parseSSE(body io.Reader, onEvent func(StreamEvent)) {
 		if line == "" || strings.HasPrefix(line, ":") {
 			continue
 		}
-		if !strings.HasPrefix(line, "data: ") {
+		if !strings.HasPrefix(line, "data:") {
 			continue
 		}
-		data := strings.TrimPrefix(line, "data: ")
+		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 		if data == "[DONE]" {
 			onEvent(StreamEvent{Type: "done"})
 			return
