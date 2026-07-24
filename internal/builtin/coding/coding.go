@@ -1,6 +1,8 @@
 package coding
 
 import (
+	"path/filepath"
+
 	"hschat/internal/builtin"
 	"hschat/internal/model"
 	"hschat/internal/storage"
@@ -11,13 +13,20 @@ func boolPtr(v bool) *bool {
 }
 
 type Provider struct {
-	rootDir       string
-	shellTools    map[string]model.ShellTool
-	fileBlacklist []string
-	rawShell      *model.RawShellConfig
+	rootDir        string
+	shellTools     map[string]model.ShellTool
+	fileBlacklist  []string
+	rawShell       *model.RawShellConfig
+	rawShellWarned bool
 }
 
 func New(rootDir string) builtin.Provider {
+	if rootDir == "" {
+		rootDir = filepath.Join(".", "agent")
+	}
+	if abs, err := filepath.Abs(rootDir); err == nil {
+		rootDir = abs
+	}
 	return &Provider{
 		rootDir:       rootDir,
 		shellTools:    make(map[string]model.ShellTool),

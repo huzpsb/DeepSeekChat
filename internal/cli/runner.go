@@ -50,7 +50,7 @@ func Run(prompt, title string) error {
 	engine := cont.NewEngine(dsClient, "readonly", mcpMgr, func() {
 		storage.SaveChat(chat)
 	})
-	engine.ContinueOnToolError = true
+	engine.ContinueOnInvalidArgs = true
 
 	var lastError string
 	emit := func(evt cont.ContinueEvent) {

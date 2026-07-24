@@ -52,8 +52,9 @@ func (p *Provider) runShellTool(tool model.ShellTool) string {
 			return fmt.Sprintf("Error: ClamAV: %v", checkErr)
 		}
 	}
-	if rawEnabled && len(p.fileBlacklist) > 0 {
+	if rawEnabled && len(p.fileBlacklist) > 0 && !p.rawShellWarned {
 		log.Printf("[WARNING] raw_shell is enabled, blacklist scan is bypassed. Blacklist entries: %v", p.fileBlacklist)
+		p.rawShellWarned = true
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(tool.Timeout)*time.Second)

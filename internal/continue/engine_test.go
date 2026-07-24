@@ -20,6 +20,7 @@ type mockToolExecutor struct {
 	executeResult         *model.ToolResult
 	executeErr            error
 	executedCalls         []executedCall
+	toolDefs              map[string]*model.ToolDef
 }
 
 type executedCall struct {
@@ -60,6 +61,9 @@ func (m *mockToolExecutor) GetAllowedTools() []model.ToolDef {
 }
 
 func (m *mockToolExecutor) GetToolDef(name string) *model.ToolDef {
+	if m.toolDefs != nil {
+		return m.toolDefs[name]
+	}
 	return nil
 }
 
@@ -1596,32 +1600,6 @@ func TestContinue_ToolExecutionErrors(t *testing.T) {
 		makeAssistantMsg("", []model.ToolCall{makeToolCall("id1", "tool_a", `{}`)}),
 	}}
 	events := runContinue(engine, chat, "", false)
-	foundError := false
-	for _, e := range events {
-		if e.Type == "error" && e.Error != nil && e.Error.Type == "tool_error" {
-			foundError = true
-			if !strings.Contains(e.Error.Detail, "Error executing") {
-				t.Errorf("expected error detail to contain 'Error executing', got: '%s'", e.Error.Detail)
-			}
-		}
-	}
-	if !foundError {
-		t.Errorf("expected tool_error event on execution error")
-	}
-}
-
-func TestContinue_ToolExecutionErrors_ContinueOnError(t *testing.T) {
-	executor := &mockToolExecutor{
-		approvedTools: map[string]bool{"tool_a": true},
-		existingTools: map[string]bool{"tool_a": true},
-		executeErr:    fmt.Errorf("MCP connection failed"),
-	}
-	engine := newTestEngine("writable", executor)
-	engine.ContinueOnToolError = true
-	chat := &model.Chat{Messages: []model.Message{
-		makeAssistantMsg("", []model.ToolCall{makeToolCall("id1", "tool_a", `{}`)}),
-	}}
-	events := runContinue(engine, chat, "", false)
 	foundToolResult := false
 	for _, e := range events {
 		if e.Type == "tool_result" {
@@ -1632,7 +1610,77 @@ func TestContinue_ToolExecutionErrors_ContinueOnError(t *testing.T) {
 		}
 	}
 	if !foundToolResult {
-		t.Errorf("expected tool_result when ContinueOnToolError is true")
+		t.Errorf("expected tool_result even on execution error")
+	}
+}
+
+func TestContinue_InvalidArgs_HaltByDefault(t *testing.T) {
+	executor := &mockToolExecutor{
+		approvedTools: map[string]bool{"tool_a": true},
+		existingTools: map[string]bool{"tool_a": true},
+		toolDefs: map[string]*model.ToolDef{
+			"tool_a": {
+				Name: "tool_a",
+				InputSchema: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"path": map[string]any{"type": "string"},
+					},
+					"required": []any{"path"},
+				},
+			},
+		},
+	}
+	engine := newTestEngine("writable", executor)
+	chat := &model.Chat{Messages: []model.Message{
+		makeAssistantMsg("", []model.ToolCall{makeToolCall("id1", "tool_a", `{}`)}),
+	}}
+	events := runContinue(engine, chat, "", false)
+	foundError := false
+	for _, e := range events {
+		if e.Type == "error" && e.Error != nil && e.Error.Type == "invalid_args" {
+			foundError = true
+		}
+	}
+	if !foundError {
+		t.Errorf("expected invalid_args error event by default")
+	}
+}
+
+func TestContinue_InvalidArgs_ContinueWhenEnabled(t *testing.T) {
+	executor := &mockToolExecutor{
+		approvedTools: map[string]bool{"tool_a": true},
+		existingTools: map[string]bool{"tool_a": true},
+		toolDefs: map[string]*model.ToolDef{
+			"tool_a": {
+				Name: "tool_a",
+				InputSchema: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"path": map[string]any{"type": "string"},
+					},
+					"required": []any{"path"},
+				},
+			},
+		},
+	}
+	engine := newTestEngine("writable", executor)
+	engine.ContinueOnInvalidArgs = true
+	chat := &model.Chat{Messages: []model.Message{
+		makeAssistantMsg("", []model.ToolCall{makeToolCall("id1", "tool_a", `{}`)}),
+	}}
+	events := runContinue(engine, chat, "", false)
+	foundToolResult := false
+	for _, e := range events {
+		if e.Type == "tool_result" {
+			foundToolResult = true
+			if !strings.Contains(e.ToolResult.Message.Content, "missing required argument") {
+				t.Errorf("expected 'missing required argument' in tool_result, got: '%s'", e.ToolResult.Message.Content)
+			}
+		}
+	}
+	if !foundToolResult {
+		t.Errorf("expected tool_result with validation error when ContinueOnInvalidArgs is true")
 	}
 }
 

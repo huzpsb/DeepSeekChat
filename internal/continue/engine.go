@@ -11,11 +11,11 @@ import (
 )
 
 type Engine struct {
-	deepseekClient      *deepseek.Client
-	mode                string
-	toolExecutor        ToolExecutor
-	saveFunc            func()
-	ContinueOnToolError bool
+	deepseekClient        *deepseek.Client
+	mode                  string
+	toolExecutor          ToolExecutor
+	saveFunc              func()
+	ContinueOnInvalidArgs bool
 }
 
 type ToolExecutor interface {
@@ -354,7 +354,7 @@ func (e *Engine) executeToolCall(ctx context.Context, chat *model.Chat, autoCont
 		argsErr := e.validateArgs(tc.Function.Name, tc.Function.Arguments)
 		if argsErr != "" {
 			logContinue("execute_tool_invalid_args tool_call_id=%q name=%q err=%q", tc.ID, tc.Function.Name, argsErr)
-			if !e.ContinueOnToolError {
+			if !e.ContinueOnInvalidArgs {
 				emit(ContinueEvent{
 					Type: "error",
 					Error: &ErrorDetail{
@@ -397,18 +397,6 @@ func (e *Engine) executeToolCall(ctx context.Context, chat *model.Chat, autoCont
 			content = result.Content[0].Text
 		} else {
 			content = "Tool executed with no output"
-		}
-
-		if err != nil && !e.ContinueOnToolError {
-			emit(ContinueEvent{
-				Type: "error",
-				Error: &ErrorDetail{
-					Type:   "tool_error",
-					Detail: content,
-				},
-			})
-			logContinue("execute_tool_halt_on_error tool_call_id=%q name=%q", tc.ID, tc.Function.Name)
-			return
 		}
 
 		toolMsg := model.Message{
