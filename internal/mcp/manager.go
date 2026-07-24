@@ -396,17 +396,26 @@ func (m *Manager) IsToolApproved(toolFullName string) (approved bool, manuallyAp
 
 	if m.ApproveAll {
 		mcpName, toolName := splitToolName(toolFullName)
-		if toolName != "" {
-			if m.isToolAvailable(mcpName, toolName) {
-				return true, false
-			}
-		} else {
+		fullName := toolFullName
+		if toolName == "" {
 			for _, tools := range m.allTools {
 				for _, t := range tools {
 					if t.Name == toolFullName {
-						return true, false
+						fullName = t.Name
 					}
 				}
+			}
+		} else {
+			fullName = mcpName + "::" + toolName
+		}
+		for _, t := range m.config.ApprovedTools {
+			if t == fullName {
+				return true, false
+			}
+		}
+		for _, t := range m.config.ManuallyApprovedTools {
+			if t == fullName {
+				return true, false
 			}
 		}
 	}
@@ -476,7 +485,7 @@ func (m *Manager) GetAllowedTools() []model.ToolDef {
 	for mcpName, tools := range m.allTools {
 		for _, tool := range tools {
 			fullName := mcpName + "::" + tool.Name
-			if m.ApproveAll || approvedMap[fullName] || manualMap[fullName] {
+			if approvedMap[fullName] || manualMap[fullName] {
 				result = append(result, tool)
 			}
 		}

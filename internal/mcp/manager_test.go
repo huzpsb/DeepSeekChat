@@ -500,17 +500,18 @@ func TestManager_GetTools_AllStatuses(t *testing.T) {
 }
 
 // TestManager_CLIRunner_ApproveAllTools verifies the headless CLI runner pattern:
-// ApproveAll=true treats every available tool as approved in memory only,
-// without persisting anything to the shared config file.
+// ApproveAll=true upgrades manually_approved tools to fully approved (no prompt),
+// while unapproved tools remain invisible. Nothing persists to shared config.
 func TestManager_CLIRunner_ApproveAllTools(t *testing.T) {
 	setupManagerTest(t)
 	storage.SaveConfig(&model.MCPConfig{
+		ApprovedTools:         []string{"Sandbox::rm"},
 		ManuallyApprovedTools: []string{"Sandbox::tree"},
 	})
 
 	mgr := NewManager()
-	mgr.SkipAskUser = true // same as CLI runner
-	mgr.ApproveAll = true  // same as CLI runner
+	mgr.SkipAskUser = true
+	mgr.ApproveAll = true
 	mgr.LoadAndConnect()
 
 	tools := mgr.GetTools()
@@ -525,8 +526,11 @@ func TestManager_CLIRunner_ApproveAllTools(t *testing.T) {
 
 	for _, tt := range tools {
 		if !tt.Available {
-			continue // unavailable config-only entries are not expected in GetAllowedTools
+			continue
 		}
+		fullName := tt.MCPName + "::" + tt.ToolName
+		approved, manual := mgr.IsToolApproved(fullName)
+
 		found := false
 		for _, a := range allowed {
 			if a.Name == tt.ToolName {
@@ -534,29 +538,34 @@ func TestManager_CLIRunner_ApproveAllTools(t *testing.T) {
 				break
 			}
 		}
-		if !found {
-			t.Errorf("available tool %s::%s should be in GetAllowedTools with ApproveAll", tt.MCPName, tt.ToolName)
-		}
 
-		approved, manual := mgr.IsToolApproved(tt.MCPName + "::" + tt.ToolName)
-		if !approved || manual {
-			t.Errorf("IsToolApproved(%s::%s) = (%v, %v), want (true, false)", tt.MCPName, tt.ToolName, approved, manual)
+		if fullName == "Sandbox::rm" || fullName == "Sandbox::tree" {
+			if !found {
+				t.Errorf("tool %s should be in GetAllowedTools with ApproveAll", fullName)
+			}
+			if !approved || manual {
+				t.Errorf("IsToolApproved(%s) = (%v, %v), want (true, false)", fullName, approved, manual)
+			}
+		} else {
+			if found {
+				t.Errorf("unapproved tool %s should NOT be in GetAllowedTools with ApproveAll", fullName)
+			}
+			if approved {
+				t.Errorf("IsToolApproved(%s) = (%v, %v), want (false, false)", fullName, approved, manual)
+			}
 		}
 	}
 
-	// A tool that does not exist must not be treated as approved
 	if approved, _ := mgr.IsToolApproved("nonexistent_mcp::nonexistent_tool"); approved {
 		t.Errorf("non-existent tool should not be approved even with ApproveAll")
 	}
 
-	// The persisted config must remain untouched: no approvals written and
-	// the manually-approved list intact.
 	disk, err := storage.LoadConfig()
 	if err != nil {
 		t.Fatalf("LoadConfig failed: %v", err)
 	}
-	if len(disk.ApprovedTools) != 0 {
-		t.Errorf("ApproveAll must not persist approved tools, got %v", disk.ApprovedTools)
+	if len(disk.ApprovedTools) != 1 || disk.ApprovedTools[0] != "Sandbox::rm" {
+		t.Errorf("ApproveAll must not alter approved tools, got %v", disk.ApprovedTools)
 	}
 	if len(disk.ManuallyApprovedTools) != 1 || disk.ManuallyApprovedTools[0] != "Sandbox::tree" {
 		t.Errorf("ApproveAll must not alter manually approved tools, got %v", disk.ManuallyApprovedTools)
