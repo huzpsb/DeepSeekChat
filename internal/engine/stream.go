@@ -60,10 +60,6 @@ func Init(dsClient *deepseek.Client, executor cont.ToolExecutor) *StreamEngine {
 	return instance
 }
 
-func Get() *StreamEngine {
-	return instance
-}
-
 func (e *StreamEngine) SetMode(mode string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()

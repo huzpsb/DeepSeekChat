@@ -151,7 +151,7 @@ func (s *Server) handleListChats(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCreateChat(w http.ResponseWriter, r *http.Request) {
-	messages := []model.Message{}
+	var messages []model.Message
 	if s.config.DefaultPrompt != "" {
 		messages = append(messages, model.Message{
 			Role:         "system",

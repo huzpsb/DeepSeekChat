@@ -32,7 +32,7 @@ func Run(prompt, title string) error {
 		title = time.Now().Format("2006-01-02 150405")
 	}
 
-	messages := []model.Message{}
+	var messages []model.Message
 	if cfg.DefaultPrompt != "" {
 		messages = append(messages, model.Message{
 			Role:         "system",

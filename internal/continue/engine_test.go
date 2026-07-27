@@ -67,10 +67,6 @@ func (m *mockToolExecutor) GetToolDef(name string) *model.ToolDef {
 	return nil
 }
 
-func makeMsg(role string) model.Message {
-	return model.Message{Role: role, SendToServer: true}
-}
-
 func makeUserMsg(content string) model.Message {
 	return model.Message{Role: "user", Content: content, SendToServer: true}
 }
@@ -2359,25 +2355,5 @@ func TestContinue_AllToolsExecuted_StreamDeepSeek(t *testing.T) {
 func runContinue(engine *Engine, chat *model.Chat, input string, autoContinue bool) []ContinueEvent {
 	var events []ContinueEvent
 	engine.Continue(context.Background(), chat, input, autoContinue, func(evt ContinueEvent) { events = append(events, evt) }, func() bool { return false })
-	return events
-}
-
-func runContinueSync(engine *Engine, chat *model.Chat, input string, autoContinue bool) []ContinueEvent {
-	return runContinue(engine, chat, input, autoContinue)
-}
-
-func waitForEvent(engine *Engine, chat *model.Chat, input string, autoContinue bool, eventType string) []ContinueEvent {
-	var events []ContinueEvent
-	done := make(chan struct{})
-	go func() {
-		engine.Continue(context.Background(), chat, input, autoContinue, func(evt ContinueEvent) {
-			events = append(events, evt)
-			if evt.Type == eventType {
-				close(done)
-				return
-			}
-		}, func() bool { return false })
-	}()
-	<-done
 	return events
 }

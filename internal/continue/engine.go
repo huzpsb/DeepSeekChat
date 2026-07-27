@@ -863,7 +863,7 @@ func deleteTool(chat *model.Chat, index int) ([]ValidationError, error) {
 
 	if hadToolCalls && len(newToolCalls) == 0 {
 		nextIdx := origIdx + 1
-		toolMsgs := []int{}
+		var toolMsgs []int
 		for nextIdx < len(chat.Messages) && chat.Messages[nextIdx].Role == "tool" {
 			toolMsgs = append(toolMsgs, nextIdx)
 			nextIdx++

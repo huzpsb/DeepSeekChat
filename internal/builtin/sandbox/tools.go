@@ -160,8 +160,6 @@ func (p *Provider) CallTool(name string, args map[string]any) (*model.ToolResult
 	}, nil
 }
 
-var utf8BOM = []byte{0xEF, 0xBB, 0xBF}
-
 func stripBOM(data []byte) []byte {
 	if len(data) >= 3 && data[0] == 0xEF && data[1] == 0xBB && data[2] == 0xBF {
 		return data[3:]
