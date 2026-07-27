@@ -1,6 +1,10 @@
 package askuser
 
-import "hschat/internal/model"
+import (
+	"context"
+
+	"hschat/internal/model"
+)
 
 type Provider struct{}
 
@@ -35,7 +39,7 @@ func (p *Provider) Tools() []model.ToolDef {
 	}
 }
 
-func (p *Provider) CallTool(name string, args map[string]any) (*model.ToolResult, error) {
+func (p *Provider) CallTool(_ context.Context, name string, args map[string]any) (*model.ToolResult, error) {
 	return &model.ToolResult{
 		Content: []model.ToolContent{
 			{Type: "text", Text: "Error: ask_user must be handled by the frontend."},

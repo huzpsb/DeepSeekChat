@@ -21,7 +21,7 @@ type Engine struct {
 type ToolExecutor interface {
 	IsToolApproved(fullName string) (approved, manuallyApproved bool)
 	ToolExists(fullName string) bool
-	ExecuteTool(fullName string, arguments string) (*model.ToolResult, error)
+	ExecuteTool(ctx context.Context, fullName string, arguments string) (*model.ToolResult, error)
 	GetAllowedTools() []model.ToolDef
 	GetToolDef(name string) *model.ToolDef
 }
@@ -388,7 +388,7 @@ func (e *Engine) executeToolCall(ctx context.Context, chat *model.Chat, autoCont
 			return
 		}
 
-		result, err := e.toolExecutor.ExecuteTool(tc.Function.Name, tc.Function.Arguments)
+		result, err := e.toolExecutor.ExecuteTool(ctx, tc.Function.Name, tc.Function.Arguments)
 		var content string
 		if err != nil {
 			content = "Error executing tool: " + err.Error()

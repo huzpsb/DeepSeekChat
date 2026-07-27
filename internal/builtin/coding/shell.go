@@ -16,7 +16,7 @@ import (
 	"hschat/internal/model"
 )
 
-func (p *Provider) runShellTool(tool model.ShellTool) string {
+func (p *Provider) runShellTool(ctx context.Context, tool model.ShellTool) string {
 	rawEnabled := p.rawShell != nil && p.rawShell.Enabled
 
 	if !rawEnabled && len(p.fileBlacklist) > 0 {
@@ -57,7 +57,7 @@ func (p *Provider) runShellTool(tool model.ShellTool) string {
 		p.rawShellWarned = true
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(tool.Timeout)*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(tool.Timeout)*time.Second)
 	defer cancel()
 
 	var cmd *exec.Cmd

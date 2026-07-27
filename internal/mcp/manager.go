@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -519,7 +520,7 @@ func (m *Manager) GetToolDef(name string) *model.ToolDef {
 	return nil
 }
 
-func (m *Manager) ExecuteTool(fullName string, arguments string) (*model.ToolResult, error) {
+func (m *Manager) ExecuteTool(ctx context.Context, fullName string, arguments string) (*model.ToolResult, error) {
 	mcpName, toolName := splitToolName(fullName)
 
 	if toolName == "" {
@@ -551,7 +552,7 @@ func (m *Manager) ExecuteTool(fullName string, arguments string) (*model.ToolRes
 		args = map[string]any{}
 	}
 
-	return client.CallTool(toolName, args)
+	return client.CallTool(ctx, toolName, args)
 }
 
 func splitToolName(fullName string) (mcpName, toolName string) {

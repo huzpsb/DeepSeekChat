@@ -1,6 +1,10 @@
 package coding
 
-import "hschat/internal/model"
+import (
+	"context"
+
+	"hschat/internal/model"
+)
 
 func (p *Provider) Tools() []model.ToolDef {
 	var tools []model.ToolDef
@@ -40,7 +44,7 @@ func (p *Provider) Tools() []model.ToolDef {
 	return tools
 }
 
-func (p *Provider) CallTool(name string, args map[string]any) (*model.ToolResult, error) {
+func (p *Provider) CallTool(ctx context.Context, name string, args map[string]any) (*model.ToolResult, error) {
 	var result string
 
 	if name == "run" && p.rawShell != nil && p.rawShell.Enabled {
@@ -52,9 +56,9 @@ func (p *Provider) CallTool(name string, args map[string]any) (*model.ToolResult
 			Command: cmd,
 			Timeout: 120,
 		}
-		result = p.runShellTool(tool)
+		result = p.runShellTool(ctx, tool)
 	} else if tool, ok := p.shellTools[name]; ok {
-		result = p.runShellTool(tool)
+		result = p.runShellTool(ctx, tool)
 	} else {
 		result = "Error: Unknown tool"
 	}

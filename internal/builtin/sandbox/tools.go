@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -125,7 +126,7 @@ func (p *Provider) Tools() []model.ToolDef {
 	return tools
 }
 
-func (p *Provider) CallTool(name string, args map[string]any) (*model.ToolResult, error) {
+func (p *Provider) CallTool(_ context.Context, name string, args map[string]any) (*model.ToolResult, error) {
 	var result string
 
 	switch name {

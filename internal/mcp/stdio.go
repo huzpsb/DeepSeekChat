@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -135,7 +136,7 @@ func (c *StdioClient) ListTools() ([]model.ToolDef, error) {
 	return tools, nil
 }
 
-func (c *StdioClient) CallTool(name string, arguments map[string]any) (*model.ToolResult, error) {
+func (c *StdioClient) CallTool(_ context.Context, name string, arguments map[string]any) (*model.ToolResult, error) {
 	req := map[string]any{
 		"jsonrpc": "2.0",
 		"id":      c.nextID(),

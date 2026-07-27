@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -87,7 +88,7 @@ func (c *SSEClient) Initialize() error {
 		"jsonrpc": "2.0",
 		"method":  "notifications/initialized",
 	}
-	c.sendJSONRPC(notified)
+	c.sendJSONRPC(context.Background(), notified)
 
 	return nil
 }
@@ -100,7 +101,7 @@ func (c *SSEClient) ListTools() ([]model.ToolDef, error) {
 		"params":  map[string]any{},
 	}
 
-	result, err := c.sendJSONRPC(req)
+	result, err := c.sendJSONRPC(context.Background(), req)
 	if err != nil {
 		return nil, err
 	}
@@ -135,7 +136,7 @@ func (c *SSEClient) ListTools() ([]model.ToolDef, error) {
 	return tools, nil
 }
 
-func (c *SSEClient) CallTool(name string, arguments map[string]any) (*model.ToolResult, error) {
+func (c *SSEClient) CallTool(ctx context.Context, name string, arguments map[string]any) (*model.ToolResult, error) {
 	req := map[string]any{
 		"jsonrpc": "2.0",
 		"id":      3,
@@ -146,7 +147,7 @@ func (c *SSEClient) CallTool(name string, arguments map[string]any) (*model.Tool
 		},
 	}
 
-	result, err := c.sendJSONRPC(req)
+	result, err := c.sendJSONRPC(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -189,13 +190,13 @@ func (c *SSEClient) Close() error {
 	return nil
 }
 
-func (c *SSEClient) sendJSONRPC(req map[string]any) (map[string]any, error) {
+func (c *SSEClient) sendJSONRPC(ctx context.Context, req map[string]any) (map[string]any, error) {
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, err
 	}
 
-	httpReq, err := http.NewRequest("POST", c.url, strings.NewReader(string(body)))
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.url, strings.NewReader(string(body)))
 	if err != nil {
 		return nil, err
 	}
