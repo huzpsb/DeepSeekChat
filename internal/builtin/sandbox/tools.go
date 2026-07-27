@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"hschat/internal/model"
@@ -21,22 +22,24 @@ func (p *Provider) Tools() []model.ToolDef {
 				},
 			},
 		},
-		{Name: "search_name", Description: "Search files or folders by name",
+		{Name: "search_name", Description: "Search files or folders by name (supports regex)",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"keyword":    map[string]any{"type": "string"},
+					"regex":      map[string]any{"type": "boolean", "default": false},
 					"limit_file": map[string]any{"type": "integer", "default": 20},
 					"dir":        map[string]any{"type": "string", "default": "/"},
 				},
 				"required": []string{"keyword"},
 			},
 		},
-		{Name: "search_content", Description: "Search files containing keyword",
+		{Name: "search_content", Description: "Search files containing keyword (supports regex)",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"keyword":         map[string]any{"type": "string"},
+					"regex":           map[string]any{"type": "boolean", "default": false},
 					"limit_file":      map[string]any{"type": "integer", "default": 20},
 					"limit_occurence": map[string]any{"type": "integer", "default": 5},
 					"dir":             map[string]any{"type": "string", "default": "/"},
@@ -218,6 +221,7 @@ func (p *Provider) tree(args map[string]any) string {
 
 func (p *Provider) searchName(args map[string]any) string {
 	keyword, _ := args["keyword"].(string)
+	useRegex, _ := args["regex"].(bool)
 	dirStr := "/"
 	if v, ok := args["dir"].(string); ok {
 		dirStr = v
@@ -225,6 +229,15 @@ func (p *Provider) searchName(args map[string]any) string {
 	limit := 20
 	if v, ok := args["limit_file"].(float64); ok {
 		limit = int(v)
+	}
+
+	var re *regexp.Regexp
+	if useRegex {
+		var err error
+		re, err = regexp.Compile(keyword)
+		if err != nil {
+			return fmt.Sprintf("Error: invalid regex: %v", err)
+		}
 	}
 
 	path, err := p.getSafePath(dirStr)
@@ -244,7 +257,13 @@ func (p *Provider) searchName(args map[string]any) string {
 			}
 			return nil
 		}
-		if strings.Contains(info.Name(), keyword) {
+		var match bool
+		if useRegex {
+			match = re.MatchString(info.Name())
+		} else {
+			match = strings.Contains(info.Name(), keyword)
+		}
+		if match {
 			rel, _ := filepath.Rel(p.rootDir, fp)
 			out.WriteString(rel + "\n")
 			count++
@@ -256,6 +275,7 @@ func (p *Provider) searchName(args map[string]any) string {
 
 func (p *Provider) searchContent(args map[string]any) string {
 	keyword, _ := args["keyword"].(string)
+	useRegex, _ := args["regex"].(bool)
 	limitFile := 20
 	if v, ok := args["limit_file"].(float64); ok {
 		limitFile = int(v)
@@ -267,6 +287,15 @@ func (p *Provider) searchContent(args map[string]any) string {
 	dirStr := "/"
 	if v, ok := args["dir"].(string); ok {
 		dirStr = v
+	}
+
+	var re *regexp.Regexp
+	if useRegex {
+		var err error
+		re, err = regexp.Compile(keyword)
+		if err != nil {
+			return fmt.Sprintf("Error: invalid regex: %v", err)
+		}
 	}
 
 	path, err := p.getSafePath(dirStr)
@@ -311,7 +340,13 @@ func (p *Provider) searchContent(args map[string]any) string {
 			if hits >= limitOccur {
 				break
 			}
-			if strings.Contains(line, keyword) {
+			var match bool
+			if useRegex {
+				match = re.MatchString(line)
+			} else {
+				match = strings.Contains(line, keyword)
+			}
+			if match {
 				hits++
 				start := i - 3
 				if start < 0 {
