@@ -63,7 +63,7 @@ func (c *SSEClient) Initialize() error {
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "application/json, text/event-stream")
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: 600 * time.Second}
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		return fmt.Errorf("initialize POST: %w", err)
@@ -206,7 +206,7 @@ func (c *SSEClient) sendJSONRPC(ctx context.Context, req map[string]any) (map[st
 		httpReq.Header.Set("Mcp-Session-Id", c.session)
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: 600 * time.Second}
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		return nil, err
