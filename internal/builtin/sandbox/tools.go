@@ -36,12 +36,13 @@ func (p *Provider) Tools() []model.ToolDef {
 				"required": []string{"keyword"},
 			},
 		},
-		{Name: "search_content", Description: "Search files containing keyword (supports regex)",
+		{Name: "search_content", Description: "Search files containing keyword (supports regex, optionally filter by filename pattern)",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"keyword":         map[string]any{"type": "string"},
 					"regex":           map[string]any{"type": "boolean", "default": false},
+					"file_filter":     map[string]any{"type": "string", "default": ""},
 					"limit_file":      map[string]any{"type": "integer", "default": 20},
 					"limit_occurence": map[string]any{"type": "integer", "default": 5},
 					"dir":             map[string]any{"type": "string", "default": "/"},
@@ -81,12 +82,13 @@ func (p *Provider) Tools() []model.ToolDef {
 				"required": []string{"dir"},
 			},
 		},
-		{Name: "create_file", Description: "Create a file",
+		{Name: "create_file", Description: "Create a file (use allow_rewrite=true to overwrite existing)",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"file":    map[string]any{"type": "string"},
-					"content": map[string]any{"type": "string"},
+					"file":          map[string]any{"type": "string"},
+					"content":       map[string]any{"type": "string"},
+					"allow_rewrite": map[string]any{"type": "boolean", "default": false},
 				},
 				"required": []string{"file"},
 			},
@@ -109,16 +111,6 @@ func (p *Provider) Tools() []model.ToolDef {
 					"keep_original": map[string]any{"type": "boolean"},
 				},
 				"required": []string{"src", "dst"},
-			},
-		},
-		{Name: "rewrite_file", Description: "Rewrite file content",
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"file":    map[string]any{"type": "string"},
-					"content": map[string]any{"type": "string"},
-				},
-				"required": []string{"file", "content"},
 			},
 		},
 	}
@@ -148,8 +140,6 @@ func (p *Provider) CallTool(_ context.Context, name string, args map[string]any)
 		result = p.rm(args)
 	case "move":
 		result = p.moveFile(args)
-	case "rewrite_file":
-		result = p.rewriteFile(args)
 	default:
 		result = "Error: Unknown tool"
 	}
@@ -285,6 +275,10 @@ func (p *Provider) searchName(args map[string]any) string {
 func (p *Provider) searchContent(args map[string]any) string {
 	keyword, _ := args["keyword"].(string)
 	useRegex, _ := args["regex"].(bool)
+	fileFilter := ""
+	if v, ok := args["file_filter"].(string); ok {
+		fileFilter = v
+	}
 	limitFile := 20
 	if v, ok := args["limit_file"].(float64); ok {
 		limitFile = int(v)
@@ -304,6 +298,15 @@ func (p *Provider) searchContent(args map[string]any) string {
 		re, err = regexp.Compile(keyword)
 		if err != nil {
 			return fmt.Sprintf("Error: invalid regex: %v", err)
+		}
+	}
+
+	var fileFilterRe *regexp.Regexp
+	if fileFilter != "" {
+		var err error
+		fileFilterRe, err = regexp.Compile(fileFilter)
+		if err != nil {
+			return fmt.Sprintf("Error: invalid file_filter regex: %v", err)
 		}
 	}
 
@@ -327,6 +330,9 @@ func (p *Provider) searchContent(args map[string]any) string {
 			return nil
 		}
 		if info.IsDir() {
+			return nil
+		}
+		if fileFilterRe != nil && !fileFilterRe.MatchString(info.Name()) {
 			return nil
 		}
 		if filesFound >= limitFile {
@@ -504,6 +510,7 @@ func (p *Provider) createDir(args map[string]any) string {
 func (p *Provider) createFile(args map[string]any) string {
 	file, _ := args["file"].(string)
 	content, _ := args["content"].(string)
+	allowRewrite, _ := args["allow_rewrite"].(bool)
 	path, warn, err := p.getSafePathWithWarning(file)
 	if err != nil {
 		return fmt.Sprintf("Error: %v", err)
@@ -512,7 +519,10 @@ func (p *Provider) createFile(args map[string]any) string {
 		return "Error: parent directory does not exist"
 	}
 	if _, err := os.Stat(path); err == nil {
-		return "Error: file already exists, create_file cannot overwrite existing files"
+		if !allowRewrite {
+			return "Error: file already exists. (Hint: set allow_rewrite=true to overwrite)"
+		}
+		_ = MoveToTrash(p.rootDir, path)
 	}
 	if err := os.WriteFile(path, []byte(unifyNewlines(content)), 0644); err != nil {
 		return fmt.Sprintf("Error: %v", err)
@@ -552,30 +562,6 @@ func (p *Provider) moveFile(args map[string]any) string {
 	}
 	if !keep {
 		_ = os.Remove(srcPath)
-	}
-	return "Success"
-}
-
-func (p *Provider) rewriteFile(args map[string]any) string {
-	file, _ := args["file"].(string)
-	content, _ := args["content"].(string)
-
-	path, err := p.getSafePath(file)
-	if err != nil {
-		return fmt.Sprintf("Error: %v", err)
-	}
-
-	stat, err := os.Stat(path)
-	if err != nil {
-		return "Error: file does not exist, rewrite_file cannot create new files"
-	}
-	if stat.Size() > 1024*1024 {
-		return "Error: file is larger than 1MB"
-	}
-
-	_ = MoveToTrash(p.rootDir, path)
-	if err := os.WriteFile(path, []byte(unifyNewlines(content)), 0644); err != nil {
-		return fmt.Sprintf("Error: %v", err)
 	}
 	return "Success"
 }

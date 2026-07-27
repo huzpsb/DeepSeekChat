@@ -28,7 +28,7 @@ func defaultConfig() *model.MCPConfig {
 	return &model.MCPConfig{
 		Sandbox: model.SandboxConfig{
 			RootDir:      "./agent",
-			ExtBlacklist: []string{"exe", "dll", "ppt", "pptx", "doc", "docx", "pdf"},
+			ExtBlacklist: []string{"exe", "dll", "ppt", "pptx", "doc", "docx", "pdf", "class", "dex", "apk", "bin", "jpg", "jpeg", "png", "gif"},
 		},
 		EnableCodingTools: true,
 		EnableWebTools:    true,

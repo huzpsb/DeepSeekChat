@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -31,6 +32,14 @@ func MoveToTrash(rootDir, path string) error {
 	return nil
 }
 
+var binaryExts = map[string]bool{
+	".class": true, ".dex": true, ".apk": true, ".bin": true,
+	".jpg": true, ".jpeg": true, ".png": true, ".gif": true,
+}
+
 func IsIgnoredName(name string) bool {
-	return name == ".trash_can" || name == "_runtime" || name == ".git"
+	if name == ".trash_can" || name == "_runtime" || name == ".git" || name == "__pycache__" {
+		return true
+	}
+	return binaryExts[strings.ToLower(filepath.Ext(name))]
 }
