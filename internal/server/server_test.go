@@ -677,8 +677,8 @@ func TestHandleMCPTools_Empty(t *testing.T) {
 
 	var tools []map[string]any
 	json.Unmarshal(w.Body.Bytes(), &tools)
-	if len(tools) != 11 {
-		t.Errorf("expected 11 builtin tools, got %d", len(tools))
+	if len(tools) != 10 {
+		t.Errorf("expected 10 builtin tools, got %d", len(tools))
 	}
 }
 

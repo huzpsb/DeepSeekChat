@@ -35,6 +35,10 @@ func (p *Provider) Tools() []model.ToolDef {
 						"type":        "string",
 						"description": "The command to execute",
 					},
+					"time_out": map[string]any{
+						"type":    "integer",
+						"default": 300,
+					},
 				},
 				"required": []string{"command"},
 			},
@@ -52,9 +56,13 @@ func (p *Provider) CallTool(ctx context.Context, name string, args map[string]an
 		if cmd == "" {
 			cmd = "echo 'no command provided'"
 		}
+		timeout := 300
+		if v, ok := args["time_out"].(float64); ok {
+			timeout = int(v)
+		}
 		tool := model.ShellTool{
 			Command: cmd,
-			Timeout: 120,
+			Timeout: timeout,
 		}
 		result = p.runShellTool(ctx, tool)
 	} else if tool, ok := p.shellTools[name]; ok {
