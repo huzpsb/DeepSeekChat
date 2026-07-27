@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 
+	"hschat/internal/encoding"
 	"hschat/internal/model"
 )
 
@@ -157,6 +158,15 @@ func (p *Provider) CallTool(name string, args map[string]any) (*model.ToolResult
 			{Type: "text", Text: result},
 		},
 	}, nil
+}
+
+var utf8BOM = []byte{0xEF, 0xBB, 0xBF}
+
+func stripBOM(data []byte) []byte {
+	if len(data) >= 3 && data[0] == 0xEF && data[1] == 0xBB && data[2] == 0xBF {
+		return data[3:]
+	}
+	return data
 }
 
 func unifyNewlines(s string) string {
@@ -331,8 +341,9 @@ func (p *Provider) searchContent(args map[string]any) string {
 		if err != nil {
 			return nil
 		}
+		data = stripBOM(data)
 
-		lines := strings.Split(unifyNewlines(string(data)), "\n")
+		lines := strings.Split(unifyNewlines(encoding.DecodeGB18030(data)), "\n")
 		hits := 0
 		var spans []span
 
@@ -418,8 +429,9 @@ func (p *Provider) readContent(args map[string]any) string {
 	if err != nil {
 		return fmt.Sprintf("Error: %v", err)
 	}
+	data = stripBOM(data)
 
-	lines := strings.Split(unifyNewlines(string(data)), "\n")
+	lines := strings.Split(unifyNewlines(encoding.DecodeGB18030(data)), "\n")
 	if start >= len(lines) {
 		return fmt.Sprintf("Error: file has only %d lines", len(lines))
 	}
@@ -454,8 +466,9 @@ func (p *Provider) replaceContent(args map[string]any) string {
 	if err != nil {
 		return fmt.Sprintf("Error: %v", err)
 	}
+	data = stripBOM(data)
 
-	content := unifyNewlines(string(data))
+	content := unifyNewlines(encoding.DecodeGB18030(data))
 	orig = unifyNewlines(orig)
 	newStr = unifyNewlines(newStr)
 	count := strings.Count(content, orig)
