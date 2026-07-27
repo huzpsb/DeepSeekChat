@@ -27,7 +27,7 @@ func LoadConfig() (*model.MCPConfig, error) {
 func defaultConfig() *model.MCPConfig {
 	return &model.MCPConfig{
 		Sandbox: model.SandboxConfig{
-			RootDir:      "",
+			RootDir:      "./agent",
 			ExtBlacklist: []string{"exe", "dll", "ppt", "pptx", "doc", "docx", "pdf"},
 		},
 		EnableCodingTools: true,

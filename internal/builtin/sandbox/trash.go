@@ -32,5 +32,5 @@ func MoveToTrash(rootDir, path string) error {
 }
 
 func IsIgnoredName(name string) bool {
-	return name == ".trash_can" || name == "_runtime"
+	return name == ".trash_can" || name == "_runtime" || name == ".git"
 }
