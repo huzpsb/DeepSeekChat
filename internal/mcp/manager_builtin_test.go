@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -183,7 +184,7 @@ func TestManager_ExecuteTool_SandboxTool(t *testing.T) {
 	mgr := NewManager()
 	mgr.LoadAndConnect()
 
-	result, err := mgr.ExecuteTool("Sandbox::create_file", `{"file":"test.txt","content":"hello"}`)
+	result, err := mgr.ExecuteTool(context.Background(), "Sandbox::create_file", `{"file":"test.txt","content":"hello"}`)
 	if err != nil {
 		t.Fatalf("ExecuteTool failed: %v", err)
 	}
@@ -216,9 +217,9 @@ func TestManager_ExecuteTool_SandboxTool_ReadContent(t *testing.T) {
 	mgr := NewManager()
 	mgr.LoadAndConnect()
 
-	mgr.ExecuteTool("Sandbox::create_file", `{"file":"readme.txt","content":"line1\nline2\nline3"}`)
+	mgr.ExecuteTool(context.Background(), "Sandbox::create_file", `{"file":"readme.txt","content":"line1\nline2\nline3"}`)
 
-	result, err := mgr.ExecuteTool("Sandbox::read_content", `{"file":"readme.txt"}`)
+	result, err := mgr.ExecuteTool(context.Background(), "Sandbox::read_content", `{"file":"readme.txt"}`)
 	if err != nil {
 		t.Fatalf("ExecuteTool failed: %v", err)
 	}
@@ -352,7 +353,7 @@ func TestManager_ExecuteTool_SandboxTool_NoArgs(t *testing.T) {
 	mgr := NewManager()
 	mgr.LoadAndConnect()
 
-	result, err := mgr.ExecuteTool("Sandbox::tree", "")
+	result, err := mgr.ExecuteTool(context.Background(), "Sandbox::tree", "")
 	if err != nil {
 		t.Fatalf("ExecuteTool failed: %v", err)
 	}
@@ -371,7 +372,7 @@ func TestManager_ExecuteTool_SandboxTool_BadJson(t *testing.T) {
 	mgr := NewManager()
 	mgr.LoadAndConnect()
 
-	result, err := mgr.ExecuteTool("Sandbox::tree", "not json")
+	result, err := mgr.ExecuteTool(context.Background(), "Sandbox::tree", "not json")
 	if err != nil {
 		t.Fatalf("ExecuteTool should handle bad JSON: %v", err)
 	}

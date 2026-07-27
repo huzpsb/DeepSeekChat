@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"context"
 	"os"
 	"testing"
 
@@ -259,7 +260,7 @@ func TestManager_ExecuteTool_NotConnected(t *testing.T) {
 	mgr := NewManager()
 	mgr.LoadAndConnect()
 
-	_, err := mgr.ExecuteTool("nonexistent::tool", `{}`)
+	_, err := mgr.ExecuteTool(context.Background(), "nonexistent::tool", `{}`)
 	if err == nil {
 		t.Errorf("expected error for unconnected MCP")
 	}
@@ -271,7 +272,7 @@ func TestManager_ExecuteTool_EmptyArgs(t *testing.T) {
 
 	mgr := NewManager()
 	// No actual MCP connected, so this will fail with "not connected"
-	_, err := mgr.ExecuteTool("mcp::tool", "")
+	_, err := mgr.ExecuteTool(context.Background(), "mcp::tool", "")
 	if err == nil {
 		t.Errorf("expected error")
 	}
@@ -282,7 +283,7 @@ func TestManager_ExecuteTool_BadJSON(t *testing.T) {
 	storage.SaveConfig(&model.MCPConfig{})
 
 	mgr := NewManager()
-	_, err := mgr.ExecuteTool("mcp::t", "not json")
+	_, err := mgr.ExecuteTool(context.Background(), "mcp::t", "not json")
 	if err == nil {
 		t.Errorf("expected error")
 	}

@@ -1,6 +1,7 @@
 package coding
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -76,7 +77,7 @@ func TestTools_NoShellTools(t *testing.T) {
 
 func TestCallTool_Unknown(t *testing.T) {
 	p := setupProvider(t)
-	result, err := p.CallTool("unknown_tool_name", map[string]any{})
+	result, err := p.CallTool(context.Background(), "unknown_tool_name", map[string]any{})
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -91,7 +92,7 @@ func TestCallTool_ShellTool(t *testing.T) {
 		"echo_test": {Description: "echo", Command: "echo hello", Timeout: 10},
 	}
 
-	result, err := p.CallTool("echo_test", map[string]any{})
+	result, err := p.CallTool(context.Background(), "echo_test", map[string]any{})
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}

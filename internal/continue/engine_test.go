@@ -45,7 +45,7 @@ func (m *mockToolExecutor) ToolExists(fullName string) bool {
 	return m.existingTools[fullName]
 }
 
-func (m *mockToolExecutor) ExecuteTool(fullName string, arguments string) (*model.ToolResult, error) {
+func (m *mockToolExecutor) ExecuteTool(_ context.Context, fullName string, arguments string) (*model.ToolResult, error) {
 	m.executedCalls = append(m.executedCalls, executedCall{fullName, arguments})
 	if m.executeErr != nil {
 		return nil, m.executeErr
@@ -1251,8 +1251,6 @@ func TestInsertMessage_Tool_ExistingIdInAssistant_NotYetExecuted(t *testing.T) {
 }
 
 func TestEditMessage_Assistant_NewToolCallsPosition(t *testing.T) {
-	// Per TODO.MD line 86: 编辑 assistant 带来�?tool_calls 时，"立即在当前消息下依次插入"
-	// 即新�?error tool 应该紧跟�?assistant 后面，而不是追加到现有 tool 消息之后
 	chat := &model.Chat{Messages: []model.Message{
 		makeAssistantMsg("", []model.ToolCall{
 			makeToolCall("id1", "tool_a", `{}`),
@@ -1282,7 +1280,6 @@ func TestEditMessage_Assistant_NewToolCallsPosition(t *testing.T) {
 }
 
 func TestEditMessage_Assistant_NonexistentTool(t *testing.T) {
-	// Per TODO.MD line 85: 编辑�?tool_calls �?工具不存�?应红色高�?	// EditMessage should validate tool existence in new tool_calls
 	executor := &mockToolExecutor{
 		existingTools: map[string]bool{"tool_a": true, "nonexistent": false},
 	}

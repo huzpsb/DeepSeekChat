@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"context"
 	"os"
 	"testing"
 
@@ -127,7 +128,7 @@ func TestManager_ExecuteTool_NilArgsOnEmptyString(t *testing.T) {
 
 	// Empty string args should produce nil args map, which defaults to {}
 	// But nil args passed to CallTool might cause issues
-	_, err := mgr.ExecuteTool("mcp::t", "")
+	_, err := mgr.ExecuteTool(context.Background(), "mcp::t", "")
 	if err == nil {
 		t.Skip("no MCP connected, expected error")
 	}
@@ -141,7 +142,7 @@ func TestManager_ExecuteTool_InvalidJSONArgsHandledGracefully(t *testing.T) {
 	mgr.allTools["mcp"] = []model.ToolDef{{Name: "tool"}}
 	mgr.mu.Unlock()
 
-	_, err := mgr.ExecuteTool("mcp::tool", `{invalid}`)
+	_, err := mgr.ExecuteTool(context.Background(), "mcp::tool", `{invalid}`)
 	if err == nil {
 		t.Skip("no MCP connected, expected error")
 	}
@@ -418,7 +419,7 @@ func TestManager_ExecuteTool_NoDoubleColon(t *testing.T) {
 	mgr.LoadAndConnect()
 
 	// No "::" in name -> splitToolName returns (fullName, "")
-	_, err := mgr.ExecuteTool("toolname", `{"key":"value"}`)
+	_, err := mgr.ExecuteTool(context.Background(), "toolname", `{"key":"value"}`)
 	if err == nil {
 		t.Skip("no MCP connected, expected error")
 	}
@@ -427,7 +428,7 @@ func TestManager_ExecuteTool_NoDoubleColon(t *testing.T) {
 
 func TestManager_ExecuteTool_NilArguments(t *testing.T) {
 	mgr := NewManager()
-	_, err := mgr.ExecuteTool("mcp::tool", `null`)
+	_, err := mgr.ExecuteTool(context.Background(), "mcp::tool", `null`)
 	if err == nil {
 		t.Skip("no MCP connected, expected error")
 	}

@@ -64,20 +64,37 @@ func (p *Provider) runShellTool(ctx context.Context, tool model.ShellTool) strin
 	if p.rawShell != nil && p.rawShell.Enabled {
 		fullCmd := strings.Replace(p.rawShell.Preamble, "$original", tool.Command, -1)
 		args := append(p.rawShell.Shell[1:], fullCmd)
-		cmd = exec.CommandContext(ctx, p.rawShell.Shell[0], args...)
+		cmd = exec.Command(p.rawShell.Shell[0], args...)
 	} else if os.PathSeparator == '\\' {
-		cmd = exec.CommandContext(ctx, "cmd.exe", "/c", tool.Command)
+		cmd = exec.Command("powershell", "-NoProfile", "-Command", tool.Command)
 	} else {
-		cmd = exec.CommandContext(ctx, "sh", "-c", tool.Command)
+		cmd = exec.Command("sh", "-c", tool.Command)
 	}
 	if tool.RelativeOverwrite == nil || *tool.RelativeOverwrite {
 		cmd.Dir = p.rootDir
 	}
 
+	setProcessGroup(cmd)
+
 	var outBuf, errBuf bytes.Buffer
 	cmd.Stdout = &outBuf
 	cmd.Stderr = &errBuf
 
-	err := cmd.Run()
-	return fmt.Sprintf("Exit Code: %v\n\n--- Stdout ---\n%s\n--- Stderr ---\n%s", err, encoding.DecodeGB18030(outBuf.Bytes()), encoding.DecodeGB18030(errBuf.Bytes()))
+	if err := cmd.Start(); err != nil {
+		return fmt.Sprintf("Exit Code: %v\n\n--- Stdout ---\n%s\n--- Stderr ---\n%s", err, "", "")
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+
+	select {
+	case err := <-done:
+		return fmt.Sprintf("Exit Code: %v\n\n--- Stdout ---\n%s\n--- Stderr ---\n%s", err, encoding.DecodeGB18030(outBuf.Bytes()), encoding.DecodeGB18030(errBuf.Bytes()))
+	case <-ctx.Done():
+		killProcessTree(cmd)
+		<-done
+		return fmt.Sprintf("Exit Code: %v\n\n--- Stdout ---\n%s\n--- Stderr ---\n%s", ctx.Err(), encoding.DecodeGB18030(outBuf.Bytes()), encoding.DecodeGB18030(errBuf.Bytes()))
+	}
 }

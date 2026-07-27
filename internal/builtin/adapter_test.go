@@ -1,6 +1,7 @@
 package builtin
 
 import (
+	"context"
 	"testing"
 
 	"hschat/internal/model"
@@ -23,7 +24,7 @@ func (m *mockProvider) Initialize(_ string) error {
 	return m.initErr
 }
 func (m *mockProvider) Tools() []model.ToolDef { return m.tools }
-func (m *mockProvider) CallTool(_ string, _ map[string]any) (*model.ToolResult, error) {
+func (m *mockProvider) CallTool(_ context.Context, _ string, _ map[string]any) (*model.ToolResult, error) {
 	return m.callResult, m.callErr
 }
 func (m *mockProvider) Close() error {
@@ -109,7 +110,7 @@ func TestAdaptClient_CallTool(t *testing.T) {
 	p := &mockProvider{callResult: expected}
 	a := AdaptClient(p)
 
-	result, err := a.CallTool("any", map[string]any{})
+	result, err := a.CallTool(context.Background(), "any", map[string]any{})
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -122,7 +123,7 @@ func TestAdaptClient_CallToolError(t *testing.T) {
 	p := &mockProvider{callErr: assertErr()}
 	a := AdaptClient(p)
 
-	_, err := a.CallTool("any", nil)
+	_, err := a.CallTool(context.Background(), "any", nil)
 	if err == nil {
 		t.Errorf("expected error")
 	}

@@ -1,11 +1,13 @@
 package coding
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"hschat/internal/encoding"
 	"hschat/internal/model"
@@ -15,7 +17,7 @@ func TestRunShellTool_Basic(t *testing.T) {
 	p := setupProvider(t)
 	p.fileBlacklist = []string{}
 
-	result := p.runShellTool(model.ShellTool{
+	result := p.runShellTool(context.Background(), model.ShellTool{
 		Command: "echo test_output_123",
 		Timeout: 10,
 	})
@@ -27,7 +29,7 @@ func TestRunShellTool_BlacklistBlock(t *testing.T) {
 	os.WriteFile(filepath.Join(p.rootDir, "bad.go"), []byte("contains os/exec import\n"), 0644)
 	p.fileBlacklist = []string{"os/exec"}
 
-	result := p.runShellTool(model.ShellTool{
+	result := p.runShellTool(context.Background(), model.ShellTool{
 		Command: "echo should not run",
 		Timeout: 10,
 	})
@@ -40,7 +42,7 @@ func TestRunShellTool_BlacklistClean(t *testing.T) {
 	os.WriteFile(filepath.Join(p.rootDir, "clean.go"), []byte("package main\n"), 0644)
 	p.fileBlacklist = []string{"os/exec"}
 
-	result := p.runShellTool(model.ShellTool{
+	result := p.runShellTool(context.Background(), model.ShellTool{
 		Command: "echo clean_pass",
 		Timeout: 10,
 	})
@@ -55,7 +57,7 @@ func TestRunShellTool_BlacklistEmpty(t *testing.T) {
 	os.WriteFile(filepath.Join(p.rootDir, "bad.go"), []byte("os/exec"), 0644)
 	p.fileBlacklist = []string{}
 
-	result := p.runShellTool(model.ShellTool{
+	result := p.runShellTool(context.Background(), model.ShellTool{
 		Command: "echo should_run",
 		Timeout: 10,
 	})
@@ -73,7 +75,7 @@ func TestRunShellTool_Timeout(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		cmd = "ping -c 10 127.0.0.1"
 	}
-	result := p.runShellTool(model.ShellTool{
+	result := p.runShellTool(context.Background(), model.ShellTool{
 		Command: cmd,
 		Timeout: 1,
 	})
@@ -86,7 +88,7 @@ func TestRunShellTool_IpynoredNames(t *testing.T) {
 	os.WriteFile(filepath.Join(p.rootDir, ".trash_can", "bad", "mal.go"), []byte("os/exec\n"), 0644)
 	p.fileBlacklist = []string{"os/exec"}
 
-	result := p.runShellTool(model.ShellTool{
+	result := p.runShellTool(context.Background(), model.ShellTool{
 		Command: "echo should_pass",
 		Timeout: 10,
 	})
@@ -101,7 +103,7 @@ func TestRunShellTool_RuntimeIgnored(t *testing.T) {
 	os.WriteFile(filepath.Join(p.rootDir, "_runtime", "bad.go"), []byte("os/exec\n"), 0644)
 	p.fileBlacklist = []string{"os/exec"}
 
-	result := p.runShellTool(model.ShellTool{
+	result := p.runShellTool(context.Background(), model.ShellTool{
 		Command: "echo ok",
 		Timeout: 10,
 	})
@@ -122,7 +124,7 @@ func TestRunShellTool_LargeFileSkip(t *testing.T) {
 	f.Write(make([]byte, 1024*1024+1))
 	f.Close()
 
-	result := p.runShellTool(model.ShellTool{
+	result := p.runShellTool(context.Background(), model.ShellTool{
 		Command: "echo should_run",
 		Timeout: 10,
 	})
@@ -139,7 +141,7 @@ func TestRunShellTool_StderrCapture(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		cmd = "echo stdout_text; echo stderr_text 1>&2"
 	}
-	result := p.runShellTool(model.ShellTool{
+	result := p.runShellTool(context.Background(), model.ShellTool{
 		Command: cmd,
 		Timeout: 10,
 	})
@@ -170,7 +172,7 @@ func TestRunShellTool_RawShellSkipsBlacklist(t *testing.T) {
 		p.rawShell = &model.RawShellConfig{Enabled: true, Shell: []string{"sh", "-c"}, Preamble: "$original"}
 	}
 
-	result := p.runShellTool(model.ShellTool{
+	result := p.runShellTool(context.Background(), model.ShellTool{
 		Command: "echo raw_shell_pass",
 		Timeout: 10,
 	})
@@ -198,7 +200,7 @@ func TestRunShellTool_RawShellSetsRootDir(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		command = "cat " + marker
 	}
-	result := p.runShellTool(model.ShellTool{
+	result := p.runShellTool(context.Background(), model.ShellTool{
 		Command: command,
 		Timeout: 10,
 	})
@@ -215,7 +217,7 @@ func TestRunShellTool_WithoutRawShellSetsRootDir(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		command = "cat sandbox_only.txt"
 	}
-	result := p.runShellTool(model.ShellTool{
+	result := p.runShellTool(context.Background(), model.ShellTool{
 		Command: command,
 		Timeout: 10,
 	})
@@ -241,10 +243,49 @@ func TestRunShellTool_RelativeOverwriteFalseUsesCurrentDir(t *testing.T) {
 		command = "cat " + marker
 	}
 
-	result := p.runShellTool(model.ShellTool{
+	result := p.runShellTool(context.Background(), model.ShellTool{
 		Command:           command,
 		Timeout:           10,
 		RelativeOverwrite: &relativeOverwrite,
 	})
 	checkContains(t, result, "current-dir-ok")
+}
+
+func TestRunShellTool_InterruptKillsProcess(t *testing.T) {
+	p := setupProvider(t)
+	p.fileBlacklist = []string{}
+
+	var cmd string
+	if runtime.GOOS == "windows" {
+		cmd = "ping 127.0.0.1 -n 60"
+	} else {
+		cmd = "ping 127.0.0.1 -c 60"
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	start := time.Now()
+	done := make(chan string, 1)
+	go func() {
+		done <- p.runShellTool(ctx, model.ShellTool{
+			Command: cmd,
+			Timeout: 30,
+		})
+	}()
+
+	time.Sleep(time.Second)
+	cancel()
+
+	result := <-done
+	elapsed := time.Since(start)
+
+	if elapsed > 8*time.Second {
+		t.Errorf("interrupt should kill process quickly, took %v", elapsed)
+	}
+
+	if !strings.Contains(result, "Exit Code") {
+		t.Errorf("expected Exit Code in result, got: %s", result)
+	}
+
+	t.Logf("killed after %v, exit info: %s", elapsed, result)
 }
