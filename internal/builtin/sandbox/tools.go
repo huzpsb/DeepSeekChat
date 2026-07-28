@@ -25,7 +25,7 @@ func (p *Provider) Tools() []model.ToolDef {
 				},
 			},
 		},
-		{Name: "search_name", Description: "Search files or folders by name (name only, path excluded). Default uses plain substring match. Set type=\"glob\" for glob (matches WHOLE name; *keyword* for substring), e.g. \"*_test.go\". Set type=\"regex\" for regex (substring by default, use ^/$ to anchor), e.g. \"_test\\.go$\".",
+		{Name: "search_name", Description: "Search files or folders by name (name only, path excluded). Default uses plain substring match. Set type=\"glob\" for glob (matches WHOLE name; *keyword* for substring), e.g. \"*.go\". Set type=\"regex\" for regex (substring by default, use ^/$ to anchor), e.g. \"_test\\.go$\".",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -37,13 +37,13 @@ func (p *Provider) Tools() []model.ToolDef {
 				"required": []string{"keyword"},
 			},
 		},
-		{Name: "search_content", Description: "Search files containing keyword. Default uses plain substring match. Set type=\"glob\" for glob (matches WHOLE line; *2* matches \"123\" but *2 does NOT), e.g. \"*depth :=*\". Set type=\"regex\" for regex (substring by default, use ^/$ to anchor), e.g. \"depth\\s*:=\". Optionally filter by filename with file_filter (glob).",
+		{Name: "search_content", Description: "Search files containing keyword. Default uses plain substring match. Set type=\"glob\" for glob (matches WHOLE line; *2* matches \"123\" but *2 does NOT), e.g. \"*depth :=*\". Set type=\"regex\" for regex (substring by default, use ^/$ to anchor), e.g. \"depth\\s*:=\". Optionally filter by filename with file_glob (glob).",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"keyword":         map[string]any{"type": "string"},
 					"type":            map[string]any{"type": "string", "default": "plain", "enum": []string{"plain", "glob", "regex"}},
-					"file_filter":     map[string]any{"type": "string", "default": ""},
+					"file_glob":       map[string]any{"type": "string", "default": "*"},
 					"limit_file":      map[string]any{"type": "integer", "default": 20},
 					"limit_occurence": map[string]any{"type": "integer", "default": 5},
 					"dir":             map[string]any{"type": "string", "default": "/"},
@@ -298,9 +298,9 @@ func (p *Provider) searchContent(args map[string]any) string {
 	if v, ok := args["type"].(string); ok && v != "" {
 		matchType = v
 	}
-	fileFilter := ""
-	if v, ok := args["file_filter"].(string); ok {
-		fileFilter = v
+	fileGlob := "*"
+	if v, ok := args["file_glob"].(string); ok {
+		fileGlob = v
 	}
 	limitFile := 20
 	if v, ok := args["limit_file"].(float64); ok {
@@ -321,15 +321,6 @@ func (p *Provider) searchContent(args map[string]any) string {
 		re, err = regexp.Compile(keyword)
 		if err != nil {
 			return fmt.Sprintf("Error: invalid regex: %v", err)
-		}
-	}
-
-	var fileFilterRe *regexp.Regexp
-	if fileFilter != "" {
-		var err error
-		fileFilterRe, err = regexp.Compile(fileFilter)
-		if err != nil {
-			return fmt.Sprintf("Error: invalid file_filter: %v", err)
 		}
 	}
 
@@ -355,7 +346,8 @@ func (p *Provider) searchContent(args map[string]any) string {
 		if info.IsDir() {
 			return nil
 		}
-		if fileFilterRe != nil && !fileFilterRe.MatchString(info.Name()) {
+		match, _ := filepath.Match(fileGlob, info.Name())
+		if !match {
 			return nil
 		}
 		if filesFound >= limitFile {
