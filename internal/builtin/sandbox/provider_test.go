@@ -105,3 +105,137 @@ func TestRmWithAbsolutePathOutsideRootRejected(t *testing.T) {
 		t.Fatalf("expected outside file to still exist: %v", err)
 	}
 }
+
+func TestSearchName_GlobDefault(t *testing.T) {
+	root := t.TempDir()
+	os.WriteFile(filepath.Join(root, "foo.go"), nil, 0644)
+	os.WriteFile(filepath.Join(root, "bar.txt"), nil, 0644)
+	os.WriteFile(filepath.Join(root, "foo_test.go"), nil, 0644)
+
+	p := &Provider{rootDir: root}
+
+	// glob: *.go matches both .go files
+	result := p.searchName(map[string]any{"keyword": "*.go", "dir": root})
+	if !strings.Contains(result, "foo.go") {
+		t.Fatalf("expected foo.go, got %q", result)
+	}
+	if !strings.Contains(result, "foo_test.go") {
+		t.Fatalf("expected foo_test.go, got %q", result)
+	}
+	if strings.Contains(result, "bar.txt") {
+		t.Fatalf("expected bar.txt NOT to match *.go, got %q", result)
+	}
+
+	// glob: f??.go matches foo.go but not foo_test.go
+	result = p.searchName(map[string]any{"keyword": "f??.go", "dir": root})
+	if !strings.Contains(result, "foo.go") {
+		t.Fatalf("expected foo.go, got %q", result)
+	}
+	if strings.Contains(result, "foo_test.go") {
+		t.Fatalf("expected foo_test.go NOT to match f??.go, got %q", result)
+	}
+
+	// glob: ?ar.txt matches bar.txt
+	result = p.searchName(map[string]any{"keyword": "?ar.txt", "dir": root})
+	if !strings.Contains(result, "bar.txt") {
+		t.Fatalf("expected bar.txt, got %q", result)
+	}
+}
+
+func TestSearchName_Regex(t *testing.T) {
+	root := t.TempDir()
+	os.WriteFile(filepath.Join(root, "foo.go"), nil, 0644)
+	os.WriteFile(filepath.Join(root, "bar.txt"), nil, 0644)
+	os.WriteFile(filepath.Join(root, "foo_test.go"), nil, 0644)
+
+	p := &Provider{rootDir: root}
+
+	// regex: \.go$ matches both .go files
+	result := p.searchName(map[string]any{"keyword": `\.go$`, "type": "regex", "dir": root})
+	if !strings.Contains(result, "foo.go") {
+		t.Fatalf("expected foo.go, got %q", result)
+	}
+	if !strings.Contains(result, "foo_test.go") {
+		t.Fatalf("expected foo_test.go, got %q", result)
+	}
+	if strings.Contains(result, "bar.txt") {
+		t.Fatalf("expected bar.txt NOT to match, got %q", result)
+	}
+
+	// regex: ^foo\.[^_]
+	result = p.searchName(map[string]any{"keyword": `^foo\.[^_]`, "type": "regex", "dir": root})
+	if !strings.Contains(result, "foo.go") {
+		t.Fatalf("expected foo.go, got %q", result)
+	}
+	if strings.Contains(result, "foo_test.go") {
+		t.Fatalf("expected foo_test.go NOT to match, got %q", result)
+	}
+}
+
+func TestSearchName_InvalidRegex(t *testing.T) {
+	root := t.TempDir()
+	p := &Provider{rootDir: root}
+
+	result := p.searchName(map[string]any{"keyword": `[unclosed`, "type": "regex", "dir": root})
+	if !strings.Contains(result, "Error: invalid regex") {
+		t.Fatalf("expected invalid regex error, got %q", result)
+	}
+}
+
+func TestSearchContent_GlobDefault(t *testing.T) {
+	root := t.TempDir()
+	os.WriteFile(filepath.Join(root, "a.txt"), []byte("hello world\nfoo bar\nbaz qux"), 0644)
+
+	p := &Provider{rootDir: root}
+
+	// glob: hello* matches "hello world"
+	result := p.searchContent(map[string]any{"keyword": "hello*", "dir": root})
+	if !strings.Contains(result, "hello world") {
+		t.Fatalf("expected 'hello world', got %q", result)
+	}
+
+	// glob: *bar* matches "foo bar"
+	result = p.searchContent(map[string]any{"keyword": "*bar*", "dir": root})
+	if !strings.Contains(result, "foo bar") {
+		t.Fatalf("expected 'foo bar', got %q", result)
+	}
+
+	// glob: baz ??? matches "baz qux"
+	result = p.searchContent(map[string]any{"keyword": "baz ???", "dir": root})
+	if !strings.Contains(result, "baz qux") {
+		t.Fatalf("expected 'baz qux', got %q", result)
+	}
+}
+
+func TestSearchContent_Regex(t *testing.T) {
+	root := t.TempDir()
+	os.WriteFile(filepath.Join(root, "a.txt"), []byte("hello world\nfoo bar\nbaz qux"), 0644)
+
+	p := &Provider{rootDir: root}
+
+	// regex: \b\w{3}\b matches "foo", "bar", "baz", "qux"
+	result := p.searchContent(map[string]any{"keyword": `\b\w{3}\b`, "type": "regex", "dir": root})
+	if !strings.Contains(result, "foo bar") {
+		t.Fatalf("expected 'foo bar', got %q", result)
+	}
+	if !strings.Contains(result, "baz qux") {
+		t.Fatalf("expected 'baz qux', got %q", result)
+	}
+
+	// regex: ^hello (only line 1 matches, context shows surrounding lines)
+	result = p.searchContent(map[string]any{"keyword": `^hello`, "type": "regex", "dir": root})
+	if !strings.Contains(result, "hello world") {
+		t.Fatalf("expected 'hello world', got %q", result)
+	}
+	// context may include surrounding lines; that's fine — just verify the hit is there
+}
+
+func TestSearchContent_InvalidRegex(t *testing.T) {
+	root := t.TempDir()
+	p := &Provider{rootDir: root}
+
+	result := p.searchContent(map[string]any{"keyword": `[unclosed`, "type": "regex", "dir": root})
+	if !strings.Contains(result, "Error: invalid regex") {
+		t.Fatalf("expected invalid regex error, got %q", result)
+	}
+}

@@ -26,6 +26,7 @@ func LoadConfig() (*model.MCPConfig, error) {
 
 func defaultConfig() *model.MCPConfig {
 	return &model.MCPConfig{
+		Port: 5234,
 		Sandbox: model.SandboxConfig{
 			RootDir:      "./agent",
 			ExtBlacklist: []string{"exe", "dll", "ppt", "pptx", "doc", "docx", "pdf", "class", "dex", "apk", "bin", "jpg", "jpeg", "png", "gif"},

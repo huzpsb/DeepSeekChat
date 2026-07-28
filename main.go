@@ -60,6 +60,7 @@ func main() {
 
 	regexp2.DefaultMatchTimeout = time.Second * 5
 	srv := server.New(staticFiles)
-	log.Println("DsChat starting on http://127.0.0.1:5233")
-	log.Fatal(http.ListenAndServe(":5233", srv.Handler()))
+	port := fmt.Sprintf(":%d", srv.Port())
+	log.Printf("DsChat starting on http://127.0.0.1%s\n", port)
+	log.Fatal(http.ListenAndServe(port, srv.Handler()))
 }

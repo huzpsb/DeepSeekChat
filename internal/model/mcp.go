@@ -2,6 +2,7 @@ package model
 
 type MCPConfig struct {
 	APIKey                string           `json:"api_key"`
+	Port                  int              `json:"port"`
 	Sandbox               SandboxConfig    `json:"sandbox"`
 	EnableCodingTools     bool             `json:"enable_coding_tools"`
 	EnableWebTools        bool             `json:"enable_web_tools"`
