@@ -1026,7 +1026,20 @@ html, body {
     font-size: 12px;
 }
 
-.tool-call-args-table input:focus {
+.tool-call-args-table textarea {
+    width: 100%;
+    padding: 4px 6px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    font-family: 'Consolas', 'Fira Code', monospace;
+    font-size: 12px;
+    resize: vertical;
+}
+
+.tool-call-args-table input:focus,
+.tool-call-args-table textarea:focus {
     outline: none;
     border-color: var(--accent);
 }

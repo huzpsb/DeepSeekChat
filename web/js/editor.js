@@ -353,17 +353,22 @@
                 });
                 valueCell.appendChild(cb);
             } else {
-                var input = document.createElement('input');
+                var val = existing[key];
+                var strVal = (val !== undefined && val !== null) ? (typeof val === 'string' ? val : JSON.stringify(val)) : '';
+
+                var input;
                 if (prop.type === 'number' || prop.type === 'integer') {
+                    input = document.createElement('input');
                     input.type = 'number';
                     if (prop.type === 'integer') {
                         input.step = '1';
                     }
                 } else {
-                    input.type = 'text';
+                    input = document.createElement('textarea');
+                    input.rows = Math.max(1, Math.min(6, strVal.split('\n').length + 1));
+                    input.style.cssText = 'width:100%;background:var(--bg-primary);color:var(--text-primary);border:1px solid var(--border);border-radius:3px;padding:3px 6px;font-family:monospace;font-size:12px;resize:vertical;min-height:24px';
                 }
                 input.dataset.field = key;
-                var val = existing[key];
                 if (val !== undefined && val !== null) {
                     if (typeof val === 'string' || typeof val === 'number') {
                         input.value = val;
@@ -391,7 +396,7 @@
 
     function saveTableArgs(tc, table, schema) {
         var result = {};
-        table.querySelectorAll('input').forEach(function (inp) {
+        table.querySelectorAll('input, textarea').forEach(function (inp) {
             var key = inp.dataset.field;
             if (!key) return;
             var prop = schema.properties[key];
@@ -400,8 +405,14 @@
             if (prop.type === 'boolean') {
                 result[key] = inp.checked;
             } else if (prop.type === 'number' || prop.type === 'integer') {
-                var num = parseFloat(inp.value);
-                result[key] = isNaN(num) ? (prop.type === 'integer' ? 0 : null) : num;
+                var raw = inp.value.trim();
+                if (raw === '') {
+                    // leave empty — do not include in result
+                    return;
+                }
+                var num = parseFloat(raw);
+                if (isNaN(num)) return; // skip invalid
+                result[key] = prop.type === 'integer' ? Math.round(num) : num;
             } else {
                 result[key] = inp.value;
             }
