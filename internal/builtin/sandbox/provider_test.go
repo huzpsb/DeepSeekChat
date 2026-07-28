@@ -115,7 +115,7 @@ func TestSearchName_PlainDefault(t *testing.T) {
 	p := &Provider{rootDir: root}
 
 	// plain: substring "foo" matches both foo.go and foo_test.go
-	result := p.searchName(map[string]any{"keyword": "foo", "dir": root})
+	result := p.searchName(map[string]any{"query": "foo", "dir": root})
 	if !strings.Contains(result, "foo.go") {
 		t.Fatalf("expected foo.go, got %q", result)
 	}
@@ -136,7 +136,7 @@ func TestSearchName_Glob(t *testing.T) {
 	p := &Provider{rootDir: root}
 
 	// glob: *.go matches both .go files
-	result := p.searchName(map[string]any{"keyword": "*.go", "type": "glob", "dir": root})
+	result := p.searchName(map[string]any{"query": "*.go", "type": "glob", "dir": root})
 	if !strings.Contains(result, "foo.go") {
 		t.Fatalf("expected foo.go, got %q", result)
 	}
@@ -148,7 +148,7 @@ func TestSearchName_Glob(t *testing.T) {
 	}
 
 	// glob: f??.go matches foo.go but not foo_test.go
-	result = p.searchName(map[string]any{"keyword": "f??.go", "type": "glob", "dir": root})
+	result = p.searchName(map[string]any{"query": "f??.go", "type": "glob", "dir": root})
 	if !strings.Contains(result, "foo.go") {
 		t.Fatalf("expected foo.go, got %q", result)
 	}
@@ -157,7 +157,7 @@ func TestSearchName_Glob(t *testing.T) {
 	}
 
 	// glob: ?ar.txt matches bar.txt
-	result = p.searchName(map[string]any{"keyword": "?ar.txt", "type": "glob", "dir": root})
+	result = p.searchName(map[string]any{"query": "?ar.txt", "type": "glob", "dir": root})
 	if !strings.Contains(result, "bar.txt") {
 		t.Fatalf("expected bar.txt, got %q", result)
 	}
@@ -172,7 +172,7 @@ func TestSearchName_Regex(t *testing.T) {
 	p := &Provider{rootDir: root}
 
 	// regex: \.go$ matches both .go files
-	result := p.searchName(map[string]any{"keyword": `\.go$`, "type": "regex", "dir": root})
+	result := p.searchName(map[string]any{"query": `\.go$`, "type": "regex", "dir": root})
 	if !strings.Contains(result, "foo.go") {
 		t.Fatalf("expected foo.go, got %q", result)
 	}
@@ -184,7 +184,7 @@ func TestSearchName_Regex(t *testing.T) {
 	}
 
 	// regex: ^foo\.[^_]
-	result = p.searchName(map[string]any{"keyword": `^foo\.[^_]`, "type": "regex", "dir": root})
+	result = p.searchName(map[string]any{"query": `^foo\.[^_]`, "type": "regex", "dir": root})
 	if !strings.Contains(result, "foo.go") {
 		t.Fatalf("expected foo.go, got %q", result)
 	}
@@ -197,7 +197,7 @@ func TestSearchName_InvalidRegex(t *testing.T) {
 	root := t.TempDir()
 	p := &Provider{rootDir: root}
 
-	result := p.searchName(map[string]any{"keyword": `[unclosed`, "type": "regex", "dir": root})
+	result := p.searchName(map[string]any{"query": `[unclosed`, "type": "regex", "dir": root})
 	if !strings.Contains(result, "Error: invalid regex") {
 		t.Fatalf("expected invalid regex error, got %q", result)
 	}
@@ -210,13 +210,13 @@ func TestSearchContent_PlainDefault(t *testing.T) {
 	p := &Provider{rootDir: root}
 
 	// plain: substring "hello" matches "hello world"
-	result := p.searchContent(map[string]any{"keyword": "hello", "dir": root})
+	result := p.searchContent(map[string]any{"query": "hello", "dir": root})
 	if !strings.Contains(result, "hello world") {
 		t.Fatalf("expected 'hello world', got %q", result)
 	}
 
 	// plain: substring "bar" matches "foo bar"
-	result = p.searchContent(map[string]any{"keyword": "bar", "dir": root})
+	result = p.searchContent(map[string]any{"query": "bar", "dir": root})
 	if !strings.Contains(result, "foo bar") {
 		t.Fatalf("expected 'foo bar', got %q", result)
 	}
@@ -229,19 +229,19 @@ func TestSearchContent_Glob(t *testing.T) {
 	p := &Provider{rootDir: root}
 
 	// glob: hello* matches whole line "hello world"
-	result := p.searchContent(map[string]any{"keyword": "hello*", "type": "glob", "dir": root})
+	result := p.searchContent(map[string]any{"query": "hello*", "type": "glob", "dir": root})
 	if !strings.Contains(result, "hello world") {
 		t.Fatalf("expected 'hello world', got %q", result)
 	}
 
 	// glob: *bar* matches whole line "foo bar"
-	result = p.searchContent(map[string]any{"keyword": "*bar*", "type": "glob", "dir": root})
+	result = p.searchContent(map[string]any{"query": "*bar*", "type": "glob", "dir": root})
 	if !strings.Contains(result, "foo bar") {
 		t.Fatalf("expected 'foo bar', got %q", result)
 	}
 
 	// glob: baz ??? matches whole line "baz qux"
-	result = p.searchContent(map[string]any{"keyword": "baz ???", "type": "glob", "dir": root})
+	result = p.searchContent(map[string]any{"query": "baz ???", "type": "glob", "dir": root})
 	if !strings.Contains(result, "baz qux") {
 		t.Fatalf("expected 'baz qux', got %q", result)
 	}
@@ -254,7 +254,7 @@ func TestSearchContent_Regex(t *testing.T) {
 	p := &Provider{rootDir: root}
 
 	// regex: \b\w{3}\b matches "foo", "bar", "baz", "qux"
-	result := p.searchContent(map[string]any{"keyword": `\b\w{3}\b`, "type": "regex", "dir": root})
+	result := p.searchContent(map[string]any{"query": `\b\w{3}\b`, "type": "regex", "dir": root})
 	if !strings.Contains(result, "foo bar") {
 		t.Fatalf("expected 'foo bar', got %q", result)
 	}
@@ -263,18 +263,18 @@ func TestSearchContent_Regex(t *testing.T) {
 	}
 
 	// regex: ^hello (only line 1 matches, context shows surrounding lines)
-	result = p.searchContent(map[string]any{"keyword": `^hello`, "type": "regex", "dir": root})
+	result = p.searchContent(map[string]any{"query": `^hello`, "type": "regex", "dir": root})
 	if !strings.Contains(result, "hello world") {
 		t.Fatalf("expected 'hello world', got %q", result)
 	}
-	// context may include surrounding lines; that's fine — just verify the hit is there
+	// context may include surrounding lines; that's fine -- just verify the hit is there
 }
 
 func TestSearchContent_InvalidRegex(t *testing.T) {
 	root := t.TempDir()
 	p := &Provider{rootDir: root}
 
-	result := p.searchContent(map[string]any{"keyword": `[unclosed`, "type": "regex", "dir": root})
+	result := p.searchContent(map[string]any{"query": `[unclosed`, "type": "regex", "dir": root})
 	if !strings.Contains(result, "Error: invalid regex") {
 		t.Fatalf("expected invalid regex error, got %q", result)
 	}

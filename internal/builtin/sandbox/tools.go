@@ -25,30 +25,30 @@ func (p *Provider) Tools() []model.ToolDef {
 				},
 			},
 		},
-		{Name: "search_name", Description: "Search files or folders by name (name only, path excluded). Default uses plain substring match. Set type=\"glob\" for glob (matches WHOLE name; *keyword* for substring), e.g. \"*.go\". Set type=\"regex\" for regex (substring by default, use ^/$ to anchor), e.g. \"_test\\.go$\".",
+		{Name: "search_name", Description: "Search files or folders by name (name only, path excluded). Default uses plain substring match. Set type=\"glob\" for glob (matches WHOLE name), e.g. \"*.go\". Set type=\"regex\" for regex (substring by default, use ^/$ to anchor), e.g. \"_test\\.go$\".",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"keyword":    map[string]any{"type": "string"},
+					"query":      map[string]any{"type": "string"},
 					"type":       map[string]any{"type": "string", "default": "plain", "enum": []string{"plain", "glob", "regex"}},
 					"limit_file": map[string]any{"type": "integer", "default": 20},
 					"dir":        map[string]any{"type": "string", "default": "/"},
 				},
-				"required": []string{"keyword"},
+				"required": []string{"query"},
 			},
 		},
-		{Name: "search_content", Description: "Search files containing keyword. Default uses plain substring match. Set type=\"glob\" for glob (matches WHOLE line; *2* matches \"123\" but *2 does NOT), e.g. \"*depth :=*\". Set type=\"regex\" for regex (substring by default, use ^/$ to anchor), e.g. \"depth\\s*:=\". Optionally filter by filename with file_glob (glob).",
+		{Name: "search_content", Description: "Search files with query. Default uses plain substring match. Set type=\"glob\" for glob (matches WHOLE line; *2* matches \"123\" but *2 does NOT), e.g. \"*depth :=*\". Set type=\"regex\" for regex (substring by default, use ^/$ to anchor), e.g. \"depth\\s*:=\". Optionally filter by filename with file_glob (glob).",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"keyword":         map[string]any{"type": "string"},
+					"query":           map[string]any{"type": "string"},
 					"type":            map[string]any{"type": "string", "default": "plain", "enum": []string{"plain", "glob", "regex"}},
 					"file_glob":       map[string]any{"type": "string", "default": "*"},
 					"limit_file":      map[string]any{"type": "integer", "default": 20},
 					"limit_occurence": map[string]any{"type": "integer", "default": 5},
 					"dir":             map[string]any{"type": "string", "default": "/"},
 				},
-				"required": []string{"keyword"},
+				"required": []string{"query"},
 			},
 		},
 		{Name: "read_content", Description: "Read file content",
@@ -233,7 +233,7 @@ func (p *Provider) tree(args map[string]any) string {
 }
 
 func (p *Provider) searchName(args map[string]any) string {
-	keyword, _ := args["keyword"].(string)
+	query, _ := args["query"].(string)
 	matchType := "plain"
 	if v, ok := args["type"].(string); ok && v != "" {
 		matchType = v
@@ -250,7 +250,7 @@ func (p *Provider) searchName(args map[string]any) string {
 	var re *regexp.Regexp
 	if matchType == "regex" {
 		var err error
-		re, err = regexp.Compile(keyword)
+		re, err = regexp.Compile(query)
 		if err != nil {
 			return fmt.Sprintf("Error: invalid regex: %v", err)
 		}
@@ -278,9 +278,9 @@ func (p *Provider) searchName(args map[string]any) string {
 		case "regex":
 			match = re.MatchString(info.Name())
 		case "glob":
-			match, _ = filepath.Match(keyword, info.Name())
+			match, _ = filepath.Match(query, info.Name())
 		default:
-			match = strings.Contains(info.Name(), keyword)
+			match = strings.Contains(info.Name(), query)
 		}
 		if match {
 			rel, _ := filepath.Rel(p.rootDir, fp)
@@ -293,7 +293,7 @@ func (p *Provider) searchName(args map[string]any) string {
 }
 
 func (p *Provider) searchContent(args map[string]any) string {
-	keyword, _ := args["keyword"].(string)
+	query, _ := args["query"].(string)
 	matchType := "plain"
 	if v, ok := args["type"].(string); ok && v != "" {
 		matchType = v
@@ -318,7 +318,7 @@ func (p *Provider) searchContent(args map[string]any) string {
 	var re *regexp.Regexp
 	if matchType == "regex" {
 		var err error
-		re, err = regexp.Compile(keyword)
+		re, err = regexp.Compile(query)
 		if err != nil {
 			return fmt.Sprintf("Error: invalid regex: %v", err)
 		}
@@ -376,9 +376,9 @@ func (p *Provider) searchContent(args map[string]any) string {
 			case "regex":
 				match = re.MatchString(line)
 			case "glob":
-				match, _ = filepath.Match(keyword, line)
+				match, _ = filepath.Match(query, line)
 			default:
-				match = strings.Contains(line, keyword)
+				match = strings.Contains(line, query)
 			}
 			if match {
 				hits++
