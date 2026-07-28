@@ -106,7 +106,28 @@ func TestRmWithAbsolutePathOutsideRootRejected(t *testing.T) {
 	}
 }
 
-func TestSearchName_GlobDefault(t *testing.T) {
+func TestSearchName_PlainDefault(t *testing.T) {
+	root := t.TempDir()
+	os.WriteFile(filepath.Join(root, "foo.go"), nil, 0644)
+	os.WriteFile(filepath.Join(root, "bar.txt"), nil, 0644)
+	os.WriteFile(filepath.Join(root, "foo_test.go"), nil, 0644)
+
+	p := &Provider{rootDir: root}
+
+	// plain: substring "foo" matches both foo.go and foo_test.go
+	result := p.searchName(map[string]any{"keyword": "foo", "dir": root})
+	if !strings.Contains(result, "foo.go") {
+		t.Fatalf("expected foo.go, got %q", result)
+	}
+	if !strings.Contains(result, "foo_test.go") {
+		t.Fatalf("expected foo_test.go, got %q", result)
+	}
+	if strings.Contains(result, "bar.txt") {
+		t.Fatalf("expected bar.txt NOT to match, got %q", result)
+	}
+}
+
+func TestSearchName_Glob(t *testing.T) {
 	root := t.TempDir()
 	os.WriteFile(filepath.Join(root, "foo.go"), nil, 0644)
 	os.WriteFile(filepath.Join(root, "bar.txt"), nil, 0644)
@@ -115,7 +136,7 @@ func TestSearchName_GlobDefault(t *testing.T) {
 	p := &Provider{rootDir: root}
 
 	// glob: *.go matches both .go files
-	result := p.searchName(map[string]any{"keyword": "*.go", "dir": root})
+	result := p.searchName(map[string]any{"keyword": "*.go", "type": "glob", "dir": root})
 	if !strings.Contains(result, "foo.go") {
 		t.Fatalf("expected foo.go, got %q", result)
 	}
@@ -127,7 +148,7 @@ func TestSearchName_GlobDefault(t *testing.T) {
 	}
 
 	// glob: f??.go matches foo.go but not foo_test.go
-	result = p.searchName(map[string]any{"keyword": "f??.go", "dir": root})
+	result = p.searchName(map[string]any{"keyword": "f??.go", "type": "glob", "dir": root})
 	if !strings.Contains(result, "foo.go") {
 		t.Fatalf("expected foo.go, got %q", result)
 	}
@@ -136,7 +157,7 @@ func TestSearchName_GlobDefault(t *testing.T) {
 	}
 
 	// glob: ?ar.txt matches bar.txt
-	result = p.searchName(map[string]any{"keyword": "?ar.txt", "dir": root})
+	result = p.searchName(map[string]any{"keyword": "?ar.txt", "type": "glob", "dir": root})
 	if !strings.Contains(result, "bar.txt") {
 		t.Fatalf("expected bar.txt, got %q", result)
 	}
@@ -182,26 +203,45 @@ func TestSearchName_InvalidRegex(t *testing.T) {
 	}
 }
 
-func TestSearchContent_GlobDefault(t *testing.T) {
+func TestSearchContent_PlainDefault(t *testing.T) {
 	root := t.TempDir()
 	os.WriteFile(filepath.Join(root, "a.txt"), []byte("hello world\nfoo bar\nbaz qux"), 0644)
 
 	p := &Provider{rootDir: root}
 
-	// glob: hello* matches "hello world"
-	result := p.searchContent(map[string]any{"keyword": "hello*", "dir": root})
+	// plain: substring "hello" matches "hello world"
+	result := p.searchContent(map[string]any{"keyword": "hello", "dir": root})
 	if !strings.Contains(result, "hello world") {
 		t.Fatalf("expected 'hello world', got %q", result)
 	}
 
-	// glob: *bar* matches "foo bar"
-	result = p.searchContent(map[string]any{"keyword": "*bar*", "dir": root})
+	// plain: substring "bar" matches "foo bar"
+	result = p.searchContent(map[string]any{"keyword": "bar", "dir": root})
+	if !strings.Contains(result, "foo bar") {
+		t.Fatalf("expected 'foo bar', got %q", result)
+	}
+}
+
+func TestSearchContent_Glob(t *testing.T) {
+	root := t.TempDir()
+	os.WriteFile(filepath.Join(root, "a.txt"), []byte("hello world\nfoo bar\nbaz qux"), 0644)
+
+	p := &Provider{rootDir: root}
+
+	// glob: hello* matches whole line "hello world"
+	result := p.searchContent(map[string]any{"keyword": "hello*", "type": "glob", "dir": root})
+	if !strings.Contains(result, "hello world") {
+		t.Fatalf("expected 'hello world', got %q", result)
+	}
+
+	// glob: *bar* matches whole line "foo bar"
+	result = p.searchContent(map[string]any{"keyword": "*bar*", "type": "glob", "dir": root})
 	if !strings.Contains(result, "foo bar") {
 		t.Fatalf("expected 'foo bar', got %q", result)
 	}
 
-	// glob: baz ??? matches "baz qux"
-	result = p.searchContent(map[string]any{"keyword": "baz ???", "dir": root})
+	// glob: baz ??? matches whole line "baz qux"
+	result = p.searchContent(map[string]any{"keyword": "baz ???", "type": "glob", "dir": root})
 	if !strings.Contains(result, "baz qux") {
 		t.Fatalf("expected 'baz qux', got %q", result)
 	}
