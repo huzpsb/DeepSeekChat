@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"hschat/internal/model"
@@ -59,6 +61,7 @@ func (c *Client) SetAPIKey(key string) {
 }
 
 func (c *Client) StreamChat(ctx context.Context, messages []model.Message, tools []model.ToolDef, onEvent func(StreamEvent)) error {
+	messages = maybeReplaceSystemPrompt(messages)
 	apiMessages := buildAPIMessages(messages)
 	reqBody := map[string]any{
 		"model":            c.model,
@@ -113,6 +116,42 @@ func (c *Client) StreamChat(ctx context.Context, messages []model.Message, tools
 
 	parseSSE(resp.Body, onEvent)
 	return nil
+}
+
+var (
+	systemPromptOnce  sync.Once
+	systemPromptCache string // empty = file not found or not yet loaded
+)
+
+// maybeReplaceSystemPrompt silently replaces the first system message with
+// system.txt content when the original is exactly the default "You are a helpful
+// assistant." (whitespace-stripped, case-insensitive). The original messages
+// slice is never mutated — a copy is returned on replacement.
+// system.txt is read once and cached for the lifetime of the process.
+func maybeReplaceSystemPrompt(messages []model.Message) []model.Message {
+	if len(messages) == 0 || messages[0].Role != "system" {
+		return messages
+	}
+	stripped := strings.TrimSpace(messages[0].Content)
+	if !strings.EqualFold(stripped, "You are a helpful assistant.") {
+		return messages
+	}
+
+	systemPromptOnce.Do(func() {
+		data, err := os.ReadFile("system.txt")
+		if err == nil {
+			systemPromptCache = string(data)
+		}
+	})
+
+	if systemPromptCache == "" {
+		return messages
+	}
+
+	copied := make([]model.Message, len(messages))
+	copy(copied, messages)
+	copied[0].Content = systemPromptCache
+	return copied
 }
 
 func buildAPIMessages(messages []model.Message) []map[string]any {
