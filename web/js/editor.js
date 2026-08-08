@@ -167,7 +167,7 @@
         // populate tool calls
         if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
             msg.tool_calls.forEach(function (tc) {
-                addToolCallRow(tc);
+                addToolCallRow(tc, true);
             });
         }
 
@@ -191,7 +191,7 @@
         editingMsg.tool_calls.push(tc);
     }
 
-    function addToolCallRow(tc) {
+    function addToolCallRow(tc, persisted) {
         var container = document.getElementById('ed-tool-calls-container');
         if (!container) return;
         var idx = toolCallRowCounter++;
@@ -258,6 +258,21 @@
         header.appendChild(idLabel);
         header.appendChild(idInput);
         header.appendChild(randomBtn);
+
+        // only persisted tool calls need a manual placeholder result;
+        // newly inserted ones get one automatically on save
+        if (persisted) {
+            var resultBtn = document.createElement('button');
+            resultBtn.type = 'button';
+            resultBtn.className = 'tc-btn';
+            resultBtn.textContent = 'Add Result';
+            resultBtn.title = 'Insert a placeholder tool result message for this tool call';
+            resultBtn.addEventListener('click', function () {
+                insertPlaceholderResult(tc, resultBtn);
+            });
+            header.appendChild(resultBtn);
+        }
+
         header.appendChild(delBtn);
 
         row.appendChild(header);
@@ -475,8 +490,45 @@
 
     // ---- save ----
 
-    async function saveEdit() {
-        if (!editingMsg) return;
+    function showValidationErrors(errors) {
+        Messages.highlightErrors(errors);
+        var banner = document.getElementById('editor-error-banner');
+        if (banner) {
+            var ids = errors.map(function (e) {
+                return e.tool_call_id;
+            }).filter(Boolean);
+            var idxs = errors.map(function (e) {
+                return e.message_index;
+            }).filter(function (v) {
+                return v !== undefined && v >= 0;
+            });
+            var parts = [];
+            if (idxs.length > 0) parts.push('Messages: ' + idxs.join(', '));
+            if (ids.length > 0) parts.push('Tool calls: ' + ids.join(', '));
+            var details = errors.map(function (e) {
+                return e.detail;
+            }).filter(Boolean);
+            banner.textContent = 'Validation failed: ' + (parts.length > 0 ? parts.join('; ') : (details.join('; ') || 'Unknown issue'));
+            banner.style.display = 'block';
+            banner.classList.remove('highlight-error');
+            void banner.offsetWidth;
+            banner.classList.add('highlight-error');
+        }
+        // highlight matching tool call rows in the editor
+        errors.forEach(function (err) {
+            if (err.tool_call_id) {
+                var row = document.querySelector('#ed-tool-calls-container .tool-call-row[data-tool-call-id="' + err.tool_call_id + '"]');
+                if (row) {
+                    row.classList.remove('highlight-error');
+                    void row.offsetWidth;
+                    row.classList.add('highlight-error');
+                }
+            }
+        });
+    }
+
+    async function performSave() {
+        if (!editingMsg) return false;
 
         var saveBtn = document.getElementById('editor-save');
         saveBtn.disabled = true;
@@ -550,46 +602,69 @@
         saveBtn.disabled = false;
         saveBtn.textContent = 'Save';
 
-        if (resp.ok) {
+        var data = await resp.json();
+        if (resp.ok && !data.errors) {
+            return true;
+        }
+
+        if (data.errors) {
+            showValidationErrors(data.errors);
+        } else {
+            alert('Save failed: ' + (data.error || 'Unknown'));
+        }
+        return false;
+    }
+
+    async function saveEdit() {
+        var ok = await performSave();
+        if (ok) {
             closeEditor();
             await ChatList.loadMessages();
+        }
+    }
+
+    // ---- placeholder tool result ----
+
+    async function insertPlaceholderResult(tc, btn) {
+        if (ContinueModule.isRunning()) {
+            alert('Cannot edit while chat is being processed.');
+            return;
+        }
+        if (!editingMsg) return;
+
+        btn.disabled = true;
+
+        // persist the assistant message first so the tool call id/name are saved
+        var ok = await performSave();
+        if (!ok) {
+            btn.disabled = false;
+            return;
+        }
+
+        var resp = await fetch('/api/chat/' + encodeURIComponent(ChatList.getCurrentTitle()) + '/message/' + (editingIndex + 1), {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                role: 'tool',
+                tool_call_id: tc.id,
+                name: tc.function.name,
+                content: 'error',
+                send_to_server: true
+            })
+        });
+
+        var data = await resp.json();
+        if (resp.ok && !data.errors) {
+            closeEditor();
+            await ChatList.loadMessages();
+            return;
+        }
+
+        btn.disabled = false;
+        if (data.errors) {
+            showValidationErrors(data.errors);
         } else {
-            var data = await resp.json();
-            if (data.errors) {
-                Messages.highlightErrors(data.errors);
-                var banner = document.getElementById('editor-error-banner');
-                if (banner) {
-                    var ids = data.errors.map(function (e) {
-                        return e.tool_call_id;
-                    }).filter(Boolean);
-                    var idxs = data.errors.map(function (e) {
-                        return e.message_index;
-                    }).filter(function (v) {
-                        return v !== undefined && v >= 0;
-                    });
-                    var parts = [];
-                    if (idxs.length > 0) parts.push('Messages: ' + idxs.join(', '));
-                    if (ids.length > 0) parts.push('Tool calls: ' + ids.join(', '));
-                    banner.textContent = 'Validation failed: ' + (parts.length > 0 ? parts.join('; ') : 'Unknown issue');
-                    banner.style.display = 'block';
-                    banner.classList.remove('highlight-error');
-                    void banner.offsetWidth;
-                    banner.classList.add('highlight-error');
-                }
-                // highlight matching tool call rows in the editor
-                data.errors.forEach(function (err) {
-                    if (err.tool_call_id) {
-                        var row = document.querySelector('#ed-tool-calls-container .tool-call-row[data-tool-call-id="' + err.tool_call_id + '"]');
-                        if (row) {
-                            row.classList.remove('highlight-error');
-                            void row.offsetWidth;
-                            row.classList.add('highlight-error');
-                        }
-                    }
-                });
-            } else {
-                alert('Save failed: ' + (data.error || 'Unknown'));
-            }
+            alert('Insert result failed: ' + (data.error || 'Unknown'));
         }
     }
 
