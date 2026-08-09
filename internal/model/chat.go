@@ -6,7 +6,8 @@ type Chat struct {
 }
 
 type ChatSummary struct {
-	Title string `json:"title"`
+	Title   string `json:"title"`
+	Running bool   `json:"running,omitempty"`
 }
 
 type Message struct {

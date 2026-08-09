@@ -69,6 +69,9 @@ func (e *Engine) Continue(ctx context.Context, chat *model.Chat, input string, a
 		chat.Messages = append(chat.Messages, msg)
 		logContinue("user_added input_len=%d messages=%d last=%s", len(input), len(chat.Messages), describeLastMessage(chat))
 		emit(ContinueEvent{Type: "user_added", Content: input})
+		if e.saveFunc != nil {
+			e.saveFunc()
+		}
 	}
 
 	e.doContinue(ctx, chat, autoContinue, emit, interrupted)

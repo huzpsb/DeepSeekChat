@@ -101,6 +101,17 @@ html, body {
     white-space: nowrap;
 }
 
+#chat-list li .chat-running {
+    color: var(--accent);
+    font-size: 10px;
+    animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+
 #chat-list li .chat-actions {
     display: none;
     gap: 4px;

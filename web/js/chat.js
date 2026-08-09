@@ -3,13 +3,18 @@ var ChatList = {
     currentTitle: null,
 
     init: async function () {
-        var savedTitle = localStorage.getItem('current_chat');
+        // sessionStorage so multiple tabs can each view their own chat;
+        // fall back to the legacy localStorage key once
+        var savedTitle = sessionStorage.getItem('current_chat') || localStorage.getItem('current_chat');
         await this.refresh();
 
         if (savedTitle) {
             this.currentTitle = savedTitle;
             var resp = await fetch('/api/chats/' + encodeURIComponent(savedTitle));
             if (resp.ok) {
+                if (window.ContinueModule) {
+                    window.ContinueModule.switchChat(savedTitle);
+                }
                 await this.loadMessages();
                 document.querySelectorAll('#chat-list li .chat-title').forEach(function (span) {
                     if (span.textContent === savedTitle) {
@@ -19,21 +24,13 @@ var ChatList = {
             } else {
                 // Chat was deleted — clean up stale state
                 this.currentTitle = null;
+                sessionStorage.removeItem('current_chat');
                 localStorage.removeItem('current_chat');
             }
         }
 
         if (!this.currentTitle) {
             Messages.render(null, document.getElementById('messages'));
-        }
-
-        var streamingTitle = localStorage.getItem('streaming_chat');
-        if (streamingTitle && streamingTitle !== this.currentTitle) {
-            localStorage.removeItem('streaming_chat');
-        }
-
-        if (window.ContinueModule && this.currentTitle) {
-            window.ContinueModule.tryAutoResume();
         }
 
         document.getElementById('btn-new-chat').addEventListener('click', function () {
@@ -43,6 +40,15 @@ var ChatList = {
 
     getCurrentTitle: function () {
         return this.currentTitle;
+    },
+
+    saveCurrentTitle: function (title) {
+        if (title) {
+            sessionStorage.setItem('current_chat', title);
+            localStorage.removeItem('current_chat');
+        } else {
+            sessionStorage.removeItem('current_chat');
+        }
     },
 
     refresh: async function () {
@@ -63,6 +69,7 @@ var ChatList = {
         var list = document.getElementById('chat-list');
         var li = document.createElement('li');
         li.innerHTML = '<span class="chat-title">' + this.esc(chat.title) + '</span>'
+            + (chat.running ? '<span class="chat-running" title="Generating...">●</span>' : '')
             + '<span class="chat-actions">'
             + '<button class="btn-rename" title="Rename">&#x270E;</button>'
             + '<button class="btn-dupe" title="Duplicate">&#x2398;</button>'
@@ -93,26 +100,26 @@ var ChatList = {
     },
 
     create: async function () {
-        if (window.ContinueModule && window.ContinueModule.isRunning()) {
-            window.ContinueModule.doInterrupt();
-        }
         var resp = await fetch('/api/chats', {method: 'POST'});
         if (resp.ok) {
             var chat = await resp.json();
             this.currentTitle = chat.title;
-            localStorage.setItem('current_chat', chat.title);
+            this.saveCurrentTitle(chat.title);
+            if (window.ContinueModule) {
+                window.ContinueModule.switchChat(chat.title);
+            }
         }
         await this.refresh();
         await this.loadMessages();
     },
 
     select: async function (title) {
-        // Stop any running stream before switching chats
-        if (window.ContinueModule && window.ContinueModule.isRunning()) {
-            window.ContinueModule.doInterrupt();
-        }
+        // switch subscription only — a running chat keeps running in the background
         this.currentTitle = title;
-        localStorage.setItem('current_chat', title);
+        this.saveCurrentTitle(title);
+        if (window.ContinueModule) {
+            window.ContinueModule.switchChat(title);
+        }
         document.querySelectorAll('#chat-list li').forEach(function (li) {
             li.classList.remove('active');
         });
@@ -123,19 +130,28 @@ var ChatList = {
     loadMessages: async function () {
         if (!this.currentTitle) {
             Messages.render(null, document.getElementById('messages'));
+            if (window.ContinueModule) {
+                window.ContinueModule.onHistoryLoaded(0);
+            }
             return;
         }
         var resp = await fetch('/api/chats/' + encodeURIComponent(this.currentTitle));
         if (!resp.ok) {
             if (resp.status === 404) {
                 this.currentTitle = null;
-                localStorage.removeItem('current_chat');
+                this.saveCurrentTitle(null);
                 Messages.render(null, document.getElementById('messages'));
+                if (window.ContinueModule) {
+                    window.ContinueModule.onHistoryLoaded(0);
+                }
             }
             return;
         }
         var chat = await resp.json();
         Messages.render(chat.messages || [], document.getElementById('messages'));
+        if (window.ContinueModule) {
+            window.ContinueModule.onHistoryLoaded(chat.saved_pos || 0);
+        }
         if (window.AskUserPrompt) {
             window.AskUserPrompt.maybeShow(chat);
         }
@@ -147,13 +163,18 @@ var ChatList = {
     },
 
     del: async function (title) {
-        if (window.ContinueModule && window.ContinueModule.isRunning() && this.currentTitle === title) {
-            window.ContinueModule.doInterrupt();
+        var resp = await fetch('/api/chats/' + encodeURIComponent(title), {method: 'DELETE'});
+        if (!resp.ok) {
+            var data = await resp.json();
+            alert('Delete failed: ' + (data.error || 'Unknown'));
+            return;
         }
-        await fetch('/api/chats/' + encodeURIComponent(title), {method: 'DELETE'});
         if (this.currentTitle === title) {
             this.currentTitle = null;
-            localStorage.removeItem('current_chat');
+            this.saveCurrentTitle(null);
+            if (window.ContinueModule) {
+                window.ContinueModule.disconnect();
+            }
         }
         await this.refresh();
         await this.loadMessages();
@@ -180,7 +201,10 @@ var ChatList = {
                 if (resp.ok) {
                     if (self.currentTitle === chat.title) {
                         self.currentTitle = newTitle;
-                        localStorage.setItem('current_chat', newTitle);
+                        self.saveCurrentTitle(newTitle);
+                        if (window.ContinueModule) {
+                            window.ContinueModule.switchChat(newTitle);
+                        }
                     }
                     input.removeEventListener('blur', save);
                     await self.refresh();

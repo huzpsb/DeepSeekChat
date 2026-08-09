@@ -1,17 +1,44 @@
-// continue.js - Continue button + SSE consumption + interrupt
+// continue.js - reentrant stream subscription + send/interrupt
+//
+// Protocol (per chat):
+//   GET /api/chat/stream?title=X  (SSE, EventSource)
+//     event: sync   {gen, saved_pos, running} - on connect and on new run
+//     event: <delta|reasoning_delta|tool_call|tool_result|user_added|...> - replay + live
+//     event: idle   {gen} - run finished (or immediately when idle)
+//   POST /api/chat/continue {title, input, auto_continue} - start a run
+//   POST /api/chat/interrupt {title} - stop a run
+//
+// Rendering invariant: history DOM reflects disk (messages up to saved_pos),
+// the streaming layer (".stream-live" elements) is rebuilt from the event
+// log starting at saved_pos. Any reload of history re-baselines saved_pos
+// and replays only events with seq >= saved_pos, so nothing is ever
+// rendered twice and no message is ever split.
 (function () {
     'use strict';
+
     var isRunning = false;
     var currentAssistant = null;
-    var abortController = null;
-    var streamingTitle = null;
-    var messagesBeforeStream = 0;
     var toastTimer = null;
-    var reconnectMode = false;
     var stopSoundFlag = false;
     var lastSoundAt = 0;
     var stopSoundContext = null;
     var activeAskKey = null;
+
+    // ---- subscription state ----
+
+    var evtSource = null;
+    var subscribedTitle = null;
+    var curGen = -1;
+    var nextSeq = 0;          // seq (index in session event log) of the next event
+    var historySavedPos = 0;  // saved_pos that the rendered history reflects
+    var historyReady = false; // history rendered and baselined
+    var pending = [];         // events buffered while historyReady === false
+    var applied = [];         // DOM-producing events of the current streaming layer
+
+    var STREAM_EVENT_TYPES = [
+        'delta', 'reasoning_delta', 'tool_call', 'tool_execute',
+        'tool_result', 'user_added', 'assistant_done', 'error'
+    ];
 
     function showToast(msg) {
         var toast = document.getElementById('error-toast');
@@ -46,14 +73,10 @@
             btnContinue.textContent = 'Interrupt';
             btnContinue.classList.add('interrupt');
             btnContinue.disabled = noobActive;
-            if (ChatList.getCurrentTitle()) {
-                localStorage.setItem('streaming_chat', ChatList.getCurrentTitle());
-            }
         } else {
             btnContinue.textContent = 'Send';
             btnContinue.classList.remove('interrupt');
             btnContinue.disabled = false;
-            localStorage.removeItem('streaming_chat');
         }
     }
 
@@ -78,21 +101,229 @@
         }
     });
 
-    async function doInterrupt() {
-        try {
-            await fetch('/api/chat/interrupt', {method: 'POST'});
-        } catch (e) {
+    // ---- subscription ----
+
+    function disconnect() {
+        if (evtSource) {
+            evtSource.close();
+            evtSource = null;
         }
-        if (abortController) {
-            abortController.abort();
-            abortController = null;
-        }
-        currentAssistant = null;
-        streamingTitle = null;
+        subscribedTitle = null;
+        historyReady = false;
+        pending = [];
+        applied = [];
+        curGen = -1;
         setRunning(false);
     }
 
-    async function doContinue(reconnect, forcedInput) {
+    function switchChat(title) {
+        disconnect();
+        if (!title) return;
+        subscribedTitle = title;
+        var es = new EventSource('/api/chat/stream?title=' + encodeURIComponent(title));
+        evtSource = es;
+        es.addEventListener('sync', function (e) {
+            var d;
+            try {
+                d = JSON.parse(e.data);
+            } catch (err) {
+                return;
+            }
+            onSync(d);
+        });
+        STREAM_EVENT_TYPES.forEach(function (t) {
+            es.addEventListener(t, function (e) {
+                var evt;
+                try {
+                    evt = JSON.parse(e.data);
+                } catch (err) {
+                    return;
+                }
+                onStreamEvent(t, evt);
+            });
+        });
+        es.addEventListener('idle', function () {
+            onIdle();
+        });
+        // EventSource auto-reconnects on errors; the server resends "sync"
+        // on every reconnect, which resets and replays the streaming layer.
+    }
+
+    function onSync(d) {
+        curGen = d.gen;
+        nextSeq = d.saved_pos || 0;
+        pending = [];
+        applied = [];
+        historyReady = false;
+        resetStreamDOM();
+        setRunning(!!d.running);
+        // re-baseline history; onHistoryLoaded will flush pending events
+        ChatList.loadMessages();
+    }
+
+    function onStreamEvent(type, evt) {
+        var seq = nextSeq++;
+        if (!historyReady) {
+            pending.push({seq: seq, type: type, evt: evt});
+            return;
+        }
+        if (seq < historySavedPos) {
+            return; // already persisted, rendered as part of history
+        }
+        applyEvent(type, evt, true, seq);
+    }
+
+    function onIdle() {
+        setRunning(false);
+        applied = [];
+        pending = [];
+        setStopSoundFlag();
+        // disk is now authoritative; replace the streaming layer
+        ChatList.loadMessages();
+    }
+
+    // Called by ChatList.loadMessages after history has been re-rendered.
+    // saved_pos tells us exactly which stream events are already on disk.
+    function onHistoryLoaded(savedPos) {
+        historySavedPos = savedPos || 0;
+        historyReady = true;
+        var kept = [];
+        pending.forEach(function (p) {
+            if (p.seq >= historySavedPos) {
+                kept.push({seqStart: p.seq, seqEnd: p.seq, type: p.type, evt: p.evt});
+            }
+        });
+        pending = [];
+        // drop events that have been persisted since (saves happen at
+        // message boundaries, so an entry is either fully saved or not)
+        applied = applied.filter(function (a) {
+            return a.seqEnd >= historySavedPos;
+        });
+        applied = mergeEvents(applied.concat(kept));
+        replayApplied();
+    }
+
+    // merge adjacent delta events of the same kind so replays stay cheap
+    function mergeEvents(list) {
+        var out = [];
+        list.forEach(function (item) {
+            var last = out[out.length - 1];
+            if (last && last.type === item.type
+                && (item.type === 'delta' || item.type === 'reasoning_delta')) {
+                last.evt = {content: (last.evt.content || '') + (item.evt.content || '')};
+                last.seqEnd = item.seqEnd;
+                return;
+            }
+            if (item.type === 'delta' || item.type === 'reasoning_delta') {
+                out.push({seqStart: item.seqStart, seqEnd: item.seqEnd, type: item.type, evt: {content: item.evt.content || ''}});
+            } else {
+                out.push(item);
+            }
+        });
+        return out;
+    }
+
+    function replayApplied() {
+        resetStreamDOM();
+        applied.forEach(function (a) {
+            applyEvent(a.type, a.evt, false, 0);
+        });
+    }
+
+    function resetStreamDOM() {
+        var container = document.getElementById('messages');
+        container.querySelectorAll('.stream-live').forEach(function (el) {
+            el.remove();
+        });
+        currentAssistant = null;
+    }
+
+    // assistant_done is recorded too: it produces no DOM, but acts as a
+    // barrier so deltas of two different assistant messages never merge
+    // across a save boundary
+    function isDomEvent(type) {
+        return type === 'delta' || type === 'reasoning_delta'
+            || type === 'tool_call' || type === 'tool_result' || type === 'user_added'
+            || type === 'assistant_done';
+    }
+
+    function applyEvent(type, evt, record, seq) {
+        switch (type) {
+            case 'delta':
+                appendToAssistant(evt.content || evt.Content || '', 'content');
+                break;
+            case 'reasoning_delta':
+                appendToAssistant(evt.content || evt.Content || '', 'reasoning');
+                break;
+            case 'tool_call':
+                if (!(window.NoobMode && window.NoobMode.isActive())) {
+                    appendToolCall(evt.tool_call || {id: evt.ID, function: {name: evt.Name, arguments: evt.Args}});
+                }
+                break;
+            case 'tool_result':
+                if (!(window.NoobMode && window.NoobMode.isActive())) {
+                    appendToolResult(evt.tool_result ? evt.tool_result.message : evt);
+                }
+                break;
+            case 'user_added':
+                appendUserMessage(evt.content || evt.Content || '');
+                break;
+            case 'assistant_done':
+                // next stream segment starts a new assistant message
+                currentAssistant = null;
+                break;
+            case 'error':
+                if (evt.error && evt.error.ids) {
+                    evt.error.ids.forEach(function (id) {
+                        var el = document.querySelector('.tool-call-item[data-tool-call-id="' + id + '"]');
+                        if (el) {
+                            el.classList.add('highlight-error');
+                            setTimeout(function () {
+                                el.classList.remove('highlight-error');
+                            }, 5000);
+                        }
+                    });
+                }
+                if (evt.error) {
+                    showToast(evt.error.detail || evt.error.type || 'Unknown error');
+                }
+                break;
+        }
+        if (record && isDomEvent(type)) {
+            pushApplied(type, evt, seq);
+        }
+    }
+
+    function pushApplied(type, evt, seq) {
+        var last = applied[applied.length - 1];
+        if (last && last.type === type && (type === 'delta' || type === 'reasoning_delta')) {
+            last.evt.content = (last.evt.content || '') + (evt.content || evt.Content || '');
+            last.seqEnd = seq;
+            return;
+        }
+        if (type === 'delta' || type === 'reasoning_delta') {
+            applied.push({seqStart: seq, seqEnd: seq, type: type, evt: {content: evt.content || evt.Content || ''}});
+        } else {
+            applied.push({seqStart: seq, seqEnd: seq, type: type, evt: evt});
+        }
+    }
+
+    // ---- send / interrupt ----
+
+    async function doInterrupt() {
+        var title = ChatList.getCurrentTitle();
+        try {
+            await fetch('/api/chat/interrupt', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({title: title})
+            });
+        } catch (e) {
+        }
+        setRunning(false);
+    }
+
+    async function doContinue(forcedInput) {
         clearStopSoundFlag();
         var title = ChatList.getCurrentTitle();
         if (!title) {
@@ -100,7 +331,7 @@
             return;
         }
 
-        if (!reconnect && await reopenPendingAsk(title)) {
+        if (await reopenPendingAsk(title)) {
             showToast('Please answer the pending question first');
             return;
         }
@@ -108,26 +339,9 @@
         var inputArea = document.getElementById('user-input');
         var input = forcedInput !== undefined ? forcedInput : inputArea.value.trim();
         var autoContinue = document.getElementById('auto-continue').checked;
-
-        if (!reconnect) {
-            setRunning(true);
-        }
-        reconnectMode = !!reconnect;
-        abortController = new AbortController();
         if (forcedInput === undefined) {
             inputArea.value = '';
         }
-        currentAssistant = null;
-        streamingTitle = title;
-
-        // Remember how many messages are already rendered
-        var container = document.getElementById('messages');
-        // Remove any leftover streaming assistant (from auto-resume reconnect)
-        var streamingEl = container.querySelector('.assistant-streaming');
-        if (streamingEl) {
-            streamingEl.remove();
-        }
-        messagesBeforeStream = container.querySelectorAll('.message').length;
 
         try {
             var resp = await fetch('/api/chat/continue', {
@@ -136,87 +350,18 @@
                 body: JSON.stringify({
                     title: title,
                     input: input || '',
-                    auto_continue: autoContinue,
-                    reconnect: !!reconnect
-                }),
-                signal: abortController.signal
+                    auto_continue: autoContinue
+                })
             });
-
             if (!resp.ok) {
                 var err = await resp.json();
                 showToast(err.error || 'Unknown');
-                setRunning(false);
                 return;
             }
-
-            if (reconnect) {
-                setRunning(true);
-            }
-
-            var reader = resp.body.getReader();
-            var decoder = new TextDecoder();
-            var buffer = '';
-            var eventType = '';
-            var eventData = '';
-
-            try {
-                while (true) {
-                    var _a = await reader.read(), done = _a.done, value = _a.value;
-                    if (done) break;
-
-                    buffer += decoder.decode(value, {stream: true});
-                    var lines = buffer.split('\n');
-                    buffer = lines.pop() || '';
-
-                    for (var i = 0; i < lines.length; i++) {
-                        var line = lines[i];
-                        if (line.startsWith('event: ')) {
-                            eventType = line.substring(7).trim();
-                        } else if (line.startsWith('data: ')) {
-                            eventData = line.substring(6).trim();
-                        } else if (line === '') {
-                            if (eventType && eventData) {
-                                handleEvent(eventType, eventData);
-                            }
-                            eventType = '';
-                            eventData = '';
-                        }
-                    }
-                }
-                if (buffer) {
-                    var finalLines = (buffer + '\n').split('\n');
-                    for (var j = 0; j < finalLines.length; j++) {
-                        var finalLine = finalLines[j];
-                        if (finalLine.startsWith('event: ')) {
-                            eventType = finalLine.substring(7).trim();
-                        } else if (finalLine.startsWith('data: ')) {
-                            eventData = finalLine.substring(6).trim();
-                        } else if (finalLine === '') {
-                            if (eventType && eventData) {
-                                handleEvent(eventType, eventData);
-                            }
-                            eventType = '';
-                            eventData = '';
-                        }
-                    }
-                }
-            } catch (e) {
-                if (e.name === 'AbortError') {
-                    return;
-                }
-                showToast('Stream error: ' + (e.message || e));
-            }
+            // running state and rendering are driven by the SSE subscription
+            setRunning(true);
         } catch (e) {
-            if (e.name === 'AbortError') {
-                return;
-            }
             showToast('Continue error: ' + (e.message || e));
-        } finally {
-            reconnectMode = false;
-            setRunning(false);
-            abortController = null;
-            setStopSoundFlag();
-            await ChatList.loadMessages();
         }
     }
 
@@ -225,14 +370,195 @@
             var resp = await fetch('/api/chats/' + encodeURIComponent(title));
             if (!resp.ok) return false;
             var chat = await resp.json();
-            var pending = getPendingAsk(chat);
-            if (!pending) return false;
-            showAskUserModal(pending);
+            var pendingAsk = getPendingAsk(chat);
+            if (!pendingAsk) return false;
+            showAskUserModal(pendingAsk);
             return true;
         } catch (e) {
             return false;
         }
     }
+
+    // ---- streaming DOM builders (all elements tagged .stream-live) ----
+
+    function getOrCreateAssistant() {
+        var container = document.getElementById('messages');
+
+        if (currentAssistant && currentAssistant.parentNode === container) {
+            return currentAssistant;
+        }
+
+        if (currentAssistant) {
+            currentAssistant.remove();
+        }
+        currentAssistant = document.createElement('div');
+        currentAssistant.className = 'message role-assistant assistant-streaming stream-live';
+        container.appendChild(currentAssistant);
+        scrollIfNearBottom(container);
+        return currentAssistant;
+    }
+
+    function appendToAssistant(text, field) {
+        var el = getOrCreateAssistant();
+        if (field === 'reasoning') {
+            var reasoningEl = el.querySelector('.reasoning-block');
+            if (!reasoningEl) {
+                reasoningEl = document.createElement('div');
+                reasoningEl.className = 'reasoning-block';
+                var toggle = document.createElement('div');
+                toggle.className = 'reasoning-toggle';
+                toggle.textContent = 'Reasoning ▶';
+                var contentEl = document.createElement('div');
+                contentEl.className = 'reasoning-content';
+                contentEl.style.display = 'none';
+                contentEl.dataset.rawText = '';
+                toggle.addEventListener('click', function () {
+                    if (contentEl.style.display === 'none') {
+                        contentEl.style.display = 'block';
+                        toggle.textContent = 'Reasoning ▼';
+                    } else {
+                        contentEl.style.display = 'none';
+                        toggle.textContent = 'Reasoning ▶';
+                    }
+                });
+                reasoningEl.appendChild(toggle);
+                reasoningEl.appendChild(contentEl);
+                el.appendChild(reasoningEl);
+            }
+            var contentEl = reasoningEl.querySelector('.reasoning-content');
+            contentEl.dataset.rawText = (contentEl.dataset.rawText || '') + text;
+            contentEl.innerHTML = marked.parse(contentEl.dataset.rawText);
+        } else {
+            var contentEl = el.querySelector('.msg-content');
+            if (!contentEl) {
+                contentEl = document.createElement('div');
+                contentEl.className = 'msg-content';
+                contentEl.dataset.rawText = '';
+                el.appendChild(contentEl);
+            }
+            contentEl.dataset.rawText = (contentEl.dataset.rawText || '') + text;
+            contentEl.innerHTML = marked.parse(contentEl.dataset.rawText);
+        }
+        scrollIfNearBottom(document.getElementById('messages'));
+    }
+
+    function appendToolCall(tc) {
+        var name = tc.function ? tc.function.name : (tc.Name || tc.name || '');
+        var args = tc.function ? tc.function.arguments : (tc.Args || tc.arguments || '{}');
+        var id = tc.id || tc.ID || '';
+
+        var el = getOrCreateAssistant();
+        var tcBlock = el.querySelector('.tool-calls-block');
+        if (!tcBlock) {
+            tcBlock = document.createElement('div');
+            tcBlock.className = 'tool-calls-block';
+            var tcToggle = document.createElement('div');
+            tcToggle.className = 'tool-calls-toggle';
+            tcToggle.textContent = 'Tool Calls (1) ▶';
+            var tcl = document.createElement('div');
+            tcl.className = 'tool-calls-list';
+            tcl.style.display = 'none';
+            tcToggle.addEventListener('click', function () {
+                var count = tcl.querySelectorAll('.tool-call-item').length;
+                if (tcl.style.display === 'none') {
+                    tcl.style.display = 'flex';
+                    tcToggle.textContent = 'Tool Calls (' + count + ') ▼';
+                } else {
+                    tcl.style.display = 'none';
+                    tcToggle.textContent = 'Tool Calls (' + count + ') ▶';
+                }
+            });
+            tcBlock.appendChild(tcToggle);
+            tcBlock.appendChild(tcl);
+            el.appendChild(tcBlock);
+        }
+
+        var tcl = tcBlock.querySelector('.tool-calls-list');
+        var tcToggle = tcBlock.querySelector('.tool-calls-toggle');
+
+        var existing = tcl.querySelector('.tool-call-item[data-tool-call-id="' + id + '"]');
+        var item;
+        if (existing) {
+            item = existing;
+        } else {
+            item = document.createElement('div');
+            item.className = 'tool-call-item';
+            item.dataset.toolCallId = id;
+            tcl.appendChild(item);
+        }
+
+        try {
+            var formatted = JSON.stringify(JSON.parse(args), null, 2);
+        } catch (e) {
+            formatted = args;
+        }
+        item.innerHTML = '<div class="tool-call-name">' + Messages.escHtml(name) + '</div>'
+            + '<div class="tool-call-args">' + Messages.escHtml(formatted) + '</div>';
+
+        var count = tcl.querySelectorAll('.tool-call-item').length;
+        if (tcl.style.display === 'none') {
+            tcToggle.textContent = 'Tool Calls (' + count + ') ▶';
+        } else {
+            tcToggle.textContent = 'Tool Calls (' + count + ') ▼';
+        }
+
+        scrollIfNearBottom(document.getElementById('messages'));
+    }
+
+    function appendToolResult(msg) {
+        var container = document.getElementById('messages');
+        var div = document.createElement('div');
+        div.className = 'message role-tool stream-live';
+
+        var headerDiv = document.createElement('div');
+        headerDiv.className = 'msg-header';
+        headerDiv.innerHTML = '<span class="msg-role">TOOL</span><span class="msg-tags"><span class="msg-tag">' + Messages.escHtml(msg.name || '') + '</span></span>';
+
+        var contentDiv = document.createElement('div');
+        contentDiv.className = 'msg-content';
+        contentDiv.style.display = 'none';
+        contentDiv.innerHTML = '<pre><code>' + Messages.escHtml(msg.content || '') + '</code></pre>';
+
+        var toolToggle = document.createElement('span');
+        toolToggle.className = 'tool-result-toggle';
+        toolToggle.textContent = ' ▶';
+        toolToggle.addEventListener('click', function (e) {
+            e.stopPropagation();
+            if (contentDiv.style.display === 'none') {
+                contentDiv.style.display = 'block';
+                toolToggle.textContent = ' ▼';
+            } else {
+                contentDiv.style.display = 'none';
+                toolToggle.textContent = ' ▶';
+            }
+        });
+        headerDiv.appendChild(toolToggle);
+
+        div.appendChild(headerDiv);
+        div.appendChild(contentDiv);
+        container.appendChild(div);
+
+        currentAssistant = null;
+        scrollIfNearBottom(document.getElementById('messages'));
+    }
+
+    function appendUserMessage(content) {
+        var container = document.getElementById('messages');
+
+        var emptyState = container.querySelector('.empty-state');
+        if (emptyState) {
+            emptyState.remove();
+        }
+
+        var div = document.createElement('div');
+        div.className = 'message role-user stream-live';
+        div.innerHTML = '<div class="msg-header"><span class="msg-role">USER</span></div>'
+            + '<div class="msg-content">' + marked.parse(content) + '</div>';
+        container.appendChild(div);
+        scrollIfNearBottom(container);
+    }
+
+    // ---- stop sound ----
 
     function setStopSoundFlag() {
         stopSoundFlag = true;
@@ -295,266 +621,7 @@
         }
     }
 
-    function handleEvent(type, data) {
-        // Guard: ignore events from a different chat (user switched chats mid-stream)
-        if (streamingTitle && ChatList.getCurrentTitle() !== streamingTitle) {
-            return;
-        }
-
-        var evt;
-        try {
-            evt = JSON.parse(data);
-        } catch (e) {
-            return;
-        }
-
-        switch (type) {
-            case 'delta':
-                appendToAssistant(evt.content || evt.Content, 'content');
-                break;
-            case 'reasoning_delta':
-                appendToAssistant(evt.content || evt.Content, 'reasoning');
-                break;
-            case 'tool_call':
-                if (!(window.NoobMode && window.NoobMode.isActive())) {
-                    appendToolCall(evt.tool_call || {id: evt.ID, function: {name: evt.Name, arguments: evt.Args}});
-                }
-                break;
-            case 'tool_result':
-                if (!(window.NoobMode && window.NoobMode.isActive())) {
-                    appendToolResult(evt.tool_result ? evt.tool_result.message : evt);
-                }
-                break;
-            case 'assistant_done':
-                break;
-            case 'tool_execute':
-                break;
-            case 'user_added':
-                appendUserMessage(evt.content || evt.Content || '');
-                break;
-            case 'error':
-                if (evt.error && evt.error.ids) {
-                    evt.error.ids.forEach(function (id) {
-                        var el = document.querySelector('.tool-call-item[data-tool-call-id="' + id + '"]');
-                        if (el) {
-                            el.classList.add('highlight-error');
-                            setTimeout(function () {
-                                el.classList.remove('highlight-error');
-                            }, 5000);
-                        }
-                    });
-                }
-                if (evt.error && !reconnectMode) {
-                    showToast(evt.error.detail || evt.error.type || 'Unknown error');
-                }
-                break;
-        }
-    }
-
-    function getOrCreateAssistant() {
-        var container = document.getElementById('messages');
-
-        if (currentAssistant && currentAssistant.parentNode === container) {
-            return currentAssistant;
-        }
-
-        // Always create a fresh assistant - never reuse stale DOM
-        if (currentAssistant) {
-            currentAssistant.remove();
-        }
-        currentAssistant = document.createElement('div');
-        currentAssistant.className = 'message role-assistant assistant-streaming';
-        container.appendChild(currentAssistant);
-        scrollIfNearBottom(container);
-        return currentAssistant;
-    }
-
-    function appendToAssistant(text, field) {
-        var el = getOrCreateAssistant();
-        if (field === 'reasoning') {
-            var reasoningEl = el.querySelector('.reasoning-block');
-            if (!reasoningEl) {
-                reasoningEl = document.createElement('div');
-                reasoningEl.className = 'reasoning-block';
-                var toggle = document.createElement('div');
-                toggle.className = 'reasoning-toggle';
-                toggle.textContent = 'Reasoning \u25B6';
-                var contentEl = document.createElement('div');
-                contentEl.className = 'reasoning-content';
-                contentEl.style.display = 'none';
-                contentEl.dataset.rawText = '';
-                toggle.addEventListener('click', function () {
-                    if (contentEl.style.display === 'none') {
-                        contentEl.style.display = 'block';
-                        toggle.textContent = 'Reasoning \u25BC';
-                    } else {
-                        contentEl.style.display = 'none';
-                        toggle.textContent = 'Reasoning \u25B6';
-                    }
-                });
-                reasoningEl.appendChild(toggle);
-                reasoningEl.appendChild(contentEl);
-                el.appendChild(reasoningEl);
-            }
-            var contentEl = reasoningEl.querySelector('.reasoning-content');
-            contentEl.dataset.rawText = (contentEl.dataset.rawText || '') + text;
-            contentEl.innerHTML = marked.parse(contentEl.dataset.rawText);
-        } else {
-            var contentEl = el.querySelector('.msg-content');
-            if (!contentEl) {
-                contentEl = document.createElement('div');
-                contentEl.className = 'msg-content';
-                contentEl.dataset.rawText = '';
-                el.appendChild(contentEl);
-            }
-            contentEl.dataset.rawText = (contentEl.dataset.rawText || '') + text;
-            contentEl.innerHTML = marked.parse(contentEl.dataset.rawText);
-        }
-        scrollIfNearBottom(document.getElementById('messages'));
-    }
-
-    function appendToolCall(tc) {
-        var name = tc.function ? tc.function.name : (tc.Name || tc.name || '');
-        var args = tc.function ? tc.function.arguments : (tc.Args || tc.arguments || '{}');
-        var id = tc.id || tc.ID || '';
-
-        var el = getOrCreateAssistant();
-        var tcBlock = el.querySelector('.tool-calls-block');
-        if (!tcBlock) {
-            tcBlock = document.createElement('div');
-            tcBlock.className = 'tool-calls-block';
-            var tcToggle = document.createElement('div');
-            tcToggle.className = 'tool-calls-toggle';
-            tcToggle.textContent = 'Tool Calls (1) \u25B6';
-            var tcl = document.createElement('div');
-            tcl.className = 'tool-calls-list';
-            tcl.style.display = 'none';
-            tcToggle.addEventListener('click', function () {
-                var count = tcl.querySelectorAll('.tool-call-item').length;
-                if (tcl.style.display === 'none') {
-                    tcl.style.display = 'flex';
-                    tcToggle.textContent = 'Tool Calls (' + count + ') \u25BC';
-                } else {
-                    tcl.style.display = 'none';
-                    tcToggle.textContent = 'Tool Calls (' + count + ') \u25B6';
-                }
-            });
-            tcBlock.appendChild(tcToggle);
-            tcBlock.appendChild(tcl);
-            el.appendChild(tcBlock);
-        }
-
-        var tcl = tcBlock.querySelector('.tool-calls-list');
-        var tcToggle = tcBlock.querySelector('.tool-calls-toggle');
-
-        var existing = tcl.querySelector('.tool-call-item[data-tool-call-id="' + id + '"]');
-        var item;
-        if (existing) {
-            item = existing;
-        } else {
-            item = document.createElement('div');
-            item.className = 'tool-call-item';
-            item.dataset.toolCallId = id;
-            tcl.appendChild(item);
-        }
-
-        try {
-            var formatted = JSON.stringify(JSON.parse(args), null, 2);
-        } catch (e) {
-            formatted = args;
-        }
-        item.innerHTML = '<div class="tool-call-name">' + Messages.escHtml(name) + '</div>'
-            + '<div class="tool-call-args">' + Messages.escHtml(formatted) + '</div>';
-
-        var count = tcl.querySelectorAll('.tool-call-item').length;
-        if (tcl.style.display === 'none') {
-            tcToggle.textContent = 'Tool Calls (' + count + ') \u25B6';
-        } else {
-            tcToggle.textContent = 'Tool Calls (' + count + ') \u25BC';
-        }
-
-        scrollIfNearBottom(document.getElementById('messages'));
-    }
-
-    function appendToolResult(msg) {
-        var container = document.getElementById('messages');
-        var div = document.createElement('div');
-        div.className = 'message role-tool';
-
-        var headerDiv = document.createElement('div');
-        headerDiv.className = 'msg-header';
-        headerDiv.innerHTML = '<span class="msg-role">TOOL</span><span class="msg-tags"><span class="msg-tag">' + Messages.escHtml(msg.name || '') + '</span></span>';
-
-        var contentDiv = document.createElement('div');
-        contentDiv.className = 'msg-content';
-        contentDiv.style.display = 'none';
-        contentDiv.innerHTML = '<pre><code>' + Messages.escHtml(msg.content || '') + '</code></pre>';
-
-        var toolToggle = document.createElement('span');
-        toolToggle.className = 'tool-result-toggle';
-        toolToggle.textContent = ' \u25B6';
-        toolToggle.addEventListener('click', function (e) {
-            e.stopPropagation();
-            if (contentDiv.style.display === 'none') {
-                contentDiv.style.display = 'block';
-                toolToggle.textContent = ' \u25BC';
-            } else {
-                contentDiv.style.display = 'none';
-                toolToggle.textContent = ' \u25B6';
-            }
-        });
-        headerDiv.appendChild(toolToggle);
-
-        div.appendChild(headerDiv);
-        div.appendChild(contentDiv);
-        container.appendChild(div);
-
-        currentAssistant = null;
-        scrollIfNearBottom(document.getElementById('messages'));
-    }
-
-    function appendUserMessage(content) {
-        var container = document.getElementById('messages');
-
-        // Skip if this user message is already rendered (reconnect after refresh)
-        var existing = container.querySelectorAll('.message.role-user');
-        var msgs = container.querySelectorAll('.message');
-        var currentCount = msgs.length;
-        var renderedCount = currentCount - container.querySelectorAll('.assistant-streaming').length;
-        // If this is a reconnect (no user input), the user message from the first event
-        // may already be rendered. Check by looking at messages added after stream start.
-        // But we cleared the streaming assistant, so messagesBeforeStream doesn't include it.
-        // If the number of existing user messages >= messagesBeforeStream + "already rendered",
-        // skip creating a duplicate. Simpler: always create, let loadMessages at the end fix it.
-
-        var emptyState = container.querySelector('.empty-state');
-        if (emptyState) {
-            emptyState.remove();
-        }
-
-        var div = document.createElement('div');
-        div.className = 'message role-user';
-        div.innerHTML = '<div class="msg-header"><span class="msg-role">USER</span></div>'
-            + '<div class="msg-content">' + marked.parse(content) + '</div>';
-        container.appendChild(div);
-        scrollIfNearBottom(container);
-    }
-
-    function tryAutoResume() {
-        if (window.NoobMode && window.NoobMode.isActive()) return;
-        var streamingTitle = localStorage.getItem('streaming_chat');
-        if (streamingTitle && streamingTitle === ChatList.getCurrentTitle()) {
-            doContinue(true);
-        }
-    }
-
-    window.ContinueModule = {
-        tryAutoResume: tryAutoResume,
-        isRunning: function () {
-            return isRunning;
-        },
-        doInterrupt: doInterrupt
-    };
+    // ---- ask_user ----
 
     function extractAskQuestion(tc) {
         var args = tc && tc.function ? tc.function.arguments : '{}';
@@ -686,7 +753,7 @@
             if (allAskAnswersSaved()) {
                 closeAskUserModal();
                 await ChatList.loadMessages();
-                doContinue(false, '');
+                doContinue('');
             }
         } catch (e) {
             saveBtn.disabled = false;
@@ -732,5 +799,15 @@
     window.AskUserPrompt = {
         maybeShow: maybeShowAskUser,
         updateMuteButton: updateMuteButton
+    };
+
+    window.ContinueModule = {
+        isRunning: function () {
+            return isRunning;
+        },
+        doInterrupt: doInterrupt,
+        switchChat: switchChat,
+        disconnect: disconnect,
+        onHistoryLoaded: onHistoryLoaded
     };
 })();

@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	cont "hschat/internal/continue"
@@ -22,14 +21,12 @@ import (
 )
 
 type Server struct {
-	mu            sync.Mutex
-	versionCookie string
-	mode          string
-	mux           *http.ServeMux
-	staticFS      embed.FS
-	config        *model.MCPConfig
-	mcpMgr        *mcp.Manager
-	engine        *engine.StreamEngine
+	mode     string
+	mux      *http.ServeMux
+	staticFS embed.FS
+	config   *model.MCPConfig
+	mcpMgr   *mcp.Manager
+	engine   *engine.StreamEngine
 }
 
 func New(staticFS embed.FS) *Server {
@@ -69,21 +66,7 @@ func (s *Server) Port() int {
 }
 
 func (s *Server) Handler() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" && r.URL.Path != "/favicon.ico" {
-			cookie, err := r.Cookie("Version")
-			s.mu.Lock()
-			expected := s.versionCookie
-			s.mu.Unlock()
-			if err != nil || (expected != "" && cookie.Value != expected) {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(498)
-				json.NewEncoder(w).Encode(map[string]string{"error": "Invalid version cookie"})
-				return
-			}
-		}
-		s.mux.ServeHTTP(w, r)
-	})
+	return s.mux
 }
 
 func (s *Server) registerRoutes() {
@@ -97,8 +80,8 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("PUT /api/chats/{title}/rename", s.handleRenameChat)
 	s.mux.HandleFunc("GET /api/validate/{title}", s.handleValidate)
 	s.mux.HandleFunc("POST /api/chat/continue", s.handleContinue)
+	s.mux.HandleFunc("GET /api/chat/stream", s.handleStream)
 	s.mux.HandleFunc("POST /api/chat/interrupt", s.handleInterrupt)
-	s.mux.HandleFunc("POST /api/chat/stop", s.handleStop)
 	s.mux.HandleFunc("GET /api/mcp/tools", s.handleMCPTools)
 	s.mux.HandleFunc("PUT /api/mcp/tools", s.handleMCPToolsUpdate)
 	s.mux.HandleFunc("POST /api/mcp/reload", s.handleMCPReload)
@@ -124,7 +107,7 @@ func (s *Server) writeError(w http.ResponseWriter, msg string, code int) {
 }
 
 func (s *Server) handleGetMode(w http.ResponseWriter, r *http.Request) {
-	s.writeJSON(w, map[string]any{"mode": s.mode, "inferencing": s.engine.IsInferencing()})
+	s.writeJSON(w, map[string]any{"mode": s.mode})
 }
 
 func (s *Server) handleSetMode(w http.ResponseWriter, r *http.Request) {
@@ -150,9 +133,10 @@ func (s *Server) handleListChats(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	running := s.engine.RunningChats()
 	summaries := make([]model.ChatSummary, 0, len(chats))
 	for _, c := range chats {
-		summaries = append(summaries, model.ChatSummary{Title: c.Title})
+		summaries = append(summaries, model.ChatSummary{Title: c.Title, Running: running[c.Title]})
 	}
 	s.writeJSON(w, summaries)
 }
@@ -179,12 +163,17 @@ func (s *Server) handleCreateChat(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleGetChat(w http.ResponseWriter, r *http.Request) {
 	title := r.PathValue("title")
-	chat, err := storage.GetChat(title)
+	chat, savedPos, running, err := s.engine.ReadChatConsistent(title)
 	if err != nil {
 		s.writeError(w, err.Error(), http.StatusNotFound)
 		return
 	}
-	s.writeJSON(w, chat)
+	s.writeJSON(w, map[string]any{
+		"title":     chat.Title,
+		"messages":  chat.Messages,
+		"saved_pos": savedPos,
+		"running":   running,
+	})
 }
 
 func (s *Server) handleDeleteChat(w http.ResponseWriter, r *http.Request) {
@@ -197,6 +186,7 @@ func (s *Server) handleDeleteChat(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	s.engine.DropSession(title)
 	s.writeJSON(w, map[string]bool{"ok": true})
 }
 
@@ -231,6 +221,7 @@ func (s *Server) handleRenameChat(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, err.Error(), code)
 		return
 	}
+	s.engine.DropSession(oldTitle)
 	s.writeJSON(w, map[string]bool{"ok": true})
 }
 
@@ -256,126 +247,101 @@ func (s *Server) handleContinue(w http.ResponseWriter, r *http.Request) {
 		Title        string `json:"title"`
 		Input        string `json:"input"`
 		AutoContinue bool   `json:"auto_continue"`
-		Reconnect    bool   `json:"reconnect"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		log.Printf("[server] continue_bad_request err=%q\n", err.Error())
 		s.writeError(w, "invalid body", http.StatusBadRequest)
 		return
 	}
-	log.Printf("[server] continue_request title=%q input_len=%d auto_continue=%v reconnect=%v inferencing=%v active_title=%q mode=%s\n", req.Title, len(req.Input), req.AutoContinue, req.Reconnect, s.engine.IsInferencing(), s.engine.ActiveTitle(), s.mode)
-
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		log.Printf("[server] continue_error title=%q reason=streaming_not_supported\n", req.Title)
-		s.writeError(w, "streaming not supported", http.StatusInternalServerError)
+	if req.Title == "" {
+		s.writeError(w, "missing title", http.StatusBadRequest)
 		return
 	}
-
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.WriteHeader(http.StatusOK)
-	flusher.Flush()
-	log.Printf("[server] continue_sse_open title=%q reconnect=%v\n", req.Title, req.Reconnect)
-
-	if s.engine.IsInferencingWith(req.Title) {
-		log.Printf("[server] continue_active_same_chat title=%q reconnect=%v\n", req.Title, req.Reconnect)
-		if req.Reconnect {
-			log.Printf("[server] continue_reconnect_interrupt_active title=%q\n", req.Title)
-			s.engine.RequestInterrupt()
-			s.engine.WaitForIdle()
-			fmt.Fprintf(w, "event: error\ndata: %s\n\n", `{"error":"no active stream for reconnect"}`)
-			flusher.Flush()
-			return
-		}
-		reader := s.engine.Subscribe(req.Title)
-		if reader == nil {
-			log.Printf("[server] continue_subscribe_error title=%q reason=nil_reader\n", req.Title)
-			fmt.Fprintf(w, "event: error\ndata: %s\n\n", `{"error":"internal error"}`)
-			flusher.Flush()
-			return
-		}
-		log.Printf("[server] continue_subscribe_stream title=%q\n", req.Title)
-		s.streamSSE(w, r, flusher, reader)
-		log.Printf("[server] continue_subscribe_stream_done title=%q\n", req.Title)
-		return
-	}
-
-	if req.Reconnect {
-		log.Printf("[server] continue_reconnect_no_active title=%q\n", req.Title)
-		fmt.Fprintf(w, "event: error\ndata: %s\n\n", `{"error":"no active stream for reconnect"}`)
-		flusher.Flush()
-		return
-	}
-
-	if s.engine.IsInferencing() {
-		log.Printf("[server] continue_error title=%q reason=another_chat active_title=%q\n", req.Title, s.engine.ActiveTitle())
-		fmt.Fprintf(w, "event: error\ndata: %s\n\n", `{"error":"another chat is being processed"}`)
-		flusher.Flush()
-		return
-	}
+	log.Printf("[server] continue_request title=%q input_len=%d auto_continue=%v mode=%s\n", req.Title, len(req.Input), req.AutoContinue, s.mode)
 
 	if err := s.engine.StartInference(req.Title, req.Input, req.AutoContinue); err != nil {
 		log.Printf("[server] continue_start_error title=%q err=%q\n", req.Title, err.Error())
-		fmt.Fprintf(w, "event: error\ndata: %s\n\n", `{"error":"`+err.Error()+`"}`)
-		flusher.Flush()
+		if err.Error() == "chat is currently being processed" {
+			s.writeError(w, err.Error(), http.StatusConflict)
+		} else {
+			s.writeError(w, err.Error(), http.StatusNotFound)
+		}
 		return
 	}
 	log.Printf("[server] continue_started title=%q\n", req.Title)
-
-	reader := s.engine.Subscribe(req.Title)
-	if reader == nil {
-		log.Printf("[server] continue_subscribe_error title=%q reason=nil_reader_after_start\n", req.Title)
-		fmt.Fprintf(w, "event: error\ndata: %s\n\n", `{"error":"internal error"}`)
-		flusher.Flush()
-		return
-	}
-	s.streamSSE(w, r, flusher, reader)
-	log.Printf("[server] continue_stream_done title=%q\n", req.Title)
+	s.writeJSON(w, map[string]bool{"ok": true})
 }
 
-func (s *Server) streamSSE(w http.ResponseWriter, r *http.Request, flusher http.Flusher, reader *engine.EventReader) {
+// handleStream is the reentrant SSE subscription endpoint. A client (fresh
+// page, refreshed page, or extra tab) connects here and receives:
+//  1. a "sync" event {gen, saved_pos, running}
+//  2. a replay of all not-yet-persisted events of the current run
+//  3. live events as the run progresses
+//  4. an "idle" event when the run finishes (or immediately if idle)
+//
+// On a new run (gen change) the sequence restarts from step 1.
+func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
+	title := r.URL.Query().Get("title")
+	if title == "" {
+		s.writeError(w, "missing title", http.StatusBadRequest)
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		s.writeError(w, "streaming not supported", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+	log.Printf("[server] stream_open title=%q\n", title)
+	defer log.Printf("[server] stream_closed title=%q\n", title)
+
+	reader := s.engine.Subscribe(title)
 	ctx := r.Context()
 	for {
-		events, done := reader.Wait(ctx)
-		if len(events) > 0 || done {
-			log.Printf("[server] sse_batch events=%d done=%v\n", len(events), done)
+		res, ok := reader.Wait(ctx)
+		if !ok {
+			return
 		}
-		for _, evt := range events {
+		if res.Reset {
+			data, _ := json.Marshal(map[string]any{
+				"gen":       res.Gen,
+				"saved_pos": res.SavedPos,
+				"running":   res.Running,
+			})
+			log.Printf("[server] stream_sync title=%q gen=%d saved_pos=%d running=%v\n", title, res.Gen, res.SavedPos, res.Running)
+			fmt.Fprintf(w, "event: sync\ndata: %s\n\n", data)
+			flusher.Flush()
+			continue
+		}
+		for _, evt := range res.Events {
 			data, _ := json.Marshal(evt)
-			log.Printf("[server] sse_emit event=%s bytes=%d\n", evt.Type, len(data))
-			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", evt.Type, string(data))
+			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", evt.Type, data)
+		}
+		if len(res.Events) > 0 {
 			flusher.Flush()
 		}
-		if done {
-			return
+		if res.Idle {
+			data, _ := json.Marshal(map[string]any{"gen": res.Gen})
+			log.Printf("[server] stream_idle title=%q gen=%d\n", title, res.Gen)
+			fmt.Fprintf(w, "event: idle\ndata: %s\n\n", data)
+			flusher.Flush()
 		}
 	}
 }
 
 func (s *Server) handleInterrupt(w http.ResponseWriter, r *http.Request) {
-	log.Printf("[server] interrupt_request inferencing=%v active_title=%q\n", s.engine.IsInferencing(), s.engine.ActiveTitle())
-	s.engine.RequestInterrupt()
-	s.engine.WaitForIdle()
-	log.Printf("[server] interrupt_done inferencing=%v active_title=%q\n", s.engine.IsInferencing(), s.engine.ActiveTitle())
-	s.writeJSON(w, map[string]bool{"ok": true})
-}
-
-func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Title string `json:"title"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		log.Printf("[server] stop_bad_request err=%q\n", err.Error())
-		s.writeError(w, "invalid body", http.StatusBadRequest)
-		return
+	json.NewDecoder(r.Body).Decode(&req)
+	log.Printf("[server] interrupt_request title=%q\n", req.Title)
+	if req.Title != "" {
+		s.engine.RequestInterrupt(req.Title)
 	}
-	log.Printf("[server] stop_request title=%q active_title=%q inferencing=%v\n", req.Title, s.engine.ActiveTitle(), s.engine.IsInferencing())
-	if s.engine.ActiveTitle() == req.Title {
-		s.engine.RequestInterrupt()
-	}
-	log.Printf("[server] stop_done title=%q active_title=%q inferencing=%v\n", req.Title, s.engine.ActiveTitle(), s.engine.IsInferencing())
 	s.writeJSON(w, map[string]bool{"ok": true})
 }
 
@@ -428,7 +394,7 @@ func (s *Server) handleDeleteMessage(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "invalid index", http.StatusBadRequest)
 		return
 	}
-	log.Printf("[server] delete_message_request title=%q idx=%d mode=%s inferencing=%v active_title=%q\n", title, idx, s.mode, s.engine.IsInferencing(), s.engine.ActiveTitle())
+	log.Printf("[server] delete_message_request title=%q idx=%d mode=%s\n", title, idx, s.mode)
 
 	if s.engine.IsInferencingWith(title) {
 		log.Printf("[server] delete_message_reject title=%q idx=%d reason=inferencing_same_chat\n", title, idx)
@@ -658,8 +624,7 @@ func describeServerMessage(chat *model.Chat, idx int) string {
 }
 
 func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
-	origPath := r.URL.Path
-	path := origPath
+	path := r.URL.Path
 	if path == "/" {
 		path = "web/index.html"
 	} else {
@@ -670,19 +635,6 @@ func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.NotFound(w, r)
 		return
-	}
-
-	if origPath == "/" {
-		version := fmt.Sprintf("%d", time.Now().UnixNano())
-		http.SetCookie(w, &http.Cookie{
-			Name:     "Version",
-			Value:    version,
-			Path:     "/",
-			HttpOnly: true,
-		})
-		s.mu.Lock()
-		s.versionCookie = version
-		s.mu.Unlock()
 	}
 
 	contentType := mime.TypeByExtension(filepath.Ext(r.URL.Path))

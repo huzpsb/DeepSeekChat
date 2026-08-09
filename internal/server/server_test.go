@@ -556,21 +556,6 @@ func TestHandleInterrupt_ReturnsOk(t *testing.T) {
 	}
 }
 
-func TestHandleStop_InvalidBody(t *testing.T) {
-	setupServerTest(t)
-
-	srv := New(testStaticFS)
-
-	req := httptest.NewRequest("POST", "/api/chat/stop", strings.NewReader("bad"))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	srv.mux.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected 400 for invalid body, got %d", w.Code)
-	}
-}
-
 func TestHandleMCPToolsUpdate_InvalidBody(t *testing.T) {
 	setupServerTest(t)
 

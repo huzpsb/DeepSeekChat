@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"time"
 
 	cont "hschat/internal/continue"
 	"hschat/internal/deepseek"
@@ -13,36 +12,32 @@ import (
 	"hschat/internal/storage"
 )
 
-type State int
-
-const (
-	StateIdle State = iota
-	StateInferencing
-)
-
-func (s State) String() string {
-	switch s {
-	case StateIdle:
-		return "idle"
-	case StateInferencing:
-		return "inferencing"
-	default:
-		return fmt.Sprintf("unknown(%d)", int(s))
-	}
+// Session holds the reentrant stream state of a single chat.
+// The event log of the current run is kept in memory only; events below
+// savedPos are already reflected on disk. A subscriber can therefore
+// reconstruct the exact live state as: disk history + events[savedPos:].
+type Session struct {
+	mu        sync.Mutex
+	title     string
+	running   bool
+	interrupt bool
+	gen       int64
+	events    []cont.ContinueEvent
+	savedPos  int
+	cancel    context.CancelFunc
+	notify    chan struct{} // closed & replaced on every state change
 }
 
+// broadcastLocked wakes all waiters. Caller must hold s.mu.
+func (s *Session) broadcastLocked() {
+	close(s.notify)
+	s.notify = make(chan struct{})
+}
+
+// StreamEngine manages per-chat inference sessions.
 type StreamEngine struct {
-	mu        sync.Mutex
-	state     State
-	interrupt bool
-
-	activeTitle string
-	activeChat  *model.Chat
-	events      []cont.ContinueEvent
-	streamDone  bool
-	savedPos    int
-
-	cancelFunc context.CancelFunc
+	mu       sync.Mutex
+	sessions map[string]*Session
 
 	mode     string
 	mcpMgr   cont.ToolExecutor
@@ -53,11 +48,36 @@ var instance *StreamEngine
 
 func Init(dsClient *deepseek.Client, executor cont.ToolExecutor) *StreamEngine {
 	instance = &StreamEngine{
-		state:    StateIdle,
+		sessions: map[string]*Session{},
 		mcpMgr:   executor,
 		dsClient: dsClient,
 	}
 	return instance
+}
+
+func (e *StreamEngine) getSession(title string, create bool) *Session {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	sess, ok := e.sessions[title]
+	if !ok && create {
+		sess = &Session{title: title, notify: make(chan struct{})}
+		e.sessions[title] = sess
+	}
+	return sess
+}
+
+// DropSession forgets a session (chat deleted/renamed). Must not be running.
+func (e *StreamEngine) DropSession(title string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if sess, ok := e.sessions[title]; ok {
+		sess.mu.Lock()
+		running := sess.running
+		sess.mu.Unlock()
+		if !running {
+			delete(e.sessions, title)
+		}
+	}
 }
 
 func (e *StreamEngine) SetMode(mode string) {
@@ -72,206 +92,241 @@ func (e *StreamEngine) Mode() string {
 	return e.mode
 }
 
-func (e *StreamEngine) IsInferencing() bool {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	return e.state == StateInferencing
-}
-
 func (e *StreamEngine) IsInferencingWith(title string) bool {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	return e.state == StateInferencing && e.activeTitle == title
+	sess := e.getSession(title, false)
+	if sess == nil {
+		return false
+	}
+	sess.mu.Lock()
+	defer sess.mu.Unlock()
+	return sess.running
 }
 
-func (e *StreamEngine) ActiveTitle() string {
+// RunningChats returns the set of chat titles currently inferencing.
+func (e *StreamEngine) RunningChats() map[string]bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return e.activeTitle
-}
-
-func (e *StreamEngine) IsInterrupted() bool {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	return e.interrupt
-}
-
-func (e *StreamEngine) RequestInterrupt() {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	log.Printf("[stream] interrupt_requested state=%s active_title=%q events=%d saved_pos=%d stream_done=%v interrupt=%v\n", e.state, e.activeTitle, len(e.events), e.savedPos, e.streamDone, e.interrupt)
-	if e.state == StateInferencing {
-		e.interrupt = true
-		if e.cancelFunc != nil {
-			log.Printf("[stream] interrupt_cancel active_title=%q\n", e.activeTitle)
-			e.cancelFunc()
+	out := map[string]bool{}
+	for _, sess := range e.sessions {
+		sess.mu.Lock()
+		if sess.running {
+			out[sess.title] = true
 		}
+		sess.mu.Unlock()
+	}
+	return out
+}
+
+func (e *StreamEngine) RequestInterrupt(title string) {
+	sess := e.getSession(title, false)
+	if sess == nil {
+		return
+	}
+	sess.mu.Lock()
+	defer sess.mu.Unlock()
+	log.Printf("[stream] interrupt_requested title=%q running=%v events=%d saved_pos=%d gen=%d\n", title, sess.running, len(sess.events), sess.savedPos, sess.gen)
+	if sess.running {
+		sess.interrupt = true
+		if sess.cancel != nil {
+			sess.cancel()
+		}
+		sess.broadcastLocked()
 	}
 }
 
-func (e *StreamEngine) WaitForIdle() {
-	start := time.Now()
-	logged := false
+func (e *StreamEngine) WaitForIdle(title string) {
+	sess := e.getSession(title, false)
+	if sess == nil {
+		return
+	}
 	for {
-		e.mu.Lock()
-		if e.state == StateIdle {
-			log.Printf("[stream] wait_for_idle_done elapsed_ms=%d active_title=%q events=%d saved_pos=%d stream_done=%v interrupt=%v\n", time.Since(start).Milliseconds(), e.activeTitle, len(e.events), e.savedPos, e.streamDone, e.interrupt)
-			e.mu.Unlock()
+		sess.mu.Lock()
+		if !sess.running {
+			sess.mu.Unlock()
 			return
 		}
-		if !logged || time.Since(start) > time.Second {
-			log.Printf("[stream] wait_for_idle_waiting elapsed_ms=%d state=%s active_title=%q events=%d saved_pos=%d stream_done=%v interrupt=%v\n", time.Since(start).Milliseconds(), e.state, e.activeTitle, len(e.events), e.savedPos, e.streamDone, e.interrupt)
-			logged = true
-		}
-		e.mu.Unlock()
-		time.Sleep(10 * time.Millisecond)
+		ch := sess.notify
+		sess.mu.Unlock()
+		<-ch
 	}
+}
+
+// ReadChatConsistent reads the chat file while holding the session lock so
+// the returned savedPos exactly matches the disk content: everything below
+// savedPos in the session event log is contained in the returned messages.
+func (e *StreamEngine) ReadChatConsistent(title string) (chat *model.Chat, savedPos int, running bool, err error) {
+	sess := e.getSession(title, false)
+	if sess == nil {
+		chat, err = storage.GetChat(title)
+		return chat, 0, false, err
+	}
+	sess.mu.Lock()
+	defer sess.mu.Unlock()
+	chat, err = storage.GetChat(title)
+	return chat, sess.savedPos, sess.running, err
 }
 
 func (e *StreamEngine) StartInference(title, input string, autoContinue bool) error {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	log.Printf("[stream] start_inference_request title=%q input_len=%d auto_continue=%v state=%s active_title=%q events=%d saved_pos=%d stream_done=%v\n", title, len(input), autoContinue, e.state, e.activeTitle, len(e.events), e.savedPos, e.streamDone)
+	mode := e.Mode()
+	sess := e.getSession(title, true)
 
-	if e.state == StateInferencing {
-		log.Printf("[stream] start_inference_reject title=%q reason=already_inferencing active_title=%q\n", title, e.activeTitle)
-		return fmt.Errorf("another chat is being processed")
+	sess.mu.Lock()
+	if sess.running {
+		sess.mu.Unlock()
+		log.Printf("[stream] start_inference_reject title=%q reason=busy\n", title)
+		return fmt.Errorf("chat is currently being processed")
 	}
-
 	chat, err := storage.GetChat(title)
 	if err != nil {
+		sess.mu.Unlock()
 		log.Printf("[stream] start_inference_reject title=%q reason=load_chat_error err=%q\n", title, err.Error())
 		return fmt.Errorf("chat not found: %w", err)
 	}
-	log.Printf("[stream] start_inference_loaded title=%q messages=%d last=%s\n", title, len(chat.Messages), describeLastMessage(chat))
-
-	e.state = StateInferencing
-	e.interrupt = false
-	e.activeTitle = title
-	e.activeChat = chat
-	e.events = nil
-	e.savedPos = 0
-	e.streamDone = false
-	log.Printf("[stream] start_inference_state_set title=%q state=%s events=%d saved_pos=%d stream_done=%v\n", title, e.state, len(e.events), e.savedPos, e.streamDone)
-
+	sess.running = true
+	sess.interrupt = false
+	sess.gen++
+	sess.events = nil
+	sess.savedPos = 0
 	ctx, cancel := context.WithCancel(context.Background())
-	e.cancelFunc = cancel
+	sess.cancel = cancel
+	gen := sess.gen
+	sess.broadcastLocked()
+	sess.mu.Unlock()
+	log.Printf("[stream] start_inference title=%q gen=%d input_len=%d auto_continue=%v messages=%d last=%s\n", title, gen, len(input), autoContinue, len(chat.Messages), describeLastMessage(chat))
 
-	go func() {
-		log.Printf("[stream] goroutine_start title=%q messages=%d last=%s\n", title, len(chat.Messages), describeLastMessage(chat))
-		emit := func(evt cont.ContinueEvent) {
-			e.mu.Lock()
-			e.events = append(e.events, evt)
-			eventCount := len(e.events)
-			savedPos := e.savedPos
-			e.mu.Unlock()
-			log.Printf("[stream] emit title=%q event=%s event_count=%d saved_pos=%d %s\n", title, evt.Type, eventCount, savedPos, describeEvent(evt))
-		}
-
-		defer cancel()
-
-		defer func() {
-			if r := recover(); r != nil {
-				log.Printf("[stream] goroutine_panic title=%q panic=%v\n", title, r)
-				emit(cont.ContinueEvent{
-					Type: "error",
-					Error: &cont.ErrorDetail{
-						Type:   "internal_error",
-						Detail: fmt.Sprintf("internal panic: %v", r),
-					},
-				})
-			}
-
-			log.Printf("[stream] defer_save_start title=%q messages=%d last=%s\n", title, len(chat.Messages), describeLastMessage(chat))
-			if err := storage.SaveChat(chat); err != nil {
-				log.Printf("[stream] defer_save_error title=%q err=%q\n", title, err.Error())
-			} else {
-				log.Printf("[stream] defer_save_ok title=%q messages=%d last=%s\n", title, len(chat.Messages), describeLastMessage(chat))
-			}
-
-			e.mu.Lock()
-			e.savedPos = len(e.events)
-			e.streamDone = true
-			e.state = StateIdle
-			log.Printf("[stream] goroutine_done title=%q state=%s events=%d saved_pos=%d stream_done=%v interrupt=%v\n", title, e.state, len(e.events), e.savedPos, e.streamDone, e.interrupt)
-			e.mu.Unlock()
-			cancel()
-		}()
-
-		save := func() {
-			log.Printf("[stream] save_func_start title=%q messages=%d last=%s\n", title, len(chat.Messages), describeLastMessage(chat))
-			if err := storage.SaveChat(chat); err != nil {
-				log.Printf("[stream] save_func_error title=%q err=%q\n", title, err.Error())
-			} else {
-				log.Printf("[stream] save_func_ok title=%q messages=%d last=%s\n", title, len(chat.Messages), describeLastMessage(chat))
-			}
-			e.mu.Lock()
-			e.savedPos = len(e.events)
-			log.Printf("[stream] save_func_mark_saved title=%q events=%d saved_pos=%d stream_done=%v\n", title, len(e.events), e.savedPos, e.streamDone)
-			e.mu.Unlock()
-		}
-
-		engine := cont.NewEngine(e.dsClient, e.mode, e.mcpMgr, save)
-
-		interrupted := func() bool {
-			e.mu.Lock()
-			defer e.mu.Unlock()
-			return e.interrupt
-		}
-
-		engine.Continue(ctx, chat, input, autoContinue, emit, interrupted)
-		log.Printf("[stream] engine_continue_returned title=%q messages=%d last=%s\n", title, len(chat.Messages), describeLastMessage(chat))
-	}()
-
+	go e.run(sess, ctx, cancel, chat, input, autoContinue, mode)
 	return nil
 }
 
+func (e *StreamEngine) run(sess *Session, ctx context.Context, cancel context.CancelFunc, chat *model.Chat, input string, autoContinue bool, mode string) {
+	title := sess.title
+	emit := func(evt cont.ContinueEvent) {
+		sess.mu.Lock()
+		sess.events = append(sess.events, evt)
+		count := len(sess.events)
+		sess.broadcastLocked()
+		sess.mu.Unlock()
+		log.Printf("[stream] emit title=%q event=%s event_count=%d %s\n", title, evt.Type, count, describeEvent(evt))
+	}
+
+	defer func() {
+		sess.mu.Lock()
+		defer sess.mu.Unlock()
+		if r := recover(); r != nil {
+			log.Printf("[stream] goroutine_panic title=%q panic=%v\n", title, r)
+			sess.events = append(sess.events, cont.ContinueEvent{
+				Type: "error",
+				Error: &cont.ErrorDetail{
+					Type:   "internal_error",
+					Detail: fmt.Sprintf("internal panic: %v", r),
+				},
+			})
+		}
+		saveLen := len(sess.events)
+		if err := storage.SaveChat(chat); err != nil {
+			log.Printf("[stream] final_save_error title=%q err=%q\n", title, err.Error())
+		} else {
+			sess.savedPos = saveLen
+		}
+		sess.running = false
+		sess.broadcastLocked()
+		log.Printf("[stream] goroutine_done title=%q events=%d saved_pos=%d gen=%d messages=%d last=%s\n", title, len(sess.events), sess.savedPos, sess.gen, len(chat.Messages), describeLastMessage(chat))
+		cancel()
+	}()
+
+	// save persists the chat at a message boundary and advances savedPos.
+	// It runs on the inference goroutine, so events cannot change mid-save.
+	save := func() {
+		sess.mu.Lock()
+		defer sess.mu.Unlock()
+		saveLen := len(sess.events)
+		if err := storage.SaveChat(chat); err != nil {
+			log.Printf("[stream] save_error title=%q err=%q\n", title, err.Error())
+			return
+		}
+		sess.savedPos = saveLen
+		log.Printf("[stream] saved title=%q events=%d saved_pos=%d gen=%d messages=%d last=%s\n", title, len(sess.events), sess.savedPos, sess.gen, len(chat.Messages), describeLastMessage(chat))
+	}
+
+	engine := cont.NewEngine(e.dsClient, mode, e.mcpMgr, save)
+
+	interrupted := func() bool {
+		sess.mu.Lock()
+		defer sess.mu.Unlock()
+		return sess.interrupt
+	}
+
+	engine.Continue(ctx, chat, input, autoContinue, emit, interrupted)
+	log.Printf("[stream] engine_continue_returned title=%q messages=%d last=%s\n", title, len(chat.Messages), describeLastMessage(chat))
+}
+
+// ReadResult is one step of a subscription.
+type ReadResult struct {
+	Events   []cont.ContinueEvent
+	Reset    bool // gen changed (or initial sync): consumer must resync from SavedPos
+	Idle     bool // run is idle; delivered exactly once per gen
+	Gen      int64
+	SavedPos int
+	Running  bool
+}
+
 type EventReader struct {
-	eng *StreamEngine
-	pos int
+	sess     *Session
+	pos      int
+	gen      int64
+	needSync bool
+	idleSent bool
 }
 
 func (e *StreamEngine) Subscribe(title string) *EventReader {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	log.Printf("[stream] subscribe_request title=%q active_title=%q state=%s events=%d saved_pos=%d stream_done=%v interrupt=%v\n", title, e.activeTitle, e.state, len(e.events), e.savedPos, e.streamDone, e.interrupt)
-
-	if e.activeTitle != title {
-		log.Printf("[stream] subscribe_reject title=%q active_title=%q\n", title, e.activeTitle)
-		return nil
+	sess := e.getSession(title, true)
+	sess.mu.Lock()
+	defer sess.mu.Unlock()
+	log.Printf("[stream] subscribe title=%q running=%v events=%d saved_pos=%d gen=%d\n", title, sess.running, len(sess.events), sess.savedPos, sess.gen)
+	return &EventReader{
+		sess:     sess,
+		pos:      sess.savedPos,
+		gen:      sess.gen,
+		needSync: true,
 	}
-
-	log.Printf("[stream] subscribe_ok title=%q start_pos=%d events=%d stream_done=%v\n", title, e.savedPos, len(e.events), e.streamDone)
-	return &EventReader{eng: e, pos: e.savedPos}
 }
 
-func (r *EventReader) Wait(ctx context.Context) ([]cont.ContinueEvent, bool) {
-	e := r.eng
-	e.mu.Lock()
-	defer e.mu.Unlock()
-
-	for r.pos >= len(e.events) && !e.streamDone {
-		e.mu.Unlock()
+// Wait blocks until there is something to report or ctx is done.
+// ok=false means ctx was cancelled.
+func (r *EventReader) Wait(ctx context.Context) (res ReadResult, ok bool) {
+	sess := r.sess
+	for {
+		sess.mu.Lock()
+		if r.needSync || r.gen != sess.gen {
+			r.needSync = false
+			r.gen = sess.gen
+			r.pos = sess.savedPos
+			r.idleSent = false
+			res = ReadResult{Reset: true, Gen: sess.gen, SavedPos: sess.savedPos, Running: sess.running}
+			sess.mu.Unlock()
+			return res, true
+		}
+		if r.pos < len(sess.events) {
+			batch := make([]cont.ContinueEvent, len(sess.events)-r.pos)
+			copy(batch, sess.events[r.pos:])
+			r.pos = len(sess.events)
+			sess.mu.Unlock()
+			return ReadResult{Events: batch}, true
+		}
+		if !sess.running && !r.idleSent {
+			r.idleSent = true
+			res = ReadResult{Idle: true, Gen: sess.gen}
+			sess.mu.Unlock()
+			return res, true
+		}
+		ch := sess.notify
+		sess.mu.Unlock()
 		select {
 		case <-ctx.Done():
-			e.mu.Lock()
-			return nil, true
-		case <-time.After(50 * time.Millisecond):
+			return ReadResult{}, false
+		case <-ch:
 		}
-		e.mu.Lock()
 	}
-
-	var batch []cont.ContinueEvent
-	for r.pos < len(e.events) {
-		batch = append(batch, e.events[r.pos])
-		r.pos++
-	}
-
-	done := e.streamDone && r.pos >= len(e.events)
-	if len(batch) > 0 || done {
-		log.Printf("[stream] reader_wait_return active_title=%q batch=%d pos=%d events=%d saved_pos=%d stream_done=%v done=%v\n", e.activeTitle, len(batch), r.pos, len(e.events), e.savedPos, e.streamDone, done)
-	}
-	return batch, done
 }
 
 func describeLastMessage(chat *model.Chat) string {
