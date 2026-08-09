@@ -93,6 +93,7 @@
         var overlay = document.getElementById('preferences-overlay');
         document.getElementById('btn-preferences').addEventListener('click', function () {
             overlay.classList.remove('hidden');
+            loadBackendSettings();
         });
         document.getElementById('preferences-close').addEventListener('click', function () {
             overlay.classList.add('hidden');
@@ -101,6 +102,82 @@
             if (e.target === overlay) {
                 overlay.classList.add('hidden');
             }
+        });
+        initBackendSettings();
+    }
+
+    var backendConfig = null;
+
+    async function loadBackendSettings() {
+        try {
+            var resp = await fetch('/api/config');
+            backendConfig = await resp.json();
+            renderBackendSettings();
+        } catch (e) {
+            console.error('Failed to load config:', e);
+        }
+    }
+
+    function renderBackendSettings() {
+        if (!backendConfig) return;
+        document.getElementById('pref-root-dir').value = backendConfig.root_dir || '';
+        var providerSel = document.getElementById('pref-provider');
+        providerSel.innerHTML = '';
+        (backendConfig.providers || []).forEach(function (p) {
+            var opt = document.createElement('option');
+            opt.value = p.name;
+            opt.textContent = p.name;
+            if (p.name === backendConfig.provider) opt.selected = true;
+            providerSel.appendChild(opt);
+        });
+        renderModelOptions();
+    }
+
+    function renderModelOptions() {
+        var modelSel = document.getElementById('pref-model');
+        modelSel.innerHTML = '';
+        var providerName = document.getElementById('pref-provider').value;
+        (backendConfig.providers || []).forEach(function (p) {
+            if (p.name !== providerName) return;
+            (p.models || []).forEach(function (m) {
+                var opt = document.createElement('option');
+                opt.value = m;
+                opt.textContent = m;
+                if (m === backendConfig.model && p.name === backendConfig.provider) opt.selected = true;
+                modelSel.appendChild(opt);
+            });
+        });
+    }
+
+    async function saveBackendSettings(update) {
+        try {
+            var resp = await fetch('/api/config', {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(update)
+            });
+            if (!resp.ok) {
+                var err = await resp.json();
+                console.error('Failed to save config:', err.error);
+                return;
+            }
+            backendConfig = await resp.json();
+            renderBackendSettings();
+        } catch (e) {
+            console.error('Failed to save config:', e);
+        }
+    }
+
+    function initBackendSettings() {
+        document.getElementById('pref-root-dir').addEventListener('change', function () {
+            var dir = this.value.trim();
+            if (dir) saveBackendSettings({root_dir: dir});
+        });
+        document.getElementById('pref-provider').addEventListener('change', function () {
+            saveBackendSettings({provider: this.value});
+        });
+        document.getElementById('pref-model').addEventListener('change', function () {
+            saveBackendSettings({model: this.value});
         });
     }
 

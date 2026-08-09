@@ -12,6 +12,4 @@ type Client interface {
 	CallTool(ctx context.Context, name string, arguments map[string]any) (*model.ToolResult, error)
 	Close() error
 	Name() string
-	Type() string
-	IsConnected() bool
 }

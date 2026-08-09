@@ -12,7 +12,7 @@ import (
 	"time"
 
 	cont "hschat/internal/continue"
-	"hschat/internal/deepseek"
+	"hschat/internal/llm"
 	"hschat/internal/model"
 	"hschat/internal/storage"
 )
@@ -36,12 +36,8 @@ func setupEngineTest(t *testing.T) {
 }
 
 func newTestEngine(endpoint string) *StreamEngine {
-	dsClient := deepseek.NewClient("test-key", model.ThirdPartyConfig{
-		Enabled:  true,
-		Endpoint: endpoint,
-		Model:    "mock",
-	})
-	return Init(dsClient, mockExecutor{})
+	client := llm.NewClient(endpoint, "test-key", "mock")
+	return Init(client, mockExecutor{})
 }
 
 func sseBody(deltas ...string) string {

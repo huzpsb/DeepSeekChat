@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	cont "hschat/internal/continue"
-	"hschat/internal/deepseek"
+	"hschat/internal/llm"
 	"hschat/internal/log"
 	"hschat/internal/model"
 	"hschat/internal/storage"
@@ -39,20 +39,30 @@ type StreamEngine struct {
 	mu       sync.Mutex
 	sessions map[string]*Session
 
-	mode     string
-	mcpMgr   cont.ToolExecutor
-	dsClient *deepseek.Client
+	mode   string
+	mcpMgr cont.ToolExecutor
+	client *llm.Client
 }
 
-var instance *StreamEngine
-
-func Init(dsClient *deepseek.Client, executor cont.ToolExecutor) *StreamEngine {
-	instance = &StreamEngine{
+func Init(client *llm.Client, executor cont.ToolExecutor) *StreamEngine {
+	return &StreamEngine{
 		sessions: map[string]*Session{},
 		mcpMgr:   executor,
-		dsClient: dsClient,
+		client:   client,
 	}
-	return instance
+}
+
+// SetClient swaps the LLM client used by subsequent inference runs.
+func (e *StreamEngine) SetClient(client *llm.Client) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.client = client
+}
+
+func (e *StreamEngine) getClient() *llm.Client {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.client
 }
 
 func (e *StreamEngine) getSession(title string, create bool) *Session {
@@ -248,7 +258,7 @@ func (e *StreamEngine) run(sess *Session, ctx context.Context, cancel context.Ca
 		log.Printf("[stream] saved title=%q events=%d saved_pos=%d gen=%d messages=%d last=%s\n", title, len(sess.events), sess.savedPos, sess.gen, len(chat.Messages), describeLastMessage(chat))
 	}
 
-	engine := cont.NewEngine(e.dsClient, mode, e.mcpMgr, save)
+	engine := cont.NewEngine(e.getClient(), mode, e.mcpMgr, save)
 
 	interrupted := func() bool {
 		sess.mu.Lock()

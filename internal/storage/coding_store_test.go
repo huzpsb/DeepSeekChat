@@ -21,11 +21,14 @@ func TestLoadCodingConfig_NotExist(t *testing.T) {
 	if cfg == nil {
 		t.Fatalf("expected non-nil config")
 	}
-	if cfg.Blacklist != nil {
-		t.Errorf("expected nil blacklist, got %v", cfg.Blacklist)
+	if len(cfg.Blacklist) == 0 {
+		t.Errorf("expected default blacklist, got %v", cfg.Blacklist)
 	}
-	if cfg.ShellTools != nil {
-		t.Errorf("expected nil shell_tools, got %v", cfg.ShellTools)
+	if len(cfg.ShellTools) == 0 {
+		t.Errorf("expected default shell_tools, got %v", cfg.ShellTools)
+	}
+	if _, err := os.Stat(codingConfigPath); err != nil {
+		t.Errorf("expected coding.json to be auto-generated on cold start: %v", err)
 	}
 }
 

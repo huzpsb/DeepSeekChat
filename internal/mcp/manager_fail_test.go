@@ -227,7 +227,6 @@ func TestManager_Reload_ClearsState(t *testing.T) {
 
 	mgr.mu.Lock()
 	mgr.allTools["test_mcp"] = []model.ToolDef{{Name: "stale_tool"}}
-	mgr.unapprovedTools = []string{"test_mcp::stale_tool"}
 	mgr.config.ApprovedTools = []string{"test_mcp::stale_tool"}
 	mgr.mu.Unlock()
 

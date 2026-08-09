@@ -5,12 +5,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"hschat/internal/builtin"
 	"hschat/internal/model"
 )
 
 type Provider struct {
+	mu              sync.RWMutex
 	rootDir         string
 	extBlacklist    []string
 	sandboxDisabled bool
@@ -44,7 +46,28 @@ func (p *Provider) Close() error {
 }
 
 func (p *Provider) SetSandboxDisabled(disabled bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.sandboxDisabled = disabled
+}
+
+// SetRootDir switches the sandbox root at runtime, creating the directory
+// if needed.
+func (p *Provider) SetRootDir(dir string) error {
+	rootDir := ResolveRootDir(dir)
+	if err := os.MkdirAll(rootDir, 0755); err != nil {
+		return fmt.Errorf("failed to create root directory %s: %v", rootDir, err)
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.rootDir = rootDir
+	return nil
+}
+
+func (p *Provider) getRootDir() string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.rootDir
 }
 
 func ResolveRootDir(dir string) string {
@@ -55,11 +78,6 @@ func ResolveRootDir(dir string) string {
 		return abs
 	}
 	return dir
-}
-
-func SafePath(rootDir, rel string) (string, error) {
-	path, _, err := safePath(rootDir, rel, false)
-	return path, err
 }
 
 func SafePathWithWarning(rootDir, rel string) (string, bool, error) {
@@ -104,10 +122,14 @@ func safePath(rootDir, rel string, sandboxDisabled bool) (string, bool, error) {
 }
 
 func (p *Provider) getSafePath(rel string) (string, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 	path, _, err := safePath(p.rootDir, rel, p.sandboxDisabled)
 	return path, err
 }
 
 func (p *Provider) getSafePathWithWarning(rel string) (string, bool, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 	return safePath(p.rootDir, rel, p.sandboxDisabled)
 }

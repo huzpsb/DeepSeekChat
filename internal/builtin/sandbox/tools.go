@@ -283,7 +283,7 @@ func (p *Provider) searchName(args map[string]any) string {
 			match = strings.Contains(info.Name(), query)
 		}
 		if match {
-			rel, _ := filepath.Rel(p.rootDir, fp)
+			rel, _ := filepath.Rel(p.getRootDir(), fp)
 			out.WriteString(rel + "\n")
 			count++
 		}
@@ -400,7 +400,7 @@ func (p *Provider) searchContent(args map[string]any) string {
 
 		if len(spans) > 0 {
 			filesFound++
-			rel, _ := filepath.Rel(p.rootDir, fp)
+			rel, _ := filepath.Rel(p.getRootDir(), fp)
 			buf.WriteString(fmt.Sprintf("==> %s\n", rel))
 			for _, s := range spans {
 				buf.WriteString(fmt.Sprintf("-- Lines %d-%d --\n", s.start+1, s.end))
@@ -540,7 +540,7 @@ func (p *Provider) createFile(args map[string]any) string {
 		if !allowRewrite {
 			return "Error: file already exists. (Hint: set allow_rewrite=true to overwrite)"
 		}
-		_ = MoveToTrash(p.rootDir, path)
+		_ = MoveToTrash(p.getRootDir(), path)
 	}
 	if err := os.WriteFile(path, []byte(unifyNewlines(content)), 0644); err != nil {
 		return fmt.Sprintf("Error: %v", err)
@@ -558,7 +558,7 @@ func (p *Provider) rm(args map[string]any) string {
 	if err != nil {
 		return fmt.Sprintf("Error: %v", err)
 	}
-	if err := MoveToTrash(p.rootDir, path); err != nil {
+	if err := MoveToTrash(p.getRootDir(), path); err != nil {
 		return fmt.Sprintf("Error: %v", err)
 	}
 	return "Success"

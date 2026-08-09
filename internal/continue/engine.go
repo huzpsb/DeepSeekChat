@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"hschat/internal/deepseek"
+	"hschat/internal/llm"
 	"hschat/internal/log"
 	"hschat/internal/model"
 )
 
 type Engine struct {
-	deepseekClient        *deepseek.Client
+	client                *llm.Client
 	mode                  string
 	toolExecutor          ToolExecutor
 	saveFunc              func()
@@ -45,12 +45,12 @@ type ErrorDetail struct {
 	IDs    []string `json:"ids,omitempty"`
 }
 
-func NewEngine(client *deepseek.Client, mode string, executor ToolExecutor, saveFunc func()) *Engine {
+func NewEngine(client *llm.Client, mode string, executor ToolExecutor, saveFunc func()) *Engine {
 	return &Engine{
-		deepseekClient: client,
-		mode:           mode,
-		toolExecutor:   executor,
-		saveFunc:       saveFunc,
+		client:       client,
+		mode:         mode,
+		toolExecutor: executor,
+		saveFunc:     saveFunc,
 	}
 }
 
@@ -450,7 +450,7 @@ func (e *Engine) streamDeepSeek(ctx context.Context, chat *model.Chat, emit func
 	logContinue("stream_deepseek_assistant_appended assistant_idx=%d messages=%d", assistantIdx, len(chat.Messages))
 
 	var streamErr error
-	err := e.deepseekClient.StreamChat(ctx, chat.Messages[:assistantIdx], tools, func(evt deepseek.StreamEvent) {
+	err := e.client.StreamChat(ctx, chat.Messages[:assistantIdx], tools, func(evt llm.StreamEvent) {
 		switch evt.Type {
 		case "delta":
 			chat.Messages[assistantIdx].Content += evt.Content

@@ -20,8 +20,20 @@ func TestLoadConfig_NotExist(t *testing.T) {
 	if cfg == nil {
 		t.Fatalf("expected non-nil config")
 	}
-	if cfg.APIKey != "" {
-		t.Errorf("expected empty api_key, got '%s'", cfg.APIKey)
+	if len(cfg.ModelProviders) != 2 {
+		t.Fatalf("expected 2 default providers, got %d", len(cfg.ModelProviders))
+	}
+	if cfg.ModelProviders[0].Name != "opencode-go" || len(cfg.ModelProviders[0].Models) != 1 {
+		t.Errorf("expected opencode-go provider with 1 model, got %+v", cfg.ModelProviders[0])
+	}
+	if cfg.ModelProviders[1].Name != "deepseek" || len(cfg.ModelProviders[1].Models) != 2 {
+		t.Errorf("expected deepseek provider with 2 models, got %+v", cfg.ModelProviders[1])
+	}
+	if cfg.Provider != "opencode-go" || cfg.Model != "deepseek-v4-flash-free" {
+		t.Errorf("expected opencode-go/deepseek-v4-flash-free selection, got %s/%s", cfg.Provider, cfg.Model)
+	}
+	if _, err := os.Stat(configPath); err != nil {
+		t.Errorf("expected config.json to be auto-generated on cold start: %v", err)
 	}
 	if !cfg.EnableCodingTools {
 		t.Errorf("expected enable_coding_tools=true by default")
@@ -29,8 +41,8 @@ func TestLoadConfig_NotExist(t *testing.T) {
 	if len(cfg.MCPServers) != 2 {
 		t.Errorf("expected 2 default servers, got %d", len(cfg.MCPServers))
 	}
-	if cfg.MCPServers[0].Name != "SSE_Example" || cfg.MCPServers[0].Type != "sse" {
-		t.Errorf("expected SSE_Example server, got %v", cfg.MCPServers[0])
+	if cfg.MCPServers[0].Name != "Streamable_Example" || cfg.MCPServers[0].Type != "streamable" {
+		t.Errorf("expected Streamable_Example server, got %v", cfg.MCPServers[0])
 	}
 	if cfg.MCPServers[1].Name != "STDIO_Example" || cfg.MCPServers[1].Type != "stdio" {
 		t.Errorf("expected STDIO_Example server, got %v", cfg.MCPServers[1])
@@ -44,7 +56,11 @@ func TestSaveAndLoadConfig(t *testing.T) {
 	defer os.Chdir(origDir)
 
 	cfg := &model.MCPConfig{
-		APIKey: "sk-test-key",
+		ModelProviders: []model.ModelProvider{
+			{Name: "test", Endpoint: "http://127.0.0.1", APIKey: "sk-test-key", Models: []string{"m"}},
+		},
+		Provider: "test",
+		Model:    "m",
 		MCPServers: []model.MCPServer{
 			{
 				Name:    "test_mcp",
@@ -65,8 +81,8 @@ func TestSaveAndLoadConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfig failed: %v", err)
 	}
-	if loaded.APIKey != "sk-test-key" {
-		t.Errorf("expected api_key 'sk-test-key', got '%s'", loaded.APIKey)
+	if loaded.ModelProviders[0].APIKey != "sk-test-key" {
+		t.Errorf("expected api_key 'sk-test-key', got '%s'", loaded.ModelProviders[0].APIKey)
 	}
 	if len(loaded.MCPServers) != 1 {
 		t.Fatalf("expected 1 server, got %d", len(loaded.MCPServers))
@@ -94,15 +110,15 @@ func TestSaveConfig_Overwrite(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(origDir)
 
-	cfg1 := &model.MCPConfig{APIKey: "key1"}
-	cfg2 := &model.MCPConfig{APIKey: "key2"}
+	cfg1 := &model.MCPConfig{Provider: "key1"}
+	cfg2 := &model.MCPConfig{Provider: "key2"}
 
 	SaveConfig(cfg1)
 	SaveConfig(cfg2)
 
 	loaded, _ := LoadConfig()
-	if loaded.APIKey != "key2" {
-		t.Errorf("expected 'key2' after overwrite, got '%s'", loaded.APIKey)
+	if loaded.Provider != "key2" {
+		t.Errorf("expected 'key2' after overwrite, got '%s'", loaded.Provider)
 	}
 }
 
@@ -133,12 +149,12 @@ func TestSaveConfig_NilFields(t *testing.T) {
 	}
 
 	loaded, _ := LoadConfig()
-	if loaded.APIKey != "" {
-		t.Errorf("expected empty api_key")
+	if loaded.Provider != "" {
+		t.Errorf("expected empty provider")
 	}
 }
 
-func TestSaveConfig_SSEServer(t *testing.T) {
+func TestSaveConfig_StreamableServer(t *testing.T) {
 	tmpDir := t.TempDir()
 	origDir, _ := os.Getwd()
 	os.Chdir(tmpDir)
@@ -148,7 +164,7 @@ func TestSaveConfig_SSEServer(t *testing.T) {
 		MCPServers: []model.MCPServer{
 			{
 				Name: "cloud_mcp",
-				Type: "sse",
+				Type: "streamable",
 				URL:  "https://example.com/mcp",
 			},
 		},
@@ -164,6 +180,6 @@ func TestSaveConfig_SSEServer(t *testing.T) {
 		t.Errorf("expected URL, got '%s'", loaded.MCPServers[0].URL)
 	}
 	if loaded.MCPServers[0].Command != nil {
-		t.Errorf("expected nil command for SSE, got %v", loaded.MCPServers[0].Command)
+		t.Errorf("expected nil command for streamable, got %v", loaded.MCPServers[0].Command)
 	}
 }

@@ -1177,6 +1177,16 @@ html, body {
     opacity: 0.5;
 }
 
+.pref-row input[type="text"],
+.pref-row select {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 3px 6px;
+    font-size: 12px;
+}
+
 #version-overlay {
     position: fixed;
     inset: 0;

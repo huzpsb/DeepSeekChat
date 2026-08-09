@@ -14,27 +14,23 @@ import (
 	"hschat/internal/model"
 )
 
-type SSEClient struct {
+type StreamableClient struct {
 	name    string
 	url     string
-	conn    bool
 	mu      sync.Mutex
 	session string
 }
 
-func NewSSEClient(name, url string) *SSEClient {
-	return &SSEClient{name: name, url: url}
+func NewStreamableClient(name, url string) *StreamableClient {
+	return &StreamableClient{name: name, url: url}
 }
 
-func (c *SSEClient) Name() string      { return c.name }
-func (c *SSEClient) Type() string      { return "sse" }
-func (c *SSEClient) IsConnected() bool { c.mu.Lock(); defer c.mu.Unlock(); return c.conn }
+func (c *StreamableClient) Name() string { return c.name }
 
-func (c *SSEClient) Initialize() error {
+func (c *StreamableClient) Initialize() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.conn = false
 	c.session = ""
 
 	initReq := map[string]any{
@@ -42,7 +38,7 @@ func (c *SSEClient) Initialize() error {
 		"id":      1,
 		"method":  "initialize",
 		"params": map[string]any{
-			"protocolVersion": "2024-11-05",
+			"protocolVersion": "2025-03-26",
 			"capabilities":    map[string]any{},
 			"clientInfo": map[string]string{
 				"name":    "DsChat",
@@ -82,8 +78,6 @@ func (c *SSEClient) Initialize() error {
 		return fmt.Errorf("initialize error: %v", result["error"])
 	}
 
-	c.conn = true
-
 	notified := map[string]any{
 		"jsonrpc": "2.0",
 		"method":  "notifications/initialized",
@@ -93,7 +87,7 @@ func (c *SSEClient) Initialize() error {
 	return nil
 }
 
-func (c *SSEClient) ListTools() ([]model.ToolDef, error) {
+func (c *StreamableClient) ListTools() ([]model.ToolDef, error) {
 	req := map[string]any{
 		"jsonrpc": "2.0",
 		"id":      2,
@@ -136,7 +130,7 @@ func (c *SSEClient) ListTools() ([]model.ToolDef, error) {
 	return tools, nil
 }
 
-func (c *SSEClient) CallTool(ctx context.Context, name string, arguments map[string]any) (*model.ToolResult, error) {
+func (c *StreamableClient) CallTool(ctx context.Context, name string, arguments map[string]any) (*model.ToolResult, error) {
 	req := map[string]any{
 		"jsonrpc": "2.0",
 		"id":      3,
@@ -183,14 +177,14 @@ func (c *SSEClient) CallTool(ctx context.Context, name string, arguments map[str
 	return tr, nil
 }
 
-func (c *SSEClient) Close() error {
+func (c *StreamableClient) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.conn = false
+	c.session = ""
 	return nil
 }
 
-func (c *SSEClient) sendJSONRPC(ctx context.Context, req map[string]any) (map[string]any, error) {
+func (c *StreamableClient) sendJSONRPC(ctx context.Context, req map[string]any) (map[string]any, error) {
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, err

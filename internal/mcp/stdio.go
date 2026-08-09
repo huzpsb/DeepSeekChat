@@ -16,7 +16,6 @@ import (
 type StdioClient struct {
 	name    string
 	command []string
-	conn    bool
 	mu      sync.Mutex
 	cmd     *exec.Cmd
 	stdin   io.WriteCloser
@@ -33,15 +32,12 @@ func NewStdioClient(name string, command []string) *StdioClient {
 	}
 }
 
-func (c *StdioClient) Name() string      { return c.name }
-func (c *StdioClient) Type() string      { return "stdio" }
-func (c *StdioClient) IsConnected() bool { c.mu.Lock(); defer c.mu.Unlock(); return c.conn }
+func (c *StdioClient) Name() string { return c.name }
 
 func (c *StdioClient) Initialize() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.conn = false
 	c.cmd = exec.Command(c.command[0], c.command[1:]...)
 
 	var err error
@@ -91,7 +87,6 @@ func (c *StdioClient) Initialize() error {
 	}
 	c.sendNotificationLocked(notified)
 
-	c.conn = true
 	return nil
 }
 
@@ -183,7 +178,6 @@ func (c *StdioClient) CallTool(_ context.Context, name string, arguments map[str
 func (c *StdioClient) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.conn = false
 	if c.stdin != nil {
 		c.stdin.Close()
 	}

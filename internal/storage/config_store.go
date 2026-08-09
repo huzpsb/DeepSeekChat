@@ -13,7 +13,9 @@ func LoadConfig() (*model.MCPConfig, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return defaultConfig(), nil
+			cfg := defaultConfig()
+			SaveConfig(cfg)
+			return cfg, nil
 		}
 		return nil, err
 	}
@@ -32,12 +34,11 @@ func defaultConfig() *model.MCPConfig {
 			ExtBlacklist: []string{"exe", "dll", "ppt", "pptx", "doc", "docx", "pdf", "class", "dex", "apk", "bin", "jpg", "jpeg", "png", "gif"},
 		},
 		EnableCodingTools: true,
-		EnableWebTools:    true,
 		DefaultPrompt:     "You are a helpful assistant.",
 		MCPServers: []model.MCPServer{
 			{
-				Name: "SSE_Example",
-				Type: "sse",
+				Name: "Streamable_Example",
+				Type: "streamable",
 				URL:  "http://127.0.0.1:12345/stream",
 			},
 			{
@@ -46,11 +47,20 @@ func defaultConfig() *model.MCPConfig {
 				Command: []string{"./mcp_server.exe", "--verbose"},
 			},
 		},
-		ThirdParty: model.ThirdPartyConfig{
-			Enabled:  false,
-			Endpoint: "https://opencode.ai/zen/v1/chat/completions",
-			Model:    "deepseek-v4-flash-free",
+		ModelProviders: []model.ModelProvider{
+			{
+				Name:     "opencode-go",
+				Endpoint: "https://opencode.ai/zen/v1/chat/completions",
+				Models:   []string{"deepseek-v4-flash-free"},
+			},
+			{
+				Name:     "deepseek",
+				Endpoint: "https://api.deepseek.com/chat/completions",
+				Models:   []string{"deepseek-v4-flash", "deepseek-v4-pro"},
+			},
 		},
+		Provider: "opencode-go",
+		Model:    "deepseek-v4-flash-free",
 	}
 }
 

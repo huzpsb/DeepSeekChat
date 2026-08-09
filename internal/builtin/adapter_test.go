@@ -40,20 +40,6 @@ func TestAdaptClient_Name(t *testing.T) {
 	}
 }
 
-func TestAdaptClient_Type(t *testing.T) {
-	a := AdaptClient(&mockProvider{})
-	if a.Type() != "builtin" {
-		t.Errorf("expected 'builtin', got '%s'", a.Type())
-	}
-}
-
-func TestAdaptClient_IsConnected(t *testing.T) {
-	a := AdaptClient(&mockProvider{})
-	if !a.IsConnected() {
-		t.Errorf("expected true")
-	}
-}
-
 func TestAdaptClient_Initialize(t *testing.T) {
 	a := AdaptClient(&mockProvider{})
 	if err := a.Initialize(); err != nil {

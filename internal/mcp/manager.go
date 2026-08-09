@@ -12,7 +12,6 @@ import (
 	"hschat/internal/builtin/askuser"
 	"hschat/internal/builtin/coding"
 	"hschat/internal/builtin/sandbox"
-	"hschat/internal/builtin/web"
 	"hschat/internal/model"
 	"hschat/internal/storage"
 )
@@ -30,17 +29,16 @@ type Manager struct {
 	config          *model.MCPConfig
 	clients         map[string]Client
 	allTools        map[string][]model.ToolDef
-	unapprovedTools []string
 	sandboxProvider *sandbox.Provider
+	codingProvider  *coding.Provider
 	SkipAskUser     bool
 	ApproveAll      bool
 }
 
 func NewManager() *Manager {
 	return &Manager{
-		clients:         make(map[string]Client),
-		allTools:        make(map[string][]model.ToolDef),
-		unapprovedTools: []string{},
+		clients:  make(map[string]Client),
+		allTools: make(map[string][]model.ToolDef),
 	}
 }
 
@@ -73,22 +71,37 @@ func (m *Manager) LoadAndConnect() error {
 	}
 
 	if m.config.EnableCodingTools {
-		if err := m.registerBuiltin(coding.New(sandboxCfg.RootDir)); err != nil {
+		cp := coding.New(sandboxCfg.RootDir)
+		if err := m.registerBuiltin(cp); err != nil {
 			log.Printf("Builtin [Coding] init failed: %v", err)
 		}
+		m.codingProvider = cp.(*coding.Provider)
 		cfg, err := storage.LoadCodingConfig()
 		if err == nil && cfg != nil && cfg.RawShell != nil && cfg.RawShell.Enabled && m.sandboxProvider != nil {
 			m.sandboxProvider.SetSandboxDisabled(true)
 		}
 	}
 
-	if m.config.EnableWebTools {
-		if err := m.registerBuiltin(web.New(sandboxCfg.RootDir)); err != nil {
-			log.Printf("Builtin [WebMCP] init failed: %v", err)
+	m.reconcileTools()
+	return nil
+}
+
+// SetRootDir switches the sandbox root directory at runtime for both the
+// Sandbox and Coding builtin providers.
+func (m *Manager) SetRootDir(dir string) error {
+	m.mu.Lock()
+	sp := m.sandboxProvider
+	cp := m.codingProvider
+	m.mu.Unlock()
+
+	if sp != nil {
+		if err := sp.SetRootDir(dir); err != nil {
+			return err
 		}
 	}
-
-	m.reconcileTools()
+	if cp != nil {
+		cp.SetRootDir(dir)
+	}
 	return nil
 }
 
@@ -124,7 +137,6 @@ func (m *Manager) Reload() error {
 		delete(m.clients, name)
 	}
 	m.allTools = make(map[string][]model.ToolDef)
-	m.unapprovedTools = []string{}
 	m.mu.Unlock()
 
 	return m.LoadAndConnect()
@@ -140,8 +152,8 @@ func (m *Manager) connectServer(srv model.MCPServer) error {
 
 	var client Client
 	switch srv.Type {
-	case "sse":
-		client = NewSSEClient(srv.Name, srv.URL)
+	case "streamable":
+		client = NewStreamableClient(srv.Name, srv.URL)
 	case "stdio":
 		client = NewStdioClient(srv.Name, srv.Command)
 	default:
@@ -173,8 +185,6 @@ func (m *Manager) reconcileTools() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.unapprovedTools = nil
-
 	removed := m.removeConflictingApproved()
 	if removed > 0 {
 		storage.SaveConfig(m.config)
@@ -201,24 +211,6 @@ func (m *Manager) reconcileTools() {
 		}
 	}
 	m.config.ManuallyApprovedTools = cleanedManual
-
-	existingApproved := make(map[string]bool)
-	for _, t := range m.config.ApprovedTools {
-		existingApproved[t] = true
-	}
-	existingManual := make(map[string]bool)
-	for _, t := range m.config.ManuallyApprovedTools {
-		existingManual[t] = true
-	}
-
-	for mcpName, tools := range m.allTools {
-		for _, tool := range tools {
-			fullName := mcpName + "::" + tool.Name
-			if !existingApproved[fullName] && !existingManual[fullName] {
-				m.unapprovedTools = append(m.unapprovedTools, fullName)
-			}
-		}
-	}
 
 	storage.SaveConfig(m.config)
 }

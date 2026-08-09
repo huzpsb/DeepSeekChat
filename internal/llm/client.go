@@ -1,9 +1,8 @@
-package deepseek
+package llm
 
 import (
 	"bufio"
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,8 +14,6 @@ import (
 
 	"hschat/internal/model"
 )
-
-const deepseekURL = "https://api.deepseek.com/chat/completions"
 
 type StreamEvent struct {
 	Type     string `json:"type"`
@@ -35,29 +32,15 @@ type Client struct {
 	model      string
 }
 
-func NewClient(apiKey string, thirdParty model.ThirdPartyConfig) *Client {
-	client := &http.Client{
-		Timeout: 5 * time.Minute,
-	}
-	endpoint := deepseekURL
-	modelName := "deepseek-v4-pro"
-	if thirdParty.Enabled {
-		client.Transport = &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		}
-		endpoint = thirdParty.Endpoint
-		modelName = thirdParty.Model
-	}
+func NewClient(endpoint, apiKey, model string) *Client {
 	return &Client{
-		apiKey:     apiKey,
-		httpClient: client,
-		endpoint:   endpoint,
-		model:      modelName,
+		apiKey: apiKey,
+		httpClient: &http.Client{
+			Timeout: 5 * time.Minute,
+		},
+		endpoint: endpoint,
+		model:    model,
 	}
-}
-
-func (c *Client) SetAPIKey(key string) {
-	c.apiKey = key
 }
 
 func (c *Client) StreamChat(ctx context.Context, messages []model.Message, tools []model.ToolDef, onEvent func(StreamEvent)) error {

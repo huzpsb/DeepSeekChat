@@ -1,6 +1,8 @@
 package coding
 
 import (
+	"sync"
+
 	"hschat/internal/builtin"
 	"hschat/internal/builtin/sandbox"
 	"hschat/internal/model"
@@ -12,6 +14,7 @@ func boolPtr(v bool) *bool {
 }
 
 type Provider struct {
+	mu             sync.RWMutex
 	rootDir        string
 	shellTools     map[string]model.ShellTool
 	fileBlacklist  []string
@@ -30,6 +33,18 @@ func New(rootDir string) builtin.Provider {
 
 func (p *Provider) Name() string {
 	return "Coding"
+}
+
+func (p *Provider) SetRootDir(dir string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.rootDir = sandbox.ResolveRootDir(dir)
+}
+
+func (p *Provider) getRootDir() string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.rootDir
 }
 
 func (p *Provider) Initialize(configPath string) error {

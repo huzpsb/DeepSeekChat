@@ -42,7 +42,9 @@ func TestManager_LoadAndConnect_EmptyConfig(t *testing.T) {
 func TestManager_LoadAndConnect_NoServers(t *testing.T) {
 	setupManagerTest(t)
 	seedConfig(&model.MCPConfig{
-		APIKey:                "test-key",
+		ModelProviders: []model.ModelProvider{
+			{Name: "test", Endpoint: "http://127.0.0.1", APIKey: "test-key", Models: []string{"m"}},
+		},
 		MCPServers:            []model.MCPServer{},
 		ApprovedTools:         nil,
 		ManuallyApprovedTools: nil,
@@ -53,8 +55,8 @@ func TestManager_LoadAndConnect_NoServers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadAndConnect failed: %v", err)
 	}
-	if mgr.config.APIKey != "test-key" {
-		t.Errorf("expected 'test-key', got '%s'", mgr.config.APIKey)
+	if mgr.config.ModelProviders[0].APIKey != "test-key" {
+		t.Errorf("expected 'test-key', got '%s'", mgr.config.ModelProviders[0].APIKey)
 	}
 }
 

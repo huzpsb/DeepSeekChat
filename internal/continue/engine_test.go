@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"hschat/internal/deepseek"
+	"hschat/internal/llm"
 	"hschat/internal/model"
 )
 
@@ -1371,7 +1371,7 @@ func TestInsertMessage_Scenario2_InsertToolBeforeMsg10(t *testing.T) {
 // ============================================================
 
 func newTestEngine(mode string, executor ToolExecutor) *Engine {
-	return NewEngine(deepseek.NewClient("test-key", model.ThirdPartyConfig{}), mode, executor, nil)
+	return NewEngine(llm.NewClient("", "test-key", ""), mode, executor, nil)
 }
 
 func TestContinue_EmptyChat(t *testing.T) {

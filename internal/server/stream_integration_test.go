@@ -81,12 +81,16 @@ func TestStreamReentrant_Integration(t *testing.T) {
 	defer llm.Close()
 
 	storage.SaveConfig(&model.MCPConfig{
-		APIKey: "k",
-		ThirdParty: model.ThirdPartyConfig{
-			Enabled:  true,
-			Endpoint: llm.URL,
-			Model:    "mock",
+		ModelProviders: []model.ModelProvider{
+			{
+				Name:     "mock",
+				Endpoint: llm.URL,
+				APIKey:   "k",
+				Models:   []string{"mock"},
+			},
 		},
+		Provider: "mock",
+		Model:    "mock",
 	})
 	storage.SaveChat(&model.Chat{Title: "rc"})
 

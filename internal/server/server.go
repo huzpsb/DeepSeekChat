@@ -12,8 +12,8 @@ import (
 	"time"
 
 	cont "hschat/internal/continue"
-	"hschat/internal/deepseek"
 	"hschat/internal/engine"
+	"hschat/internal/llm"
 	"hschat/internal/log"
 	"hschat/internal/mcp"
 	"hschat/internal/model"
@@ -44,7 +44,8 @@ func New(staticFS embed.FS) *Server {
 		log.Printf("MCP init warning: %v", err)
 	}
 
-	dsClient := deepseek.NewClient(cfg.APIKey, cfg.ThirdParty)
+	endpoint, apiKey, modelName := cfg.ResolveModel()
+	client := llm.NewClient(endpoint, apiKey, modelName)
 
 	s := &Server{
 		mode:     "readonly",
@@ -52,7 +53,7 @@ func New(staticFS embed.FS) *Server {
 		staticFS: staticFS,
 		config:   cfg,
 		mcpMgr:   mcpMgr,
-		engine:   engine.Init(dsClient, mcpMgr),
+		engine:   engine.Init(client, mcpMgr),
 	}
 	s.registerRoutes()
 	return s
@@ -72,6 +73,8 @@ func (s *Server) Handler() http.Handler {
 func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/mode", s.handleGetMode)
 	s.mux.HandleFunc("PUT /api/mode", s.handleSetMode)
+	s.mux.HandleFunc("GET /api/config", s.handleGetConfig)
+	s.mux.HandleFunc("PUT /api/config", s.handleSetConfig)
 	s.mux.HandleFunc("GET /api/chats", s.handleListChats)
 	s.mux.HandleFunc("POST /api/chats", s.handleCreateChat)
 	s.mux.HandleFunc("GET /api/chats/{title}", s.handleGetChat)
@@ -125,6 +128,95 @@ func (s *Server) handleSetMode(w http.ResponseWriter, r *http.Request) {
 	s.mode = req.Mode
 	s.engine.SetMode(req.Mode)
 	s.writeJSON(w, map[string]string{"mode": s.mode})
+}
+
+type providerInfo struct {
+	Name   string   `json:"name"`
+	Models []string `json:"models"`
+}
+
+func (s *Server) configResponse() map[string]any {
+	providers := make([]providerInfo, 0, len(s.config.ModelProviders))
+	for _, p := range s.config.ModelProviders {
+		providers = append(providers, providerInfo{Name: p.Name, Models: p.Models})
+	}
+	return map[string]any{
+		"root_dir":  s.config.Sandbox.RootDir,
+		"provider":  s.config.Provider,
+		"model":     s.config.Model,
+		"providers": providers,
+	}
+}
+
+func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
+	s.writeJSON(w, s.configResponse())
+}
+
+func (s *Server) handleSetConfig(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		RootDir  *string `json:"root_dir"`
+		Provider *string `json:"provider"`
+		Model    *string `json:"model"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+
+	if req.Provider != nil {
+		p := s.config.FindProvider(*req.Provider)
+		if p == nil {
+			s.writeError(w, "unknown provider", http.StatusBadRequest)
+			return
+		}
+		s.config.Provider = p.Name
+		valid := false
+		for _, m := range p.Models {
+			if m == s.config.Model {
+				valid = true
+				break
+			}
+		}
+		if !valid && len(p.Models) > 0 {
+			s.config.Model = p.Models[0]
+		}
+	}
+
+	if req.Model != nil {
+		p := s.config.SelectedProvider()
+		valid := false
+		if p != nil {
+			for _, m := range p.Models {
+				if m == *req.Model {
+					valid = true
+					break
+				}
+			}
+		}
+		if !valid {
+			s.writeError(w, "unknown model", http.StatusBadRequest)
+			return
+		}
+		s.config.Model = *req.Model
+	}
+
+	if req.RootDir != nil && *req.RootDir != "" && *req.RootDir != s.config.Sandbox.RootDir {
+		if err := s.mcpMgr.SetRootDir(*req.RootDir); err != nil {
+			s.writeError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		s.config.Sandbox.RootDir = *req.RootDir
+	}
+
+	if err := storage.SaveConfig(s.config); err != nil {
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	endpoint, apiKey, modelName := s.config.ResolveModel()
+	s.engine.SetClient(llm.NewClient(endpoint, apiKey, modelName))
+	log.Printf("[server] config_updated root_dir=%q provider=%q model=%q\n", s.config.Sandbox.RootDir, s.config.Provider, s.config.Model)
+	s.writeJSON(w, s.configResponse())
 }
 
 func (s *Server) handleListChats(w http.ResponseWriter, r *http.Request) {

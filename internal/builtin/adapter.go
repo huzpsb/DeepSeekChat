@@ -33,11 +33,3 @@ func (a *clientAdapter) Close() error {
 func (a *clientAdapter) Name() string {
 	return a.p.Name()
 }
-
-func (a *clientAdapter) Type() string {
-	return "builtin"
-}
-
-func (a *clientAdapter) IsConnected() bool {
-	return true
-}

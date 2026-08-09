@@ -20,7 +20,7 @@ func (p *Provider) runShellTool(ctx context.Context, tool model.ShellTool) strin
 	rawEnabled := p.rawShell != nil && p.rawShell.Enabled
 
 	if !rawEnabled && len(p.fileBlacklist) > 0 {
-		checkErr := filepath.Walk(p.rootDir, func(fp string, info os.FileInfo, err error) error {
+		checkErr := filepath.Walk(p.getRootDir(), func(fp string, info os.FileInfo, err error) error {
 			if err != nil {
 				return nil
 			}
@@ -71,7 +71,7 @@ func (p *Provider) runShellTool(ctx context.Context, tool model.ShellTool) strin
 		cmd = exec.Command("sh", "-c", tool.Command)
 	}
 	if tool.RelativeOverwrite == nil || *tool.RelativeOverwrite {
-		cmd.Dir = p.rootDir
+		cmd.Dir = p.getRootDir()
 	}
 
 	setProcessGroup(cmd)

@@ -7,7 +7,7 @@ import (
 	"time"
 
 	cont "hschat/internal/continue"
-	"hschat/internal/deepseek"
+	"hschat/internal/llm"
 	"hschat/internal/mcp"
 	"hschat/internal/model"
 	"hschat/internal/storage"
@@ -26,7 +26,8 @@ func Run(prompt, title string) error {
 		return fmt.Errorf("mcp init: %w", err)
 	}
 
-	dsClient := deepseek.NewClient(cfg.APIKey, cfg.ThirdParty)
+	endpoint, apiKey, modelName := cfg.ResolveModel()
+	client := llm.NewClient(endpoint, apiKey, modelName)
 
 	if title == "" {
 		title = time.Now().Format("2006-01-02 150405")
@@ -51,7 +52,7 @@ func Run(prompt, title string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	engine := cont.NewEngine(dsClient, "readonly", mcpMgr, func() {
+	engine := cont.NewEngine(client, "readonly", mcpMgr, func() {
 		storage.SaveChat(chat)
 	})
 	engine.ContinueOnInvalidArgs = true
