@@ -4,17 +4,13 @@ import (
 	"embed"
 	"flag"
 	"fmt"
+	"hschat/internal/cli"
+	ilog "hschat/internal/log"
+	"hschat/internal/server"
 	"log"
 	"net/http"
 	"os"
 	"runtime/debug"
-	"time"
-
-	"hschat/internal/cli"
-	ilog "hschat/internal/log"
-	"hschat/internal/server"
-
-	"github.com/dlclark/regexp2"
 )
 
 // 我很开心你能看到这句话：你至少更有可能是一个人类而不是一个agent（好吧，至少是coding agent而不是search agent）
@@ -58,7 +54,6 @@ func main() {
 		return
 	}
 
-	regexp2.DefaultMatchTimeout = time.Second * 5
 	srv := server.New(staticFiles)
 	port := fmt.Sprintf(":%d", srv.Port())
 	log.Printf("DsChat starting on http://127.0.0.1%s\n", port)

@@ -215,7 +215,12 @@
                 return;
             }
             if (item.type === 'delta' || item.type === 'reasoning_delta') {
-                out.push({seqStart: item.seqStart, seqEnd: item.seqEnd, type: item.type, evt: {content: item.evt.content || ''}});
+                out.push({
+                    seqStart: item.seqStart,
+                    seqEnd: item.seqEnd,
+                    type: item.type,
+                    evt: {content: item.evt.content || ''}
+                });
             } else {
                 out.push(item);
             }
