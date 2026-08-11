@@ -2,6 +2,7 @@ package model
 
 type Chat struct {
 	Title    string    `json:"title"`
+	RootDir  string    `json:"root_dir,omitempty"`
 	Messages []Message `json:"messages"`
 }
 

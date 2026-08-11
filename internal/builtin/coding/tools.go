@@ -3,6 +3,7 @@ package coding
 import (
 	"context"
 
+	"hschat/internal/builtin/sandbox"
 	"hschat/internal/model"
 )
 
@@ -51,6 +52,11 @@ func (p *Provider) Tools() []model.ToolDef {
 func (p *Provider) CallTool(ctx context.Context, name string, args map[string]any) (*model.ToolResult, error) {
 	var result string
 
+	rootDir := p.getRootDir()
+	if dir, ok := sandbox.RootDirFromContext(ctx); ok {
+		rootDir = sandbox.ResolveRootDir(dir)
+	}
+
 	if name == "run" && p.rawShell != nil && p.rawShell.Enabled {
 		cmd, _ := args["command"].(string)
 		if cmd == "" {
@@ -64,9 +70,9 @@ func (p *Provider) CallTool(ctx context.Context, name string, args map[string]an
 			Command: cmd,
 			Timeout: timeout,
 		}
-		result = p.runShellTool(ctx, tool)
+		result = p.runShellTool(ctx, tool, rootDir)
 	} else if tool, ok := p.shellTools[name]; ok {
-		result = p.runShellTool(ctx, tool)
+		result = p.runShellTool(ctx, tool, rootDir)
 	} else {
 		result = "Error: Unknown tool"
 	}

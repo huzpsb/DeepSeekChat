@@ -130,6 +130,9 @@ var ChatList = {
     loadMessages: async function () {
         if (!this.currentTitle) {
             Messages.render(null, document.getElementById('messages'));
+            if (window.DsApp && window.DsApp.updateRootDirSelector) {
+                window.DsApp.updateRootDirSelector('');
+            }
             if (window.ContinueModule) {
                 window.ContinueModule.onHistoryLoaded(0);
             }
@@ -149,6 +152,9 @@ var ChatList = {
         }
         var chat = await resp.json();
         Messages.render(chat.messages || [], document.getElementById('messages'));
+        if (window.DsApp && window.DsApp.updateRootDirSelector) {
+            window.DsApp.updateRootDirSelector(chat.root_dir || '');
+        }
         if (window.ContinueModule) {
             window.ContinueModule.onHistoryLoaded(chat.saved_pos || 0);
         }

@@ -119,7 +119,10 @@ func (p *Provider) Tools() []model.ToolDef {
 	return tools
 }
 
-func (p *Provider) CallTool(_ context.Context, name string, args map[string]any) (*model.ToolResult, error) {
+func (p *Provider) CallTool(ctx context.Context, name string, args map[string]any) (*model.ToolResult, error) {
+	if dir, ok := RootDirFromContext(ctx); ok {
+		p = p.withRootDir(dir)
+	}
 	var result string
 
 	switch name {
@@ -163,6 +166,16 @@ func unifyNewlines(s string) string {
 	s = strings.ReplaceAll(s, "\r\n", "\n")
 	s = strings.ReplaceAll(s, "\r", "\n")
 	return s
+}
+
+func hasSpecialChars(query string) bool {
+	for _, c := range query {
+		switch c {
+		case '*', '|', '.', '$', '^', '+', '?', '(', ')', '[', ']', '{', '}':
+			return true
+		}
+	}
+	return false
 }
 
 func (p *Provider) tree(args map[string]any) string {
@@ -413,6 +426,9 @@ func (p *Provider) searchContent(args map[string]any) string {
 	result := buf.String()
 	if result == "" {
 		result = "No matches found."
+		if matchType == "plain" && hasSpecialChars(query) {
+			result += "\n(Hint: Did you forget to set type=\"regex\" or type=\"glob\"? Your query doesn't seem like a plain one!)"
+		}
 	}
 	return result
 }

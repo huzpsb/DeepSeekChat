@@ -20,11 +20,11 @@ func TestLoadConfig_NotExist(t *testing.T) {
 	if cfg == nil {
 		t.Fatalf("expected non-nil config")
 	}
-	if len(cfg.ModelProviders) != 2 {
-		t.Fatalf("expected 2 default providers, got %d", len(cfg.ModelProviders))
+	if len(cfg.ModelProviders) != 3 {
+		t.Fatalf("expected 3 default providers, got %d", len(cfg.ModelProviders))
 	}
-	if cfg.ModelProviders[0].Name != "opencode-go" || len(cfg.ModelProviders[0].Models) != 1 {
-		t.Errorf("expected opencode-go provider with 1 model, got %+v", cfg.ModelProviders[0])
+	if cfg.ModelProviders[0].Name != "opencode-zen" || len(cfg.ModelProviders[0].Models) != 1 {
+		t.Errorf("expected opencode-zen provider with 1 model, got %+v", cfg.ModelProviders[0])
 	}
 	if cfg.ModelProviders[1].Name != "deepseek" || len(cfg.ModelProviders[1].Models) != 2 {
 		t.Errorf("expected deepseek provider with 2 models, got %+v", cfg.ModelProviders[1])

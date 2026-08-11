@@ -81,6 +81,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("DELETE /api/chats/{title}", s.handleDeleteChat)
 	s.mux.HandleFunc("POST /api/chats/{title}/dupe", s.handleDupeChat)
 	s.mux.HandleFunc("PUT /api/chats/{title}/rename", s.handleRenameChat)
+	s.mux.HandleFunc("PUT /api/chats/{title}/rootdir", s.handleSetChatRootDir)
 	s.mux.HandleFunc("GET /api/validate/{title}", s.handleValidate)
 	s.mux.HandleFunc("POST /api/chat/continue", s.handleContinue)
 	s.mux.HandleFunc("GET /api/chat/stream", s.handleStream)
@@ -140,8 +141,12 @@ func (s *Server) configResponse() map[string]any {
 	for _, p := range s.config.ModelProviders {
 		providers = append(providers, providerInfo{Name: p.Name, Models: p.Models})
 	}
+	rootDirs := s.config.Sandbox.RootDirs
+	if len(rootDirs) == 0 {
+		rootDirs = []string{"./agent"}
+	}
 	return map[string]any{
-		"root_dir":  s.config.Sandbox.RootDir,
+		"root_dirs": rootDirs,
 		"provider":  s.config.Provider,
 		"model":     s.config.Model,
 		"providers": providers,
@@ -154,9 +159,9 @@ func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSetConfig(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		RootDir  *string `json:"root_dir"`
-		Provider *string `json:"provider"`
-		Model    *string `json:"model"`
+		RootDirs *[]string `json:"root_dirs"`
+		Provider *string   `json:"provider"`
+		Model    *string   `json:"model"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, "invalid body", http.StatusBadRequest)
@@ -200,12 +205,26 @@ func (s *Server) handleSetConfig(w http.ResponseWriter, r *http.Request) {
 		s.config.Model = *req.Model
 	}
 
-	if req.RootDir != nil && *req.RootDir != "" && *req.RootDir != s.config.Sandbox.RootDir {
-		if err := s.mcpMgr.SetRootDir(*req.RootDir); err != nil {
+	if req.RootDirs != nil {
+		var dirs []string
+		seen := map[string]bool{}
+		for _, d := range *req.RootDirs {
+			d = strings.TrimSpace(d)
+			if d == "" || seen[d] {
+				continue
+			}
+			seen[d] = true
+			dirs = append(dirs, d)
+		}
+		if len(dirs) == 0 {
+			s.writeError(w, "root_dirs cannot be empty", http.StatusBadRequest)
+			return
+		}
+		if err := s.mcpMgr.SetRootDir(dirs[0]); err != nil {
 			s.writeError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		s.config.Sandbox.RootDir = *req.RootDir
+		s.config.Sandbox.RootDirs = dirs
 	}
 
 	if err := storage.SaveConfig(s.config); err != nil {
@@ -215,7 +234,7 @@ func (s *Server) handleSetConfig(w http.ResponseWriter, r *http.Request) {
 
 	endpoint, apiKey, modelName := s.config.ResolveModel()
 	s.engine.SetClient(llm.NewClient(endpoint, apiKey, modelName))
-	log.Printf("[server] config_updated root_dir=%q provider=%q model=%q\n", s.config.Sandbox.RootDir, s.config.Provider, s.config.Model)
+	log.Printf("[server] config_updated root_dirs=%q provider=%q model=%q\n", s.config.Sandbox.RootDirs, s.config.Provider, s.config.Model)
 	s.writeJSON(w, s.configResponse())
 }
 
@@ -260,8 +279,13 @@ func (s *Server) handleGetChat(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, err.Error(), http.StatusNotFound)
 		return
 	}
+	rootDir := chat.RootDir
+	if rootDir == "" {
+		rootDir = s.config.Sandbox.DefaultRootDir()
+	}
 	s.writeJSON(w, map[string]any{
 		"title":     chat.Title,
+		"root_dir":  rootDir,
 		"messages":  chat.Messages,
 		"saved_pos": savedPos,
 		"running":   running,
@@ -315,6 +339,43 @@ func (s *Server) handleRenameChat(w http.ResponseWriter, r *http.Request) {
 	}
 	s.engine.DropSession(oldTitle)
 	s.writeJSON(w, map[string]bool{"ok": true})
+}
+
+func (s *Server) handleSetChatRootDir(w http.ResponseWriter, r *http.Request) {
+	title := r.PathValue("title")
+	var req struct {
+		RootDir string `json:"root_dir"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.RootDir) == "" {
+		s.writeError(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	req.RootDir = strings.TrimSpace(req.RootDir)
+
+	if !s.config.Sandbox.HasRootDir(req.RootDir) {
+		s.writeError(w, "root dir not in configured list", http.StatusBadRequest)
+		return
+	}
+	if s.engine.IsInferencingWith(title) {
+		s.writeError(w, "chat is currently being processed", http.StatusConflict)
+		return
+	}
+	chat, err := storage.GetChat(title)
+	if err != nil {
+		s.writeError(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	if req.RootDir == s.config.Sandbox.DefaultRootDir() {
+		chat.RootDir = ""
+	} else {
+		chat.RootDir = req.RootDir
+	}
+	if err := storage.SaveChat(chat); err != nil {
+		s.writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	log.Printf("[server] chat_rootdir_updated title=%q root_dir=%q\n", title, req.RootDir)
+	s.writeJSON(w, map[string]any{"ok": true, "root_dir": req.RootDir})
 }
 
 func (s *Server) handleValidate(w http.ResponseWriter, r *http.Request) {

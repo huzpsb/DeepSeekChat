@@ -177,7 +177,7 @@ func TestManager_GetAllowedTools_NoApproved(t *testing.T) {
 func TestManager_ExecuteTool_SandboxTool(t *testing.T) {
 	setupManagerTest(t)
 	seedConfig(&model.MCPConfig{
-		Sandbox:       model.SandboxConfig{RootDir: "."},
+		Sandbox:       model.SandboxConfig{RootDirs: []string{"."}},
 		ApprovedTools: []string{"Sandbox::create_file"},
 	})
 

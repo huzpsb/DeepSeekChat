@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	"hschat/internal/builtin/sandbox"
 	cont "hschat/internal/continue"
 	"hschat/internal/llm"
 	"hschat/internal/log"
@@ -198,6 +199,9 @@ func (e *StreamEngine) StartInference(title, input string, autoContinue bool) er
 	sess.events = nil
 	sess.savedPos = 0
 	ctx, cancel := context.WithCancel(context.Background())
+	if chat.RootDir != "" {
+		ctx = sandbox.WithRootDir(ctx, chat.RootDir)
+	}
 	sess.cancel = cancel
 	gen := sess.gen
 	sess.broadcastLocked()

@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,19 @@ import (
 	"hschat/internal/builtin"
 	"hschat/internal/model"
 )
+
+type rootDirCtxKey struct{}
+
+// WithRootDir attaches a per-call sandbox root dir override to the context.
+func WithRootDir(ctx context.Context, dir string) context.Context {
+	return context.WithValue(ctx, rootDirCtxKey{}, dir)
+}
+
+// RootDirFromContext returns the root dir override attached to ctx, if any.
+func RootDirFromContext(ctx context.Context) (string, bool) {
+	dir, ok := ctx.Value(rootDirCtxKey{}).(string)
+	return dir, ok && dir != ""
+}
 
 type Provider struct {
 	mu              sync.RWMutex
@@ -24,7 +38,7 @@ func New(cfg *model.SandboxConfig) builtin.Provider {
 		sandboxDisabled: cfg.SandboxDisabled,
 	}
 
-	rootDir := ResolveRootDir(cfg.RootDir)
+	rootDir := ResolveRootDir(cfg.DefaultRootDir())
 	if err := os.MkdirAll(rootDir, 0755); err != nil {
 		panic(fmt.Sprintf("failed to create root directory %s: %v", rootDir, err))
 	}
@@ -68,6 +82,20 @@ func (p *Provider) getRootDir() string {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.rootDir
+}
+
+// withRootDir returns a lightweight copy of the provider rooted at dir.
+// Used for per-call overrides carried by the tool-call context.
+func (p *Provider) withRootDir(dir string) *Provider {
+	rootDir := ResolveRootDir(dir)
+	_ = os.MkdirAll(rootDir, 0755)
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return &Provider{
+		rootDir:         rootDir,
+		extBlacklist:    p.extBlacklist,
+		sandboxDisabled: p.sandboxDisabled,
+	}
 }
 
 func ResolveRootDir(dir string) string {

@@ -64,6 +64,7 @@
         initPreferencesModal();
         initSkipConfirm();
         initStopSoundSettings();
+        await loadBackendSettings();
         ChatList.init();
     }
 
@@ -120,7 +121,8 @@
 
     function renderBackendSettings() {
         if (!backendConfig) return;
-        document.getElementById('pref-root-dir').value = backendConfig.root_dir || '';
+        renderRootDirList();
+        renderRootDirSelector();
         var providerSel = document.getElementById('pref-provider');
         providerSel.innerHTML = '';
         (backendConfig.providers || []).forEach(function (p) {
@@ -131,6 +133,100 @@
             providerSel.appendChild(opt);
         });
         renderModelOptions();
+    }
+
+    function rootDirs() {
+        return (backendConfig && backendConfig.root_dirs) || [];
+    }
+
+    function renderRootDirList() {
+        var box = document.getElementById('pref-root-dirs');
+        box.innerHTML = '';
+        rootDirs().forEach(function (dir) {
+            var row = document.createElement('div');
+            row.className = 'pref-root-dir-item';
+            var label = document.createElement('span');
+            label.textContent = dir;
+            var del = document.createElement('button');
+            del.textContent = '×';
+            del.title = 'Remove';
+            del.addEventListener('click', function () {
+                removeRootDir(dir);
+            });
+            row.appendChild(label);
+            row.appendChild(del);
+            box.appendChild(row);
+        });
+    }
+
+    function renderRootDirSelector() {
+        var sel = document.getElementById('root-dir-select');
+        var current = sel.value;
+        sel.innerHTML = '';
+        rootDirs().forEach(function (dir) {
+            var opt = document.createElement('option');
+            opt.value = dir;
+            opt.textContent = dir;
+            sel.appendChild(opt);
+        });
+        if (current && rootDirs().indexOf(current) >= 0) {
+            sel.value = current;
+        }
+        sel.disabled = !ChatList.getCurrentTitle() || rootDirs().length === 0;
+    }
+
+    async function addRootDir(dir) {
+        if (!dir || rootDirs().indexOf(dir) >= 0) return;
+        await saveBackendSettings({root_dirs: rootDirs().concat([dir])});
+    }
+
+    async function removeRootDir(dir) {
+        var dirs = rootDirs().filter(function (d) {
+            return d !== dir;
+        });
+        if (dirs.length === 0) {
+            alert('At least one root dir is required.');
+            return;
+        }
+        await saveBackendSettings({root_dirs: dirs});
+    }
+
+    // DsApp.updateRootDirSelector is called by chat.js whenever the
+    // current chat (or its stored root dir) changes.
+    window.DsApp.updateRootDirSelector = function (chatRootDir) {
+        var sel = document.getElementById('root-dir-select');
+        var dirs = rootDirs();
+        if (chatRootDir && dirs.indexOf(chatRootDir) >= 0) {
+            sel.value = chatRootDir;
+        } else if (dirs.length > 0) {
+            sel.value = dirs[0];
+        }
+        sel.dataset.chatRootDir = sel.value;
+        sel.disabled = !ChatList.getCurrentTitle() || dirs.length === 0;
+    };
+
+    async function switchChatRootDir(dir) {
+        var title = ChatList.getCurrentTitle();
+        var sel = document.getElementById('root-dir-select');
+        if (!title) return;
+        var resp = await fetch('/api/chats/' + encodeURIComponent(title) + '/rootdir', {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({root_dir: dir})
+        });
+        if (!resp.ok) {
+            var err = await resp.json();
+            alert('Switch root dir failed: ' + (err.error || 'Unknown'));
+            window.DsApp.updateRootDirSelector(sel.dataset.chatRootDir || '');
+            return;
+        }
+        sel.dataset.chatRootDir = dir;
+    }
+
+    function initRootDirSelector() {
+        document.getElementById('root-dir-select').addEventListener('change', function () {
+            switchChatRootDir(this.value);
+        });
     }
 
     function renderModelOptions() {
@@ -169,9 +265,19 @@
     }
 
     function initBackendSettings() {
-        document.getElementById('pref-root-dir').addEventListener('change', function () {
-            var dir = this.value.trim();
-            if (dir) saveBackendSettings({root_dir: dir});
+        document.getElementById('pref-root-dir-add').addEventListener('click', function () {
+            var input = document.getElementById('pref-root-dir-new');
+            var dir = input.value.trim();
+            if (dir) {
+                input.value = '';
+                addRootDir(dir);
+            }
+        });
+        document.getElementById('pref-root-dir-new').addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                document.getElementById('pref-root-dir-add').click();
+            }
         });
         document.getElementById('pref-provider').addEventListener('change', function () {
             saveBackendSettings({provider: this.value});
@@ -179,6 +285,7 @@
         document.getElementById('pref-model').addEventListener('change', function () {
             saveBackendSettings({model: this.value});
         });
+        initRootDirSelector();
     }
 
     document.addEventListener('DOMContentLoaded', init);

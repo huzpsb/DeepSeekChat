@@ -25,6 +25,7 @@
                 <button class="mode-btn" data-mode="sudo">Sudo</button>
             </div>
             <button id="btn-validate">Validate</button>
+            <select id="root-dir-select" title="Sandbox root dir"></select>
             <button id="btn-mute-sound" style="display:none">Mute</button>
             <button id="btn-preferences" title="Preferences">p</button>
             <button id="btn-version" title="Version Info">v</button>
@@ -125,10 +126,17 @@
             </div>
             <div class="pref-group">
                 <h4>Backend</h4>
-                <label class="pref-row">
-                    <span>Sandbox root dir</span>
-                    <input id="pref-root-dir" style="width:55%" type="text">
-                </label>
+                <div class="pref-row pref-root-dirs-row">
+                    <span>Sandbox root dirs</span>
+                    <div id="pref-root-dirs"></div>
+                </div>
+                <div class="pref-row">
+                    <span>Add root dir</span>
+                    <span class="pref-root-dir-add">
+                        <input id="pref-root-dir-new" placeholder="./agent2" type="text">
+                        <button id="pref-root-dir-add">Add</button>
+                    </span>
+                </div>
                 <label class="pref-row">
                     <span>Model provider</span>
                     <select id="pref-provider"></select>

@@ -56,7 +56,7 @@ func (m *Manager) LoadAndConnect() error {
 	}
 
 	sandboxCfg := m.config.Sandbox
-	sandboxCfg.RootDir = sandbox.ResolveRootDir(sandboxCfg.RootDir)
+	rootDir := sandbox.ResolveRootDir(sandboxCfg.DefaultRootDir())
 
 	sp := sandbox.New(&sandboxCfg)
 	if err := m.registerBuiltin(sp); err != nil {
@@ -71,7 +71,7 @@ func (m *Manager) LoadAndConnect() error {
 	}
 
 	if m.config.EnableCodingTools {
-		cp := coding.New(sandboxCfg.RootDir)
+		cp := coding.New(rootDir)
 		if err := m.registerBuiltin(cp); err != nil {
 			log.Printf("Builtin [Coding] init failed: %v", err)
 		}

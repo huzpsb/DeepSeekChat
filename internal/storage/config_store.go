@@ -30,7 +30,7 @@ func defaultConfig() *model.MCPConfig {
 	return &model.MCPConfig{
 		Port: 5234,
 		Sandbox: model.SandboxConfig{
-			RootDir:      "./agent",
+			RootDirs:     []string{"./agent"},
 			ExtBlacklist: []string{"exe", "dll", "ppt", "pptx", "doc", "docx", "pdf", "class", "dex", "apk", "bin", "jpg", "jpeg", "png", "gif"},
 		},
 		EnableCodingTools: true,
@@ -49,14 +49,21 @@ func defaultConfig() *model.MCPConfig {
 		},
 		ModelProviders: []model.ModelProvider{
 			{
-				Name:     "opencode-go",
+				Name:     "opencode-zen",
 				Endpoint: "https://opencode.ai/zen/v1/chat/completions",
 				Models:   []string{"deepseek-v4-flash-free"},
 			},
 			{
 				Name:     "deepseek",
 				Endpoint: "https://api.deepseek.com/chat/completions",
+				APIKey:   "sk-xxxx",
 				Models:   []string{"deepseek-v4-flash", "deepseek-v4-pro"},
+			},
+			{
+				Name:     "kimi-code",
+				Endpoint: "https://api.kimi.com/coding/v1/chat/completions",
+				APIKey:   "sk-xxxx",
+				Models:   []string{"k3-256k"},
 			},
 		},
 		Provider: "opencode-go",

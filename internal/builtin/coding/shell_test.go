@@ -20,7 +20,7 @@ func TestRunShellTool_Basic(t *testing.T) {
 	result := p.runShellTool(context.Background(), model.ShellTool{
 		Command: "echo test_output_123",
 		Timeout: 10,
-	})
+	}, p.getRootDir())
 	checkContains(t, result, "test_output_123")
 }
 
@@ -32,7 +32,7 @@ func TestRunShellTool_BlacklistBlock(t *testing.T) {
 	result := p.runShellTool(context.Background(), model.ShellTool{
 		Command: "echo should not run",
 		Timeout: 10,
-	})
+	}, p.getRootDir())
 	checkContains(t, result, "ClamAV")
 	checkContains(t, result, "potentially malicious")
 }
@@ -45,7 +45,7 @@ func TestRunShellTool_BlacklistClean(t *testing.T) {
 	result := p.runShellTool(context.Background(), model.ShellTool{
 		Command: "echo clean_pass",
 		Timeout: 10,
-	})
+	}, p.getRootDir())
 	if strings.Contains(result, "ClamAV") {
 		t.Errorf("expected no ClamAV block for clean file:\n%s", result)
 	}
@@ -60,7 +60,7 @@ func TestRunShellTool_BlacklistEmpty(t *testing.T) {
 	result := p.runShellTool(context.Background(), model.ShellTool{
 		Command: "echo should_run",
 		Timeout: 10,
-	})
+	}, p.getRootDir())
 	if strings.Contains(result, "ClamAV") {
 		t.Errorf("expected no ClamAV block when blacklist is empty")
 	}
@@ -78,7 +78,7 @@ func TestRunShellTool_Timeout(t *testing.T) {
 	result := p.runShellTool(context.Background(), model.ShellTool{
 		Command: cmd,
 		Timeout: 1,
-	})
+	}, p.getRootDir())
 	checkContains(t, result, "Exit Code")
 }
 
@@ -91,7 +91,7 @@ func TestRunShellTool_IpynoredNames(t *testing.T) {
 	result := p.runShellTool(context.Background(), model.ShellTool{
 		Command: "echo should_pass",
 		Timeout: 10,
-	})
+	}, p.getRootDir())
 	if strings.Contains(result, "ClamAV") {
 		t.Errorf("expected no ClamAV block for files in .trash_can:\n%s", result)
 	}
@@ -106,7 +106,7 @@ func TestRunShellTool_RuntimeIgnored(t *testing.T) {
 	result := p.runShellTool(context.Background(), model.ShellTool{
 		Command: "echo ok",
 		Timeout: 10,
-	})
+	}, p.getRootDir())
 	if strings.Contains(result, "ClamAV") {
 		t.Errorf("expected no ClamAV block for files in _runtime:\n%s", result)
 	}
@@ -127,7 +127,7 @@ func TestRunShellTool_LargeFileSkip(t *testing.T) {
 	result := p.runShellTool(context.Background(), model.ShellTool{
 		Command: "echo should_run",
 		Timeout: 10,
-	})
+	}, p.getRootDir())
 	if strings.Contains(result, "ClamAV") {
 		t.Errorf("expected no ClamAV block for large file that is skipped:\n%s", result)
 	}
@@ -144,7 +144,7 @@ func TestRunShellTool_StderrCapture(t *testing.T) {
 	result := p.runShellTool(context.Background(), model.ShellTool{
 		Command: cmd,
 		Timeout: 10,
-	})
+	}, p.getRootDir())
 	checkContains(t, result, "stdout_text")
 	checkContains(t, result, "stderr_text")
 	checkContains(t, result, "--- Stdout ---")
@@ -175,7 +175,7 @@ func TestRunShellTool_RawShellSkipsBlacklist(t *testing.T) {
 	result := p.runShellTool(context.Background(), model.ShellTool{
 		Command: "echo raw_shell_pass",
 		Timeout: 10,
-	})
+	}, p.getRootDir())
 	if strings.Contains(result, "ClamAV") {
 		t.Errorf("raw_shell should skip blacklist, but got ClamAV block:\n%s", result)
 	}
@@ -203,7 +203,7 @@ func TestRunShellTool_RawShellSetsRootDir(t *testing.T) {
 	result := p.runShellTool(context.Background(), model.ShellTool{
 		Command: command,
 		Timeout: 10,
-	})
+	}, p.getRootDir())
 	checkContains(t, result, "cwd_content")
 }
 
@@ -220,7 +220,7 @@ func TestRunShellTool_WithoutRawShellSetsRootDir(t *testing.T) {
 	result := p.runShellTool(context.Background(), model.ShellTool{
 		Command: command,
 		Timeout: 10,
-	})
+	}, p.getRootDir())
 	checkContains(t, result, "sandbox_content")
 }
 
@@ -247,7 +247,7 @@ func TestRunShellTool_RelativeOverwriteFalseUsesCurrentDir(t *testing.T) {
 		Command:           command,
 		Timeout:           10,
 		RelativeOverwrite: &relativeOverwrite,
-	})
+	}, p.getRootDir())
 	checkContains(t, result, "current-dir-ok")
 }
 
@@ -270,7 +270,7 @@ func TestRunShellTool_InterruptKillsProcess(t *testing.T) {
 		done <- p.runShellTool(ctx, model.ShellTool{
 			Command: cmd,
 			Timeout: 30,
-		})
+		}, p.getRootDir())
 	}()
 
 	time.Sleep(time.Second)

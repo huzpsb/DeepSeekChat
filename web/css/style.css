@@ -1298,3 +1298,69 @@ html, body {
 #error-toast.visible {
     opacity: 1;
 }
+
+#root-dir-select {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 3px 6px;
+    font-size: 12px;
+    max-width: 200px;
+}
+
+.pref-root-dirs-row {
+    align-items: flex-start;
+}
+
+#pref-root-dirs {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 55%;
+}
+
+.pref-root-dir-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 3px 6px;
+    font-size: 12px;
+}
+
+.pref-root-dir-item button {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 14px;
+    padding: 0 2px;
+}
+
+.pref-root-dir-item button:hover {
+    color: var(--danger);
+}
+
+.pref-root-dir-add {
+    display: flex;
+    gap: 6px;
+}
+
+.pref-root-dir-add button {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 3px 10px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.pref-root-dir-add button:hover {
+    border-color: var(--accent);
+}
