@@ -11,11 +11,11 @@ import (
 )
 
 type Engine struct {
-	client                *llm.Client
-	mode                  string
-	toolExecutor          ToolExecutor
-	saveFunc              func()
-	ContinueOnInvalidArgs bool
+	client            *llm.Client
+	mode              string
+	toolExecutor      ToolExecutor
+	saveFunc          func()
+	ContinueOnInvalid bool
 }
 
 type ToolExecutor interface {
@@ -143,7 +143,7 @@ func (e *Engine) continueAssistant(ctx context.Context, chat *model.Chat, autoCo
 	invalidIDs := e.findInvalidToolCalls(msg)
 	if len(invalidIDs) > 0 {
 		logContinue("continue_assistant_invalid_tools idx=%d mode=%s invalid_ids=%v", idx, e.mode, invalidIDs)
-		if e.mode == "readonly" {
+		if e.ContinueOnInvalid {
 			e.markInvalidAsNotFound(chat, msg, invalidIDs, emit)
 			if err := e.streamDeepSeek(ctx, chat, emit, interrupted); err != nil {
 				logContinue("continue_assistant_invalid_stream_error idx=%d err=%q", idx, err.Error())
@@ -261,7 +261,7 @@ func (e *Engine) continueTool(ctx context.Context, chat *model.Chat, autoContinu
 	invalidIDs := e.findInvalidToolCalls(assistant)
 	if len(invalidIDs) > 0 {
 		logContinue("continue_tool_invalid_tools orig_idx=%d invalid_ids=%v mode=%s", origIdx, invalidIDs, e.mode)
-		if e.mode == "readonly" {
+		if e.ContinueOnInvalid {
 			e.markInvalidAsNotFound(chat, assistant, invalidIDs, emit)
 			if err := e.streamDeepSeek(ctx, chat, emit, interrupted); err != nil {
 				logContinue("continue_tool_invalid_stream_error orig_idx=%d err=%q", origIdx, err.Error())
@@ -357,7 +357,7 @@ func (e *Engine) executeToolCall(ctx context.Context, chat *model.Chat, autoCont
 		argsErr := e.validateArgs(tc.Function.Name, tc.Function.Arguments)
 		if argsErr != "" {
 			logContinue("execute_tool_invalid_args tool_call_id=%q name=%q err=%q", tc.ID, tc.Function.Name, argsErr)
-			if !e.ContinueOnInvalidArgs {
+			if !e.ContinueOnInvalid {
 				emit(ContinueEvent{
 					Type: "error",
 					Error: &ErrorDetail{

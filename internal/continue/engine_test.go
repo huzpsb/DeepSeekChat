@@ -1658,7 +1658,7 @@ func TestContinue_InvalidArgs_ContinueWhenEnabled(t *testing.T) {
 		},
 	}
 	engine := newTestEngine("writable", executor)
-	engine.ContinueOnInvalidArgs = true
+	engine.ContinueOnInvalid = true
 	chat := &model.Chat{Messages: []model.Message{
 		makeAssistantMsg("", []model.ToolCall{makeToolCall("id1", "tool_a", `{}`)}),
 	}}
@@ -1673,7 +1673,7 @@ func TestContinue_InvalidArgs_ContinueWhenEnabled(t *testing.T) {
 		}
 	}
 	if !foundToolResult {
-		t.Errorf("expected tool_result with validation error when ContinueOnInvalidArgs is true")
+		t.Errorf("expected tool_result with validation error when ContinueOnInvalid is true")
 	}
 }
 
