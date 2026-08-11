@@ -78,17 +78,32 @@ func (c *Client) StreamChat(ctx context.Context, messages []model.Message, tools
 		return fmt.Errorf("marshal request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", c.endpoint, strings.NewReader(string(body)))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-	req.Header.Set("Accept", "text/event-stream")
+	// Retry immediately when the server responds with 429 (rate limited),
+	// up to maxRetries times. If the request still fails with 429 after all
+	// retries, give up and return the error.
+	const maxRetries = 5
 
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("request failed: %w", err)
+	var resp *http.Response
+	for attempt := 0; ; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, "POST", c.endpoint, strings.NewReader(string(body)))
+		if err != nil {
+			return fmt.Errorf("create request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+		req.Header.Set("Accept", "text/event-stream")
+
+		resp, err = c.httpClient.Do(req)
+		if err != nil {
+			return fmt.Errorf("request failed: %w", err)
+		}
+
+		if resp.StatusCode != http.StatusTooManyRequests || attempt >= maxRetries {
+			break
+		}
+		// 429: drain and close the body before retrying immediately.
+		_, _ = io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
 	}
 	defer resp.Body.Close()
 

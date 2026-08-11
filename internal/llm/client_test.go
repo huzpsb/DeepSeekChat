@@ -1,7 +1,11 @@
 package llm
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"hschat/internal/model"
@@ -407,5 +411,91 @@ data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_y","type":"funct
 				t.Error("BUG: accumulated args from call_x leaked into call_y after ID reset")
 			}
 		}
+	}
+}
+
+func TestStreamChat_RetriesOn429ThenSucceeds(t *testing.T) {
+	var attempts int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := atomic.AddInt32(&attempts, 1)
+		if n <= 3 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\ndata: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "key", "model")
+	var events []StreamEvent
+	err := client.StreamChat(context.Background(), []model.Message{
+		{Role: "user", Content: "hello", SendToServer: true},
+	}, nil, func(evt StreamEvent) {
+		events = append(events, evt)
+	})
+
+	if err != nil {
+		t.Fatalf("expected success after retries, got error: %v", err)
+	}
+	if got := atomic.LoadInt32(&attempts); got != 4 {
+		t.Errorf("expected 4 attempts (3 retries), got %d", got)
+	}
+	found := false
+	for _, e := range events {
+		if e.Type == "delta" && e.Content == "hi" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected delta event after successful retry")
+	}
+}
+
+func TestStreamChat_GivesUpAfter5RetriesOn429(t *testing.T) {
+	var attempts int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&attempts, 1)
+		w.WriteHeader(http.StatusTooManyRequests)
+		w.Write([]byte("rate limited"))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "key", "model")
+	err := client.StreamChat(context.Background(), []model.Message{
+		{Role: "user", Content: "hello", SendToServer: true},
+	}, nil, func(evt StreamEvent) {})
+
+	if err == nil {
+		t.Fatal("expected error when server always returns 429")
+	}
+	if !strings.Contains(err.Error(), "429") {
+		t.Errorf("error should mention 429, got: %v", err)
+	}
+	// 1 initial request + 5 retries = 6 attempts total; a 7th must NOT happen
+	if got := atomic.LoadInt32(&attempts); got != 6 {
+		t.Errorf("expected exactly 6 attempts (5 retries then break), got %d", got)
+	}
+}
+
+func TestStreamChat_Non429ErrorDoesNotRetry(t *testing.T) {
+	var attempts int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&attempts, 1)
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("server error"))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "key", "model")
+	err := client.StreamChat(context.Background(), []model.Message{
+		{Role: "user", Content: "hello", SendToServer: true},
+	}, nil, func(evt StreamEvent) {})
+
+	if err == nil {
+		t.Fatal("expected error for 500 response")
+	}
+	if got := atomic.LoadInt32(&attempts); got != 1 {
+		t.Errorf("expected exactly 1 attempt for non-429 error, got %d", got)
 	}
 }
