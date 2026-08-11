@@ -563,6 +563,14 @@ func TestManager_CLIRunner_ApproveAllTools(t *testing.T) {
 		t.Errorf("non-existent tool should not be approved even with ApproveAll")
 	}
 
+	// 裸名（LLM 实际发出的格式）也必须命中：manual 工具在 ApproveAll 下升级为自动批准
+	if approved, manual := mgr.IsToolApproved("tree"); !approved || manual {
+		t.Errorf("IsToolApproved(\"tree\") = (%v, %v), want (true, false) with ApproveAll", approved, manual)
+	}
+	if approved, manual := mgr.IsToolApproved("rm"); !approved || manual {
+		t.Errorf("IsToolApproved(\"rm\") = (%v, %v), want (true, false) with ApproveAll", approved, manual)
+	}
+
 	disk, err := storage.LoadConfig()
 	if err != nil {
 		t.Fatalf("LoadConfig failed: %v", err)

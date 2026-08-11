@@ -698,14 +698,13 @@ func ValidateChat(chat *model.Chat, toolLookup ToolDefLookup) []ValidationError 
 
 		toolIDsSeen := map[string]int{}
 		for j, tm := range g.ToolMessages {
-			if firstJ, ok := toolIDsSeen[tm.ToolCallID]; ok {
+			if _, ok := toolIDsSeen[tm.ToolCallID]; ok {
 				errs = append(errs, ValidationError{
 					MessageIndex: g.AssistantIdx + 1 + j,
 					Type:         "duplicate_id",
 					ToolCallID:   tm.ToolCallID,
 					Detail:       "Duplicate tool_call_id within tool messages of same group",
 				})
-				_ = firstJ
 			} else {
 				toolIDsSeen[tm.ToolCallID] = j
 			}

@@ -387,56 +387,28 @@ func (m *Manager) IsToolApproved(toolFullName string) (approved bool, manuallyAp
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	if m.ApproveAll {
-		mcpName, toolName := SplitToolName(toolFullName)
-		fullName := toolFullName
-		if toolName == "" {
-			for _, tools := range m.allTools {
-				for _, t := range tools {
-					if t.Name == toolFullName {
-						fullName = t.Name
-					}
-				}
-			}
-		} else {
-			fullName = mcpName + "::" + toolName
-		}
-		for _, t := range m.config.ApprovedTools {
-			if t == fullName {
-				return true, false
+	// LLM 只能看到裸工具名（见 GetAllowedTools），所以除了精确匹配
+	// "MCP::tool" 外，裸名输入还要做 "::tool" 后缀匹配。
+	bare := !strings.Contains(toolFullName, "::")
+	match := func(list []string) bool {
+		for _, t := range list {
+			if t == toolFullName || (bare && strings.HasSuffix(t, "::"+toolFullName)) {
+				return true
 			}
 		}
-		for _, t := range m.config.ManuallyApprovedTools {
-			if t == fullName {
-				return true, false
-			}
-		}
+		return false
 	}
 
-	for _, t := range m.config.ApprovedTools {
-		if t == toolFullName {
+	if match(m.config.ApprovedTools) {
+		return true, false
+	}
+	if match(m.config.ManuallyApprovedTools) {
+		if m.ApproveAll {
+			// headless 模式（CLI runner）：无法交互确认，manual 升级为自动批准
 			return true, false
 		}
+		return false, true
 	}
-	for _, t := range m.config.ManuallyApprovedTools {
-		if t == toolFullName {
-			return false, true
-		}
-	}
-
-	if !strings.Contains(toolFullName, "::") {
-		for _, t := range m.config.ApprovedTools {
-			if strings.HasSuffix(t, "::"+toolFullName) {
-				return true, false
-			}
-		}
-		for _, t := range m.config.ManuallyApprovedTools {
-			if strings.HasSuffix(t, "::"+toolFullName) {
-				return false, true
-			}
-		}
-	}
-
 	return false, false
 }
 
