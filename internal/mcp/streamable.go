@@ -121,7 +121,7 @@ func (c *StreamableClient) ListTools() ([]model.ToolDef, error) {
 			continue
 		}
 		tools = append(tools, model.ToolDef{
-			Name:        tm["name"].(string),
+			Name:        getString(tm, "name"),
 			Description: getString(tm, "description"),
 			InputSchema: tm["inputSchema"],
 		})

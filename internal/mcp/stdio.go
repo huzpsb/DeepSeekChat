@@ -196,6 +196,8 @@ func (c *StdioClient) nextID() int {
 }
 
 func (c *StdioClient) sendRequest(req map[string]any) (map[string]any, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return c.sendRequestLocked(req)
 }
 

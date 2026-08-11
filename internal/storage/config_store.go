@@ -66,7 +66,7 @@ func defaultConfig() *model.MCPConfig {
 				Models:   []string{"k3-256k"},
 			},
 		},
-		Provider: "opencode-go",
+		Provider: "opencode-zen",
 		Model:    "deepseek-v4-flash-free",
 	}
 }
