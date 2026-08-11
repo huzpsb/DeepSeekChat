@@ -51,7 +51,7 @@ func (p *Provider) Name() string {
 	return "Sandbox"
 }
 
-func (p *Provider) Initialize(configPath string) error {
+func (p *Provider) Initialize(_ string) error {
 	return nil
 }
 

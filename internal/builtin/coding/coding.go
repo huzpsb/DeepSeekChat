@@ -47,7 +47,7 @@ func (p *Provider) getRootDir() string {
 	return p.rootDir
 }
 
-func (p *Provider) Initialize(configPath string) error {
+func (p *Provider) Initialize(_ string) error {
 	cfg, err := storage.LoadCodingConfig()
 	if err != nil {
 		return err

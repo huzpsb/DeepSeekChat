@@ -29,8 +29,8 @@ func TestLoadConfig_NotExist(t *testing.T) {
 	if cfg.ModelProviders[1].Name != "deepseek" || len(cfg.ModelProviders[1].Models) != 2 {
 		t.Errorf("expected deepseek provider with 2 models, got %+v", cfg.ModelProviders[1])
 	}
-	if cfg.Provider != "opencode-go" || cfg.Model != "deepseek-v4-flash-free" {
-		t.Errorf("expected opencode-go/deepseek-v4-flash-free selection, got %s/%s", cfg.Provider, cfg.Model)
+	if cfg.Provider != "opencode-zen" || cfg.Model != "deepseek-v4-flash-free" {
+		t.Errorf("expected opencode-zen/deepseek-v4-flash-free selection, got %s/%s", cfg.Provider, cfg.Model)
 	}
 	if _, err := os.Stat(configPath); err != nil {
 		t.Errorf("expected config.json to be auto-generated on cold start: %v", err)

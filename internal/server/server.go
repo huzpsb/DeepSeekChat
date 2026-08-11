@@ -110,7 +110,7 @@ func (s *Server) writeError(w http.ResponseWriter, msg string, code int) {
 	json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }
 
-func (s *Server) handleGetMode(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleGetMode(w http.ResponseWriter, _ *http.Request) {
 	s.writeJSON(w, map[string]any{"mode": s.mode})
 }
 
@@ -153,7 +153,7 @@ func (s *Server) configResponse() map[string]any {
 	}
 }
 
-func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleGetConfig(w http.ResponseWriter, _ *http.Request) {
 	s.writeJSON(w, s.configResponse())
 }
 
@@ -238,7 +238,7 @@ func (s *Server) handleSetConfig(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, s.configResponse())
 }
 
-func (s *Server) handleListChats(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleListChats(w http.ResponseWriter, _ *http.Request) {
 	chats, err := storage.ListChats()
 	if err != nil {
 		s.writeError(w, err.Error(), http.StatusInternalServerError)
@@ -252,7 +252,7 @@ func (s *Server) handleListChats(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, summaries)
 }
 
-func (s *Server) handleCreateChat(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleCreateChat(w http.ResponseWriter, _ *http.Request) {
 	var messages []model.Message
 	if s.config.DefaultPrompt != "" {
 		messages = append(messages, model.Message{
@@ -498,7 +498,7 @@ func (s *Server) handleInterrupt(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, map[string]bool{"ok": true})
 }
 
-func (s *Server) handleMCPTools(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleMCPTools(w http.ResponseWriter, _ *http.Request) {
 	tools := s.mcpMgr.GetTools()
 	if tools == nil {
 		tools = []mcp.ToolStatus{}
@@ -531,7 +531,7 @@ func splitFullName(fullName string) (string, string) {
 	return fullName, ""
 }
 
-func (s *Server) handleMCPReload(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleMCPReload(w http.ResponseWriter, _ *http.Request) {
 	if err := s.mcpMgr.Reload(); err != nil {
 		s.writeError(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -798,10 +798,10 @@ func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
 	w.Write(data)
 }
 
-func (s *Server) handleFavicon(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleFavicon(w http.ResponseWriter, _ *http.Request) {
 	data, err := s.staticFS.ReadFile("assets/favicon.ico")
 	if err != nil {
-		http.NotFound(w, r)
+		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
 	w.Header().Set("Content-Type", "image/x-icon")
