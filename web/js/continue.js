@@ -255,23 +255,23 @@
     function applyEvent(type, evt, record, seq) {
         switch (type) {
             case 'delta':
-                appendToAssistant(evt.content || evt.Content || '', 'content');
+                appendToAssistant(evt.content || '', 'content');
                 break;
             case 'reasoning_delta':
-                appendToAssistant(evt.content || evt.Content || '', 'reasoning');
+                appendToAssistant(evt.content || '', 'reasoning');
                 break;
             case 'tool_call':
-                if (!(window.NoobMode && window.NoobMode.isActive())) {
-                    appendToolCall(evt.tool_call || {id: evt.ID, function: {name: evt.Name, arguments: evt.Args}});
+                if (evt.tool_call && !(window.NoobMode && window.NoobMode.isActive())) {
+                    appendToolCall(evt.tool_call);
                 }
                 break;
             case 'tool_result':
-                if (!(window.NoobMode && window.NoobMode.isActive())) {
-                    appendToolResult(evt.tool_result ? evt.tool_result.message : evt);
+                if (evt.tool_result && !(window.NoobMode && window.NoobMode.isActive())) {
+                    appendToolResult(evt.tool_result.message);
                 }
                 break;
             case 'user_added':
-                appendUserMessage(evt.content || evt.Content || '');
+                appendUserMessage(evt.content || '');
                 break;
             case 'assistant_done':
                 // next stream segment starts a new assistant message
@@ -302,12 +302,12 @@
     function pushApplied(type, evt, seq) {
         var last = applied[applied.length - 1];
         if (last && last.type === type && (type === 'delta' || type === 'reasoning_delta')) {
-            last.evt.content = (last.evt.content || '') + (evt.content || evt.Content || '');
+            last.evt.content = (last.evt.content || '') + (evt.content || '');
             last.seqEnd = seq;
             return;
         }
         if (type === 'delta' || type === 'reasoning_delta') {
-            applied.push({seqStart: seq, seqEnd: seq, type: type, evt: {content: evt.content || evt.Content || ''}});
+            applied.push({seqStart: seq, seqEnd: seq, type: type, evt: {content: evt.content || ''}});
         } else {
             applied.push({seqStart: seq, seqEnd: seq, type: type, evt: evt});
         }
@@ -448,9 +448,10 @@
     }
 
     function appendToolCall(tc) {
-        var name = tc.function ? tc.function.name : (tc.Name || tc.name || '');
-        var args = tc.function ? tc.function.arguments : (tc.Args || tc.arguments || '{}');
-        var id = tc.id || tc.ID || '';
+        var fn = tc.function || {};
+        var name = fn.name || '';
+        var args = fn.arguments || '{}';
+        var id = tc.id || '';
 
         var el = getOrCreateAssistant();
         var tcBlock = el.querySelector('.tool-calls-block');
