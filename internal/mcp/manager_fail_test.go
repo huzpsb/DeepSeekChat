@@ -16,13 +16,35 @@ func TestManager_ToolExists_FirstBranchNoLock(t *testing.T) {
 	mgr := NewManager()
 	mgr.LoadAndConnect()
 
-	// BUG: When toolName is extracted (toolName != ""), isToolAvailable is called
-	// WITHOUT holding the read lock. This is a data race.
-	// We verify this by checking that ToolExists can be called safely.
-	// With delimiter -> first branch, no lock on isToolAvailable
+	// FIXED: ToolExists now holds m.mu.RLock() across both branches, so the
+	// "mcp::tool" path no longer races with Reload/registerBuiltin.
 	_ = mgr.ToolExists("mcp::tool")
-	// If this doesn't panic, the first branch works despite no lock in single-thread.
-	// In concurrent use, this is a race condition bug.
+}
+
+// Regression test: ToolExists must not race with concurrent allTools
+// mutation (e.g. Reload / registerBuiltin). Run with -race.
+func TestManager_ToolExists_ConcurrentWithAllToolsMutation(t *testing.T) {
+	setupManagerTest(t)
+	storage.SaveConfig(&model.MCPConfig{})
+
+	mgr := NewManager()
+	mgr.LoadAndConnect()
+
+	done := make(chan struct{})
+	go func() {
+		for i := 0; i < 200; i++ {
+			mgr.mu.Lock()
+			mgr.allTools["mcp"] = []model.ToolDef{{Name: "tool"}}
+			delete(mgr.allTools, "mcp")
+			mgr.mu.Unlock()
+		}
+		close(done)
+	}()
+
+	for i := 0; i < 2000; i++ {
+		mgr.ToolExists("mcp::tool")
+	}
+	<-done
 }
 
 func TestManager_ToolExists_NoDelimiterNeedsLock(t *testing.T) {
@@ -44,7 +66,7 @@ func TestManager_ToolExists_EmptyString(t *testing.T) {
 	mgr := NewManager()
 	mgr.LoadAndConnect()
 
-	// Empty string: splitToolName("") returns ("", "")
+	// Empty string: SplitToolName("") returns ("", "")
 	// toolName is "", so ToolExists falls to second branch, acquires lock
 	// isToolAvailable("", "") checks m.allTools[""] which is empty map access
 	exists := mgr.ToolExists("")
@@ -282,12 +304,16 @@ func TestManager_SplitToolName_EdgeCases(t *testing.T) {
 		{"just_name", "just_name", ""},
 		{"::empty_start", "", "empty_start"},
 		{"empty_end::", "empty_end", ""},
+		{"a::b::c", "a", "b::c"},
+		{"::", "", ""},
+		{":::", "", ":"},
+		{"mcp:tool", "mcp:tool", ""},
 	}
 
 	for _, tt := range tests {
-		mcp, tool := splitToolName(tt.input)
+		mcp, tool := SplitToolName(tt.input)
 		if mcp != tt.mcpName || tool != tt.toolName {
-			t.Errorf("splitToolName(%q) = (%q, %q), want (%q, %q)",
+			t.Errorf("SplitToolName(%q) = (%q, %q), want (%q, %q)",
 				tt.input, mcp, tool, tt.mcpName, tt.toolName)
 		}
 	}
@@ -317,9 +343,9 @@ func TestManager_IsToolApproved_NameCollisionAcrossMCPs(t *testing.T) {
 }
 
 func TestManager_SplitToolName_EmptyInput(t *testing.T) {
-	mcp, tool := splitToolName("")
+	mcp, tool := SplitToolName("")
 	if mcp != "" || tool != "" {
-		t.Errorf("splitToolName(\"\") = (%q, %q), want (\"\", \"\")", mcp, tool)
+		t.Errorf("SplitToolName(\"\") = (%q, %q), want (\"\", \"\")", mcp, tool)
 	}
 }
 
@@ -417,7 +443,7 @@ func TestManager_ExecuteTool_NoDoubleColon(t *testing.T) {
 	mgr := NewManager()
 	mgr.LoadAndConnect()
 
-	// No "::" in name -> splitToolName returns (fullName, "")
+	// No "::" in name -> SplitToolName returns (fullName, "")
 	_, err := mgr.ExecuteTool(context.Background(), "toolname", `{"key":"value"}`)
 	if err == nil {
 		t.Skip("no MCP connected, expected error")

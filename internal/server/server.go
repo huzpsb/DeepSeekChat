@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"hschat/internal/builtin/sandbox"
 	cont "hschat/internal/continue"
 	"hschat/internal/engine"
 	"hschat/internal/llm"
@@ -219,6 +220,12 @@ func (s *Server) handleSetConfig(w http.ResponseWriter, r *http.Request) {
 		if len(dirs) == 0 {
 			s.writeError(w, "root_dirs cannot be empty", http.StatusBadRequest)
 			return
+		}
+		for _, d := range dirs {
+			if err := sandbox.ValidateRootDir(d); err != nil {
+				s.writeError(w, fmt.Sprintf("invalid root dir %q: %v", d, err), http.StatusBadRequest)
+				return
+			}
 		}
 		if err := s.mcpMgr.SetRootDir(dirs[0]); err != nil {
 			s.writeError(w, err.Error(), http.StatusBadRequest)
@@ -513,22 +520,13 @@ func (s *Server) handleMCPToolsUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for fullName, status := range updates {
-		mcpName, toolName := splitFullName(fullName)
+		mcpName, toolName := mcp.SplitToolName(fullName)
 		if err := s.mcpMgr.SetToolStatus(mcpName, toolName, status); err != nil {
 			s.writeError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 	}
 	s.writeJSON(w, map[string]bool{"ok": true})
-}
-
-func splitFullName(fullName string) (string, string) {
-	for i := 0; i < len(fullName)-1; i++ {
-		if fullName[i] == ':' && fullName[i+1] == ':' {
-			return fullName[:i], fullName[i+2:]
-		}
-	}
-	return fullName, ""
 }
 
 func (s *Server) handleMCPReload(w http.ResponseWriter, _ *http.Request) {

@@ -108,6 +108,16 @@ func ResolveRootDir(dir string) string {
 	return dir
 }
 
+// ValidateRootDir resolves dir and ensures the directory can be created,
+// mirroring the checks performed when a root dir is activated.
+func ValidateRootDir(dir string) error {
+	rootDir := ResolveRootDir(dir)
+	if err := os.MkdirAll(rootDir, 0755); err != nil {
+		return fmt.Errorf("failed to create root directory %s: %v", rootDir, err)
+	}
+	return nil
+}
+
 func SafePathWithWarning(rootDir, rel string) (string, bool, error) {
 	return safePath(rootDir, rel, false)
 }

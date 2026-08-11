@@ -305,9 +305,9 @@ func TestSplitToolName(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		mcpName, toolName := splitToolName(tt.input)
+		mcpName, toolName := SplitToolName(tt.input)
 		if mcpName != tt.mcpName || toolName != tt.toolName {
-			t.Errorf("splitToolName(%q) = (%q, %q), want (%q, %q)",
+			t.Errorf("SplitToolName(%q) = (%q, %q), want (%q, %q)",
 				tt.input, mcpName, toolName, tt.mcpName, tt.toolName)
 		}
 	}

@@ -196,7 +196,7 @@ func (m *Manager) reconcileTools() {
 			removed++
 			continue
 		}
-		mcpName, toolName := splitToolName(fullName)
+		mcpName, toolName := SplitToolName(fullName)
 		if m.isToolAvailable(mcpName, toolName) || !m.isMCPConnected(mcpName) {
 			cleanedApproved = append(cleanedApproved, fullName)
 		}
@@ -205,7 +205,7 @@ func (m *Manager) reconcileTools() {
 
 	var cleanedManual []string
 	for _, fullName := range m.config.ManuallyApprovedTools {
-		mcpName, toolName := splitToolName(fullName)
+		mcpName, toolName := SplitToolName(fullName)
 		if m.isToolAvailable(mcpName, toolName) || !m.isMCPConnected(mcpName) {
 			cleanedManual = append(cleanedManual, fullName)
 		}
@@ -285,7 +285,7 @@ func (m *Manager) GetTools() []ToolStatus {
 	}
 
 	for _, t := range m.config.ApprovedTools {
-		mcpName, toolName := splitToolName(t)
+		mcpName, toolName := SplitToolName(t)
 		if !m.isToolAvailable(mcpName, toolName) && m.isMCPConnected(mcpName) {
 			continue
 		}
@@ -306,7 +306,7 @@ func (m *Manager) GetTools() []ToolStatus {
 		}
 	}
 	for _, t := range m.config.ManuallyApprovedTools {
-		mcpName, toolName := splitToolName(t)
+		mcpName, toolName := SplitToolName(t)
 		found := false
 		for _, r := range result {
 			if r.MCPName == mcpName && r.ToolName == toolName {
@@ -379,7 +379,7 @@ func (m *Manager) SetToolStatus(mcpName, toolName, status string) error {
 }
 
 func isAskUserTool(fullName string) bool {
-	mcpName, toolName := splitToolName(fullName)
+	mcpName, toolName := SplitToolName(fullName)
 	return mcpName == "AskUser" && toolName == "ask_user"
 }
 
@@ -388,7 +388,7 @@ func (m *Manager) IsToolApproved(toolFullName string) (approved bool, manuallyAp
 	defer m.mu.RUnlock()
 
 	if m.ApproveAll {
-		mcpName, toolName := splitToolName(toolFullName)
+		mcpName, toolName := SplitToolName(toolFullName)
 		fullName := toolFullName
 		if toolName == "" {
 			for _, tools := range m.allTools {
@@ -445,12 +445,13 @@ func (m *Manager) IsToolApprovedByName(mcpName, toolName string) (approved bool,
 }
 
 func (m *Manager) ToolExists(name string) bool {
-	mcpName, toolName := splitToolName(name)
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	mcpName, toolName := SplitToolName(name)
 	if toolName != "" {
 		return m.isToolAvailable(mcpName, toolName)
 	}
-	m.mu.RLock()
-	defer m.mu.RUnlock()
 	for _, tools := range m.allTools {
 		for _, t := range tools {
 			if t.Name == name {
@@ -487,7 +488,7 @@ func (m *Manager) GetAllowedTools() []model.ToolDef {
 }
 
 func (m *Manager) GetToolDef(name string) *model.ToolDef {
-	mcpName, toolName := splitToolName(name)
+	mcpName, toolName := SplitToolName(name)
 	if toolName != "" {
 		m.mu.RLock()
 		defer m.mu.RUnlock()
@@ -513,7 +514,7 @@ func (m *Manager) GetToolDef(name string) *model.ToolDef {
 }
 
 func (m *Manager) ExecuteTool(ctx context.Context, fullName string, arguments string) (*model.ToolResult, error) {
-	mcpName, toolName := splitToolName(fullName)
+	mcpName, toolName := SplitToolName(fullName)
 
 	if toolName == "" {
 		m.mu.RLock()
@@ -547,7 +548,7 @@ func (m *Manager) ExecuteTool(ctx context.Context, fullName string, arguments st
 	return client.CallTool(ctx, toolName, args)
 }
 
-func splitToolName(fullName string) (mcpName, toolName string) {
+func SplitToolName(fullName string) (mcpName, toolName string) {
 	parts := strings.SplitN(fullName, "::", 2)
 	if len(parts) == 2 {
 		return parts[0], parts[1]
