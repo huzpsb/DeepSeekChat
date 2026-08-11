@@ -211,3 +211,105 @@ func TestStreamReentrant_Integration(t *testing.T) {
 		t.Fatalf("expected running=false after run, got %s", events[0].data)
 	}
 }
+
+func TestChatsStatus_Integration(t *testing.T) {
+	setupServerTest(t)
+
+	gate := make(chan struct{})
+	llm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-gate:
+		case <-r.Context().Done():
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Write([]byte(mockLLMSSEBody("hello")))
+	}))
+	defer llm.Close()
+
+	storage.SaveConfig(&model.MCPConfig{
+		ModelProviders: []model.ModelProvider{
+			{
+				Name:     "mock",
+				Endpoint: llm.URL,
+				APIKey:   "k",
+				Models:   []string{"mock"},
+			},
+		},
+		Provider: "mock",
+		Model:    "mock",
+	})
+	storage.SaveChat(&model.Chat{Title: "st"})
+
+	srv := New(testStaticFS)
+	web := httptest.NewServer(srv.mux)
+	defer web.Close()
+
+	// global status subscription: snapshot on connect, then one event per
+	// running-state transition of any chat
+	statusResp, err := http.Get(web.URL + "/api/chats/status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer statusResp.Body.Close()
+	if statusResp.StatusCode != http.StatusOK {
+		t.Fatalf("status endpoint returned %d", statusResp.StatusCode)
+	}
+
+	statusCh := make(chan map[string]bool, 16)
+	go func() {
+		scanner := bufio.NewScanner(statusResp.Body)
+		var curType, curData string
+		for scanner.Scan() {
+			line := scanner.Text()
+			if strings.HasPrefix(line, "event: ") {
+				curType = strings.TrimPrefix(line, "event: ")
+			} else if strings.HasPrefix(line, "data: ") {
+				curData = strings.TrimPrefix(line, "data: ")
+			} else if line == "" && curType == "status" {
+				var payload struct {
+					Running map[string]bool `json:"running"`
+				}
+				if json.Unmarshal([]byte(curData), &payload) == nil {
+					statusCh <- payload.Running
+				}
+				curType, curData = "", ""
+			}
+		}
+	}()
+	recvStatus := func() map[string]bool {
+		t.Helper()
+		select {
+		case r := <-statusCh:
+			return r
+		case <-time.After(5 * time.Second):
+			t.Fatalf("timed out waiting for status event")
+			return nil
+		}
+	}
+
+	// 1. initial snapshot: nothing running
+	if r := recvStatus(); len(r) != 0 {
+		t.Fatalf("expected empty initial snapshot, got %v", r)
+	}
+
+	// 2. starting a run pushes {st: true}
+	resp, err := http.Post(web.URL+"/api/chat/continue", "application/json",
+		strings.NewReader(`{"title":"st","input":"hi","auto_continue":false}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("continue start failed: %d", resp.StatusCode)
+	}
+	if r := recvStatus(); !r["st"] {
+		t.Fatalf("expected running={st:true} after start, got %v", r)
+	}
+
+	// 3. run finishing pushes an empty set (this is what clears the sidebar marker)
+	close(gate)
+	if r := recvStatus(); len(r) != 0 {
+		t.Fatalf("expected empty running set after run end, got %v", r)
+	}
+}

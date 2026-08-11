@@ -63,11 +63,16 @@ var ChatList = {
         } else {
             list.innerHTML = '<li style="color:var(--text-secondary);padding:12px">No chats yet</li>';
         }
+        // reconcile markers with the (possibly fresher) SSE status snapshot
+        if (window.ChatStatus) {
+            window.ChatStatus.applyMarkers();
+        }
     },
 
     renderItem: function (chat) {
         var list = document.getElementById('chat-list');
         var li = document.createElement('li');
+        li.dataset.title = chat.title;
         li.innerHTML = '<span class="chat-title">' + this.esc(chat.title) + '</span>'
             + (chat.running ? '<span class="chat-running" title="Generating...">●</span>' : '')
             + '<span class="chat-actions">'

@@ -40,6 +40,12 @@ type StreamEngine struct {
 	mu       sync.Mutex
 	sessions map[string]*Session
 
+	// global running-state broadcast: statusVersion is bumped (and
+	// statusNotify closed & replaced) every time any session's running
+	// flag changes, so status subscribers can watch all chats at once.
+	statusVersion uint64
+	statusNotify  chan struct{}
+
 	mode   string
 	mcpMgr cont.ToolExecutor
 	client *llm.Client
@@ -47,9 +53,10 @@ type StreamEngine struct {
 
 func Init(client *llm.Client, executor cont.ToolExecutor) *StreamEngine {
 	return &StreamEngine{
-		sessions: map[string]*Session{},
-		mcpMgr:   executor,
-		client:   client,
+		sessions:     map[string]*Session{},
+		statusNotify: make(chan struct{}),
+		mcpMgr:       executor,
+		client:       client,
 	}
 }
 
@@ -113,10 +120,8 @@ func (e *StreamEngine) IsInferencingWith(title string) bool {
 	return sess.running
 }
 
-// RunningChats returns the set of chat titles currently inferencing.
-func (e *StreamEngine) RunningChats() map[string]bool {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+// runningChatsLocked computes the running set. Caller must hold e.mu.
+func (e *StreamEngine) runningChatsLocked() map[string]bool {
 	out := map[string]bool{}
 	for _, sess := range e.sessions {
 		sess.mu.Lock()
@@ -126,6 +131,53 @@ func (e *StreamEngine) RunningChats() map[string]bool {
 		sess.mu.Unlock()
 	}
 	return out
+}
+
+// RunningChats returns the set of chat titles currently inferencing.
+func (e *StreamEngine) RunningChats() map[string]bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.runningChatsLocked()
+}
+
+// broadcastStatus wakes all status subscribers. Must be called AFTER the
+// running-state change has been committed (and the session lock released,
+// to keep the e.mu -> sess.mu lock order).
+func (e *StreamEngine) broadcastStatus() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.statusVersion++
+	close(e.statusNotify)
+	e.statusNotify = make(chan struct{})
+}
+
+// RunningChatsSnapshot returns the current running set together with a
+// version token for WaitStatusChange.
+func (e *StreamEngine) RunningChatsSnapshot() (map[string]bool, uint64) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.runningChatsLocked(), e.statusVersion
+}
+
+// WaitStatusChange blocks until the running set's version differs from
+// version, then returns the new snapshot. ok=false means ctx was cancelled.
+func (e *StreamEngine) WaitStatusChange(ctx context.Context, version uint64) (map[string]bool, uint64, bool) {
+	for {
+		e.mu.Lock()
+		if e.statusVersion != version {
+			running := e.runningChatsLocked()
+			v := e.statusVersion
+			e.mu.Unlock()
+			return running, v, true
+		}
+		ch := e.statusNotify
+		e.mu.Unlock()
+		select {
+		case <-ctx.Done():
+			return nil, version, false
+		case <-ch:
+		}
+	}
 }
 
 func (e *StreamEngine) RequestInterrupt(title string) {
@@ -206,6 +258,7 @@ func (e *StreamEngine) StartInference(title, input string, autoContinue bool) er
 	gen := sess.gen
 	sess.broadcastLocked()
 	sess.mu.Unlock()
+	e.broadcastStatus()
 	log.Printf("[stream] start_inference title=%q gen=%d input_len=%d auto_continue=%v messages=%d last=%s\n", title, gen, len(input), autoContinue, len(chat.Messages), describeLastMessage(chat))
 
 	go e.run(sess, ctx, cancel, chat, input, autoContinue, mode)
@@ -225,7 +278,6 @@ func (e *StreamEngine) run(sess *Session, ctx context.Context, cancel context.Ca
 
 	defer func() {
 		sess.mu.Lock()
-		defer sess.mu.Unlock()
 		if r := recover(); r != nil {
 			log.Printf("[stream] goroutine_panic title=%q panic=%v\n", title, r)
 			sess.events = append(sess.events, cont.ContinueEvent{
@@ -245,6 +297,9 @@ func (e *StreamEngine) run(sess *Session, ctx context.Context, cancel context.Ca
 		sess.running = false
 		sess.broadcastLocked()
 		log.Printf("[stream] goroutine_done title=%q events=%d saved_pos=%d gen=%d messages=%d last=%s\n", title, len(sess.events), sess.savedPos, sess.gen, len(chat.Messages), describeLastMessage(chat))
+		sess.mu.Unlock()
+		// broadcast after releasing sess.mu to keep the e.mu -> sess.mu order
+		e.broadcastStatus()
 		cancel()
 	}()
 

@@ -116,6 +116,32 @@ html, body {
     }
 }
 
+/* backend connectivity marker, toggled by status.js */
+#backend-offline {
+    position: fixed;
+    left: 12px;
+    bottom: 12px;
+    z-index: 2000;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: var(--danger);
+    color: #fff;
+    font-size: 12px;
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+    pointer-events: none; /* informational only, never intercepts clicks */
+}
+
+#backend-offline .offline-dot {
+    animation: pulse 1s infinite;
+}
+
+#backend-offline.hidden {
+    display: none;
+}
+
 #chat-list li .chat-actions {
     display: none;
     gap: 4px;

@@ -426,3 +426,48 @@ func TestReadChatConsistent_NoSession(t *testing.T) {
 		t.Fatalf("expected error for missing chat")
 	}
 }
+
+func TestStatusChangeNotifications(t *testing.T) {
+	setupEngineTest(t)
+	gate := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-gate:
+		case <-r.Context().Done():
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Write([]byte(sseBody("hi")))
+	}))
+	defer srv.Close()
+
+	e := newTestEngine(srv.URL)
+	storage.SaveChat(&model.Chat{Title: "s1"})
+
+	running, v0 := e.RunningChatsSnapshot()
+	if len(running) != 0 {
+		t.Fatalf("expected empty initial running set, got %v", running)
+	}
+
+	if err := e.StartInference("s1", "hi", false); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	running, v1, ok := e.WaitStatusChange(waitCtx(t), v0)
+	if !ok || !running["s1"] {
+		t.Fatalf("expected running={s1:true} after start, got %v ok=%v", running, ok)
+	}
+
+	// no transition while the run is gated: Wait must block until ctx expiry
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	if _, _, ok := e.WaitStatusChange(ctx, v1); ok {
+		t.Fatalf("expected WaitStatusChange to block while the running set is unchanged")
+	}
+
+	close(gate)
+	running, _, ok = e.WaitStatusChange(waitCtx(t), v1)
+	if !ok || len(running) != 0 {
+		t.Fatalf("expected empty running set after run end, got %v ok=%v", running, ok)
+	}
+	e.WaitForIdle("s1")
+}

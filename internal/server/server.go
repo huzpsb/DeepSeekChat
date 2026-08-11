@@ -77,6 +77,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/config", s.handleGetConfig)
 	s.mux.HandleFunc("PUT /api/config", s.handleSetConfig)
 	s.mux.HandleFunc("GET /api/chats", s.handleListChats)
+	s.mux.HandleFunc("GET /api/chats/status", s.handleChatsStatus)
 	s.mux.HandleFunc("POST /api/chats", s.handleCreateChat)
 	s.mux.HandleFunc("GET /api/chats/{title}", s.handleGetChat)
 	s.mux.HandleFunc("DELETE /api/chats/{title}", s.handleDeleteChat)
@@ -430,6 +431,41 @@ func (s *Server) handleContinue(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("[server] continue_started title=%q\n", req.Title)
 	s.writeJSON(w, map[string]bool{"ok": true})
+}
+
+// handleChatsStatus is the global running-state SSE endpoint. On connect it
+// sends a snapshot of all currently running chats, then a new snapshot on
+// every running-state change of any chat:
+//
+//	event: status
+//	data: {"running": {"title A": true, ...}}
+//
+// Clients use it to keep the sidebar running markers of ALL chats (not just
+// the subscribed one) in sync without polling.
+func (s *Server) handleChatsStatus(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		s.writeError(w, "streaming not supported", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+
+	ctx := r.Context()
+	running, version := s.engine.RunningChatsSnapshot()
+	for {
+		data, _ := json.Marshal(map[string]any{"running": running})
+		log.Printf("[server] chats_status running=%v\n", running)
+		fmt.Fprintf(w, "event: status\ndata: %s\n\n", data)
+		flusher.Flush()
+		running, version, ok = s.engine.WaitStatusChange(ctx, version)
+		if !ok {
+			return
+		}
+	}
 }
 
 // handleStream is the reentrant SSE subscription endpoint. A client (fresh
