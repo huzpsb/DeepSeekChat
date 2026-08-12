@@ -470,7 +470,9 @@ func (s *Server) handleChatsStatus(w http.ResponseWriter, r *http.Request) {
 
 // handleStream is the reentrant SSE subscription endpoint. A client (fresh
 // page, refreshed page, or extra tab) connects here and receives:
-//  1. a "sync" event {gen, saved_pos, running}
+//  1. a "sync" event {gen, saved_pos, running, errors?} ("errors" re-delivers
+//     the run's error events, which are never persisted and could otherwise
+//     be missed when saved_pos already covers them)
 //  2. a replay of all not-yet-persisted events of the current run
 //  3. live events as the run progresses
 //  4. an "idle" event when the run finishes (or immediately if idle)
@@ -503,12 +505,19 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if res.Reset {
-			data, _ := json.Marshal(map[string]any{
+			payload := map[string]any{
 				"gen":       res.Gen,
 				"saved_pos": res.SavedPos,
 				"running":   res.Running,
-			})
-			log.Printf("[server] stream_sync title=%q gen=%d saved_pos=%d running=%v\n", title, res.Gen, res.SavedPos, res.Running)
+			}
+			// Error events are never persisted, so saved_pos may already
+			// cover them; re-deliver them with the sync so the client always
+			// learns why a run failed.
+			if len(res.Errors) > 0 {
+				payload["errors"] = res.Errors
+			}
+			data, _ := json.Marshal(payload)
+			log.Printf("[server] stream_sync title=%q gen=%d saved_pos=%d running=%v errors=%d\n", title, res.Gen, res.SavedPos, res.Running, len(res.Errors))
 			fmt.Fprintf(w, "event: sync\ndata: %s\n\n", data)
 			flusher.Flush()
 			continue

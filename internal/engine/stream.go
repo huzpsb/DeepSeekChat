@@ -337,6 +337,12 @@ type ReadResult struct {
 	Gen      int64
 	SavedPos int
 	Running  bool
+	// Errors carries the current run's error events on Reset. Error events
+	// are never persisted to disk, so SavedPos can advance past them without
+	// any subscriber ever having seen them (e.g. a run that fails instantly,
+	// before the subscriber processes the gen change). Re-delivering them
+	// with the resync guarantees the failure reason is never lost.
+	Errors []cont.ContinueEvent
 }
 
 type EventReader struct {
@@ -371,7 +377,13 @@ func (r *EventReader) Wait(ctx context.Context) (res ReadResult, ok bool) {
 			r.gen = sess.gen
 			r.pos = sess.savedPos
 			r.idleSent = false
-			res = ReadResult{Reset: true, Gen: sess.gen, SavedPos: sess.savedPos, Running: sess.running}
+			var errs []cont.ContinueEvent
+			for _, evt := range sess.events {
+				if evt.Type == "error" {
+					errs = append(errs, evt)
+				}
+			}
+			res = ReadResult{Reset: true, Gen: sess.gen, SavedPos: sess.savedPos, Running: sess.running, Errors: errs}
 			sess.mu.Unlock()
 			return res, true
 		}

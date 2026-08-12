@@ -471,3 +471,53 @@ func TestStatusChangeNotifications(t *testing.T) {
 	}
 	e.WaitForIdle("s1")
 }
+
+// Regression: a run that fails instantly (last message malformed) emits its
+// error event and finishes before any subscriber processes the gen reset.
+// The error event is never persisted, yet savedPos covers it, so without
+// re-delivery on Reset the failure reason would be lost forever.
+func TestRun_InstantErrorRedeliveredOnReset(t *testing.T) {
+	setupEngineTest(t)
+	// no LLM call happens: the orphan tool message fails validation first
+	e := newTestEngine("http://127.0.0.1:1")
+	storage.SaveChat(&model.Chat{
+		Title: "bad",
+		Messages: []model.Message{
+			{Role: "tool", ToolCallID: "call_orphan", Name: "some_tool", Content: "x", SendToServer: true},
+		},
+	})
+
+	if err := e.StartInference("bad", "", false); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	e.WaitForIdle("bad")
+
+	// savedPos already covers the (unpersisted) error event: a plain replay
+	// from savedPos would never deliver it
+	sess := e.getSession("bad", false)
+	sess.mu.Lock()
+	events := len(sess.events)
+	savedPos := sess.savedPos
+	sess.mu.Unlock()
+	if events == 0 || savedPos != events {
+		t.Fatalf("expected savedPos to cover the error event, got savedPos=%d events=%d", savedPos, events)
+	}
+
+	// a subscriber that only now processes the reset must still see the error
+	reader := e.Subscribe("bad")
+	res, ok := reader.Wait(waitCtx(t))
+	if !ok || !res.Reset {
+		t.Fatalf("expected Reset, got %+v ok=%v", res, ok)
+	}
+	if len(res.Errors) != 1 || res.Errors[0].Type != "error" || res.Errors[0].Error == nil {
+		t.Fatalf("expected the run error to be re-delivered on Reset, got %+v", res)
+	}
+	if res.Errors[0].Error.Type != "orphan_tool" {
+		t.Fatalf("unexpected error type %q", res.Errors[0].Error.Type)
+	}
+
+	res, ok = reader.Wait(waitCtx(t))
+	if !ok || !res.Idle {
+		t.Fatalf("expected Idle after Reset, got %+v ok=%v", res, ok)
+	}
+}

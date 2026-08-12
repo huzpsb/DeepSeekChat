@@ -2,7 +2,10 @@
 //
 // Protocol (per chat):
 //   GET /api/chat/stream?title=X  (SSE, EventSource)
-//     event: sync   {gen, saved_pos, running} - on connect and on new run
+//     event: sync   {gen, saved_pos, running, errors?} - on connect and on new run
+//                   ("errors" re-delivers the run's error events, which are
+//                   never persisted and could otherwise be lost when a run
+//                   fails before the client processes the sync)
 //     event: <delta|reasoning_delta|tool_call|tool_result|user_added|...> - replay + live
 //     event: idle   {gen} - run finished (or immediately when idle)
 //   POST /api/chat/continue {title, input, auto_continue} - start a run
@@ -34,6 +37,7 @@
     var historyReady = false; // history rendered and baselined
     var pending = [];         // events buffered while historyReady === false
     var applied = [];         // DOM-producing events of the current streaming layer
+    var pendingErrors = [];   // errors carried by sync, shown after history renders
 
     var STREAM_EVENT_TYPES = [
         'delta', 'reasoning_delta', 'tool_call', 'tool_execute',
@@ -112,6 +116,7 @@
         historyReady = false;
         pending = [];
         applied = [];
+        pendingErrors = [];
         curGen = -1;
         setRunning(false);
     }
@@ -154,6 +159,7 @@
         nextSeq = d.saved_pos || 0;
         pending = [];
         applied = [];
+        pendingErrors = d.errors || [];
         historyReady = false;
         resetStreamDOM();
         setRunning(!!d.running);
@@ -201,6 +207,15 @@
         });
         applied = mergeEvents(applied.concat(kept));
         replayApplied();
+        // errors from the sync payload: show them only now, after history
+        // has been re-rendered, so tool-call highlighting can find its DOM
+        if (pendingErrors.length) {
+            var errs = pendingErrors;
+            pendingErrors = [];
+            errs.forEach(function (evt) {
+                applyEvent('error', evt, false, 0);
+            });
+        }
     }
 
     // merge adjacent delta events of the same kind so replays stay cheap
