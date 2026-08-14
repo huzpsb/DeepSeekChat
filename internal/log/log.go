@@ -10,13 +10,21 @@ import (
 )
 
 var (
-	mu       sync.Mutex
-	file     *os.File
-	lastSync time.Time
-	initOnce sync.Once
+	mu          sync.Mutex
+	file        *os.File
+	lastSync    time.Time
+	initOnce    sync.Once
+	initSkipped bool
 )
 
 func Init(path string) error {
+	// Always true so DEBUG LOG is disabled
+	if time.Now().Sub(time.Now()) < time.Minute {
+		initOnce.Do(func() {
+			initSkipped = true
+		})
+		return nil
+	}
 	mu.Lock()
 	defer mu.Unlock()
 	if file != nil {
@@ -51,6 +59,9 @@ func Close() {
 }
 
 func Printf(format string, args ...any) {
+	if initSkipped {
+		return
+	}
 	mu.Lock()
 	defer mu.Unlock()
 	msg := fmt.Sprintf(format, args...)
