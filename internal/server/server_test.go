@@ -218,6 +218,79 @@ func TestCreateChat_HasTimestampTitle(t *testing.T) {
 	}
 }
 
+func TestCreateChat_WithRootDir(t *testing.T) {
+	setupServerTest(t)
+	storage.SaveConfig(&model.MCPConfig{
+		Sandbox: model.SandboxConfig{RootDirs: []string{"./agent", "./agent2"}},
+	})
+
+	srv := New(testStaticFS)
+
+	body := `{"root_dir":"./agent2"}`
+	req := httptest.NewRequest("POST", "/api/chats", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("create chat with root_dir failed: %d - %s", w.Code, w.Body.String())
+	}
+
+	var chat model.Chat
+	if err := json.Unmarshal(w.Body.Bytes(), &chat); err != nil {
+		t.Fatalf("failed to decode created chat: %v", err)
+	}
+	if chat.RootDir != "./agent2" {
+		t.Fatalf("expected root_dir './agent2', got %q", chat.RootDir)
+	}
+}
+
+func TestCreateChat_DefaultRootDirStoredEmpty(t *testing.T) {
+	setupServerTest(t)
+	storage.SaveConfig(&model.MCPConfig{
+		Sandbox: model.SandboxConfig{RootDirs: []string{"./agent", "./agent2"}},
+	})
+
+	srv := New(testStaticFS)
+
+	body := `{"root_dir":"./agent"}`
+	req := httptest.NewRequest("POST", "/api/chats", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("create chat with default root_dir failed: %d - %s", w.Code, w.Body.String())
+	}
+
+	var chat model.Chat
+	if err := json.Unmarshal(w.Body.Bytes(), &chat); err != nil {
+		t.Fatalf("failed to decode created chat: %v", err)
+	}
+	if chat.RootDir != "" {
+		t.Fatalf("expected default root_dir to be stored as empty, got %q", chat.RootDir)
+	}
+}
+
+func TestCreateChat_InvalidRootDir(t *testing.T) {
+	setupServerTest(t)
+	storage.SaveConfig(&model.MCPConfig{
+		Sandbox: model.SandboxConfig{RootDirs: []string{"./agent"}},
+	})
+
+	srv := New(testStaticFS)
+
+	body := `{"root_dir":"./not_in_list"}`
+	req := httptest.NewRequest("POST", "/api/chats", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid root_dir, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestSetMode_InvalidMode(t *testing.T) {
 	setupServerTest(t)
 
@@ -249,6 +322,33 @@ func TestSetMode_ValidMode(t *testing.T) {
 		if w.Code != http.StatusOK {
 			t.Errorf("expected 200 for mode %s, got %d", mode, w.Code)
 		}
+	}
+}
+
+func TestGetMode_AfterSetMode(t *testing.T) {
+	setupServerTest(t)
+
+	srv := New(testStaticFS)
+
+	body := `{"mode":"sudo"}`
+	req := httptest.NewRequest("PUT", "/api/mode", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("set mode failed: %d", w.Code)
+	}
+
+	req = httptest.NewRequest("GET", "/api/mode", nil)
+	w = httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, req)
+
+	var result map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+		t.Fatalf("failed to decode mode: %v", err)
+	}
+	if result["mode"] != "sudo" {
+		t.Fatalf("expected mode 'sudo' after set + get, got %#v", result)
 	}
 }
 
@@ -477,6 +577,17 @@ func TestHandleInterrupt_ReturnsOk(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", w.Code)
 	}
+
+	var result map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+		t.Fatalf("failed to decode interrupt response: %v", err)
+	}
+	if result["ok"] != true {
+		t.Errorf("expected ok=true, got %#v", result)
+	}
+	if result["accepted"] != false {
+		t.Errorf("expected accepted=false when no chat is running, got %#v", result)
+	}
 }
 
 func TestHandleMCPToolsUpdate_InvalidBody(t *testing.T) {
@@ -585,8 +696,8 @@ func TestHandleMCPTools_Empty(t *testing.T) {
 
 	var tools []map[string]any
 	json.Unmarshal(w.Body.Bytes(), &tools)
-	if len(tools) != 10 {
-		t.Errorf("expected 10 builtin tools, got %d", len(tools))
+	if len(tools) != 11 {
+		t.Errorf("expected 11 builtin tools, got %d", len(tools))
 	}
 }
 

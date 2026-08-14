@@ -21,7 +21,7 @@ func (p *Provider) Tools() []model.ToolDef {
 				"properties": map[string]any{
 					"depth": map[string]any{"type": "integer", "default": 2},
 					"dir":   map[string]any{"type": "string", "default": "/"},
-					"limit": map[string]any{"type": "integer", "default": 100},
+					"limit": map[string]any{"type": "integer", "default": 1000},
 				},
 			},
 		},
@@ -37,12 +37,25 @@ func (p *Provider) Tools() []model.ToolDef {
 				"required": []string{"query"},
 			},
 		},
-		{Name: "search_content", Description: "Search files with query. Default uses plain substring match. Set type=\"glob\" for glob (matches WHOLE line; *2* matches \"123\" but *2 does NOT), e.g. \"*depth :=*\". Set type=\"regex\" for regex (substring by default, use ^/$ to anchor), e.g. \"depth\\s*:=\". Optionally filter by filename with file_glob (glob).",
+		{Name: "search_content_plaintext", Description: "Search files with keyword. Uses plain substring match. Optionally filter by filename with file_glob (glob).",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"keyword":         map[string]any{"type": "string"},
+					"file_glob":       map[string]any{"type": "string", "default": "*"},
+					"limit_file":      map[string]any{"type": "integer", "default": 20},
+					"limit_occurence": map[string]any{"type": "integer", "default": 5},
+					"dir":             map[string]any{"type": "string", "default": "/"},
+				},
+				"required": []string{"keyword"},
+			},
+		},
+		{Name: "search_content_advanced", Description: "Search files with query. Set type=\"glob\" for glob (matches WHOLE line; *2* matches \"123\" but *2 does NOT), e.g. \"*depth :=*\". Set type=\"regex\" for regex (substring by default, use ^/$ to anchor), e.g. \"depth\\s*:=\". Optionally filter by filename with file_glob (glob).",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"query":           map[string]any{"type": "string"},
-					"type":            map[string]any{"type": "string", "default": "plain", "enum": []string{"plain", "glob", "regex"}},
+					"type":            map[string]any{"type": "string", "default": "glob", "enum": []string{"glob", "regex"}},
 					"file_glob":       map[string]any{"type": "string", "default": "*"},
 					"limit_file":      map[string]any{"type": "integer", "default": 20},
 					"limit_occurence": map[string]any{"type": "integer", "default": 5},
@@ -130,8 +143,10 @@ func (p *Provider) CallTool(ctx context.Context, name string, args map[string]an
 		result = p.tree(args)
 	case "search_name":
 		result = p.searchName(args)
-	case "search_content":
-		result = p.searchContent(args)
+	case "search_content_plaintext":
+		result = p.searchContentPlaintext(args)
+	case "search_content_advanced":
+		result = p.searchContentAdvanced(args)
 	case "read_content":
 		result = p.readContent(args)
 	case "replace_content":
@@ -168,16 +183,6 @@ func unifyNewlines(s string) string {
 	return s
 }
 
-func hasSpecialChars(query string) bool {
-	for _, c := range query {
-		switch c {
-		case '*', '|', '.', '$', '^', '+', '?', '(', ')', '[', ']', '{', '}':
-			return true
-		}
-	}
-	return false
-}
-
 func (p *Provider) tree(args map[string]any) string {
 	depth := 2
 	if v, ok := args["depth"].(float64); ok {
@@ -187,7 +192,7 @@ func (p *Provider) tree(args map[string]any) string {
 	if v, ok := args["dir"].(string); ok {
 		dirStr = v
 	}
-	limit := 100
+	limit := 1000
 	if v, ok := args["limit"].(float64); ok {
 		limit = int(v)
 	}
@@ -305,12 +310,24 @@ func (p *Provider) searchName(args map[string]any) string {
 	return out.String()
 }
 
-func (p *Provider) searchContent(args map[string]any) string {
+func (p *Provider) searchContentPlaintext(args map[string]any) string {
+	keyword, _ := args["keyword"].(string)
+	return p.searchContentImpl(keyword, "plain", args)
+}
+
+func (p *Provider) searchContentAdvanced(args map[string]any) string {
 	query, _ := args["query"].(string)
-	matchType := "plain"
+	matchType := "glob"
 	if v, ok := args["type"].(string); ok && v != "" {
 		matchType = v
 	}
+	if matchType != "glob" && matchType != "regex" {
+		return "Error: type must be \"glob\" or \"regex\""
+	}
+	return p.searchContentImpl(query, matchType, args)
+}
+
+func (p *Provider) searchContentImpl(query, matchType string, args map[string]any) string {
 	fileGlob := "*"
 	if v, ok := args["file_glob"].(string); ok {
 		fileGlob = v
@@ -426,9 +443,6 @@ func (p *Provider) searchContent(args map[string]any) string {
 	result := buf.String()
 	if result == "" {
 		result = "No matches found."
-		if matchType == "plain" && hasSpecialChars(query) {
-			result += "\n(Hint: Did you forget to set type=\"regex\" or type=\"glob\"? Your query doesn't seem like a plain one!)"
-		}
 	}
 	return result
 }

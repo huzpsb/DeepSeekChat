@@ -86,6 +86,11 @@
             runningTitles = d.running || {};
             hasSnapshot = true;
             applyMarkers();
+            // The status stream also reconnects after a backend restart; keep
+            // the global Read/Write/Sudo mode UI truthful as well.
+            if (window.DsApp && window.DsApp.refreshMode) {
+                window.DsApp.refreshMode();
+            }
         });
         // EventSource auto-reconnects; the server resends a full snapshot
         // on every (re)connect, so missed transitions are self-healing.

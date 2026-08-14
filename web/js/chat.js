@@ -105,7 +105,26 @@ var ChatList = {
     },
 
     create: async function () {
-        var resp = await fetch('/api/chats', {method: 'POST'});
+        var body = null;
+        if (this.currentTitle) {
+            try {
+                var currentResp = await fetch('/api/chats/' + encodeURIComponent(this.currentTitle));
+                if (currentResp.ok) {
+                    var current = await currentResp.json();
+                    if (current.root_dir) {
+                        body = JSON.stringify({root_dir: current.root_dir});
+                    }
+                }
+            } catch (e) {
+                // If the current chat cannot be read, fall back to the
+                // server default root dir rather than failing to create.
+            }
+        }
+        var resp = await fetch('/api/chats', {
+            method: 'POST',
+            headers: body ? {'Content-Type': 'application/json'} : {},
+            body: body
+        });
         if (resp.ok) {
             var chat = await resp.json();
             this.currentTitle = chat.title;

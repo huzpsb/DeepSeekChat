@@ -260,7 +260,15 @@ func (s *Server) handleListChats(w http.ResponseWriter, _ *http.Request) {
 	s.writeJSON(w, summaries)
 }
 
-func (s *Server) handleCreateChat(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handleCreateChat(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		RootDir string `json:"root_dir"`
+	}
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+	req.RootDir = strings.TrimSpace(req.RootDir)
+
 	var messages []model.Message
 	if s.config.DefaultPrompt != "" {
 		messages = append(messages, model.Message{
@@ -272,6 +280,17 @@ func (s *Server) handleCreateChat(w http.ResponseWriter, _ *http.Request) {
 	chat := &model.Chat{
 		Title:    time.Now().Format("2006-01-02 150405"),
 		Messages: messages,
+	}
+	if req.RootDir != "" {
+		if !s.config.Sandbox.HasRootDir(req.RootDir) {
+			s.writeError(w, "root dir not in configured list", http.StatusBadRequest)
+			return
+		}
+		if req.RootDir == s.config.Sandbox.DefaultRootDir() {
+			chat.RootDir = ""
+		} else {
+			chat.RootDir = req.RootDir
+		}
 	}
 	if err := storage.SaveChat(chat); err != nil {
 		s.writeError(w, err.Error(), http.StatusInternalServerError)
@@ -544,10 +563,14 @@ func (s *Server) handleInterrupt(w http.ResponseWriter, r *http.Request) {
 	}
 	json.NewDecoder(r.Body).Decode(&req)
 	log.Printf("[server] interrupt_request title=%q\n", req.Title)
+	accepted := false
 	if req.Title != "" {
-		s.engine.RequestInterrupt(req.Title)
+		accepted = s.engine.RequestInterrupt(req.Title)
 	}
-	s.writeJSON(w, map[string]bool{"ok": true})
+	s.writeJSON(w, map[string]any{
+		"ok":       true,
+		"accepted": accepted,
+	})
 }
 
 func (s *Server) handleMCPTools(w http.ResponseWriter, _ *http.Request) {

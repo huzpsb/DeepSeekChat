@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"hschat/internal/model"
 )
 
 func TestSafePathAllowsAbsolutePathInsideRoot(t *testing.T) {
@@ -203,58 +205,86 @@ func TestSearchName_InvalidRegex(t *testing.T) {
 	}
 }
 
-func TestSearchContent_PlainDefault(t *testing.T) {
+func TestSearchContentPlaintext_UsesKeyword(t *testing.T) {
 	root := t.TempDir()
 	os.WriteFile(filepath.Join(root, "a.txt"), []byte("hello world\nfoo bar\nbaz qux"), 0644)
 
 	p := &Provider{rootDir: root}
 
-	// plain: substring "hello" matches "hello world"
-	result := p.searchContent(map[string]any{"query": "hello", "dir": root})
+	// plaintext uses keyword and plain substring matching.
+	result := p.searchContentPlaintext(map[string]any{"keyword": "hello", "dir": root})
 	if !strings.Contains(result, "hello world") {
 		t.Fatalf("expected 'hello world', got %q", result)
 	}
 
-	// plain: substring "bar" matches "foo bar"
-	result = p.searchContent(map[string]any{"query": "bar", "dir": root})
+	result = p.searchContentPlaintext(map[string]any{"keyword": "bar", "dir": root})
 	if !strings.Contains(result, "foo bar") {
 		t.Fatalf("expected 'foo bar', got %q", result)
 	}
 }
 
-func TestSearchContent_Glob(t *testing.T) {
+func TestSearchContentPlaintext_NoRegexHint(t *testing.T) {
+	root := t.TempDir()
+	os.WriteFile(filepath.Join(root, "a.txt"), []byte("hello world"), 0644)
+
+	p := &Provider{rootDir: root}
+
+	// special characters are plain substrings now; no regex/glob hint.
+	result := p.searchContentPlaintext(map[string]any{"keyword": "hello.*", "dir": root})
+	if !strings.Contains(result, "No matches found.") {
+		t.Fatalf("expected 'No matches found.', got %q", result)
+	}
+	if strings.Contains(result, "Hint:") {
+		t.Fatalf("plaintext search should not emit a regex/glob hint, got %q", result)
+	}
+}
+
+func TestSearchContentAdvanced_Glob(t *testing.T) {
 	root := t.TempDir()
 	os.WriteFile(filepath.Join(root, "a.txt"), []byte("hello world\nfoo bar\nbaz qux"), 0644)
 
 	p := &Provider{rootDir: root}
 
 	// glob: hello* matches whole line "hello world"
-	result := p.searchContent(map[string]any{"query": "hello*", "type": "glob", "dir": root})
+	result := p.searchContentAdvanced(map[string]any{"query": "hello*", "type": "glob", "dir": root})
 	if !strings.Contains(result, "hello world") {
 		t.Fatalf("expected 'hello world', got %q", result)
 	}
 
 	// glob: *bar* matches whole line "foo bar"
-	result = p.searchContent(map[string]any{"query": "*bar*", "type": "glob", "dir": root})
+	result = p.searchContentAdvanced(map[string]any{"query": "*bar*", "type": "glob", "dir": root})
 	if !strings.Contains(result, "foo bar") {
 		t.Fatalf("expected 'foo bar', got %q", result)
 	}
 
 	// glob: baz ??? matches whole line "baz qux"
-	result = p.searchContent(map[string]any{"query": "baz ???", "type": "glob", "dir": root})
+	result = p.searchContentAdvanced(map[string]any{"query": "baz ???", "type": "glob", "dir": root})
 	if !strings.Contains(result, "baz qux") {
 		t.Fatalf("expected 'baz qux', got %q", result)
 	}
 }
 
-func TestSearchContent_Regex(t *testing.T) {
+func TestSearchContentAdvanced_GlobDefault(t *testing.T) {
+	root := t.TempDir()
+	os.WriteFile(filepath.Join(root, "a.txt"), []byte("hello world"), 0644)
+
+	p := &Provider{rootDir: root}
+
+	// type omitted should default to glob, never plain.
+	result := p.searchContentAdvanced(map[string]any{"query": "hello*", "dir": root})
+	if !strings.Contains(result, "hello world") {
+		t.Fatalf("expected glob default to match 'hello world', got %q", result)
+	}
+}
+
+func TestSearchContentAdvanced_Regex(t *testing.T) {
 	root := t.TempDir()
 	os.WriteFile(filepath.Join(root, "a.txt"), []byte("hello world\nfoo bar\nbaz qux"), 0644)
 
 	p := &Provider{rootDir: root}
 
 	// regex: \b\w{3}\b matches "foo", "bar", "baz", "qux"
-	result := p.searchContent(map[string]any{"query": `\b\w{3}\b`, "type": "regex", "dir": root})
+	result := p.searchContentAdvanced(map[string]any{"query": `\b\w{3}\b`, "type": "regex", "dir": root})
 	if !strings.Contains(result, "foo bar") {
 		t.Fatalf("expected 'foo bar', got %q", result)
 	}
@@ -263,19 +293,88 @@ func TestSearchContent_Regex(t *testing.T) {
 	}
 
 	// regex: ^hello (only line 1 matches, context shows surrounding lines)
-	result = p.searchContent(map[string]any{"query": `^hello`, "type": "regex", "dir": root})
+	result = p.searchContentAdvanced(map[string]any{"query": `^hello`, "type": "regex", "dir": root})
 	if !strings.Contains(result, "hello world") {
 		t.Fatalf("expected 'hello world', got %q", result)
 	}
 	// context may include surrounding lines; that's fine -- just verify the hit is there
 }
 
-func TestSearchContent_InvalidRegex(t *testing.T) {
+func TestSearchContentAdvanced_InvalidRegex(t *testing.T) {
 	root := t.TempDir()
 	p := &Provider{rootDir: root}
 
-	result := p.searchContent(map[string]any{"query": `[unclosed`, "type": "regex", "dir": root})
+	result := p.searchContentAdvanced(map[string]any{"query": `[unclosed`, "type": "regex", "dir": root})
 	if !strings.Contains(result, "Error: invalid regex") {
 		t.Fatalf("expected invalid regex error, got %q", result)
+	}
+}
+
+func TestSearchContentAdvanced_RejectsPlain(t *testing.T) {
+	root := t.TempDir()
+	p := &Provider{rootDir: root}
+
+	result := p.searchContentAdvanced(map[string]any{"query": "hello", "type": "plain", "dir": root})
+	if !strings.Contains(result, "Error: type must be") {
+		t.Fatalf("expected plain type to be rejected, got %q", result)
+	}
+}
+
+func TestTools_SearchContentSplitAndTreeDefaultLimit(t *testing.T) {
+	p := &Provider{}
+	tools := p.Tools()
+
+	byName := map[string]model.ToolDef{}
+	for _, tool := range tools {
+		byName[tool.Name] = tool
+	}
+
+	if _, ok := byName["search_content"]; ok {
+		t.Fatalf("old search_content tool should no longer exist")
+	}
+
+	plain, ok := byName["search_content_plaintext"]
+	if !ok {
+		t.Fatalf("expected search_content_plaintext tool")
+	}
+	plainSchema, ok := plain.InputSchema.(map[string]any)
+	if !ok {
+		t.Fatalf("expected plaintext InputSchema to be a map, got %#v", plain.InputSchema)
+	}
+	props := plainSchema["properties"].(map[string]any)
+	if _, hasType := props["type"]; hasType {
+		t.Fatalf("search_content_plaintext should not expose a type parameter")
+	}
+	if _, hasKeyword := props["keyword"]; !hasKeyword {
+		t.Fatalf("search_content_plaintext should expose keyword")
+	}
+
+	advanced, ok := byName["search_content_advanced"]
+	if !ok {
+		t.Fatalf("expected search_content_advanced tool")
+	}
+	advancedSchema, ok := advanced.InputSchema.(map[string]any)
+	if !ok {
+		t.Fatalf("expected advanced InputSchema to be a map, got %#v", advanced.InputSchema)
+	}
+	advProps := advancedSchema["properties"].(map[string]any)
+	advType := advProps["type"].(map[string]any)
+	enum, _ := advType["enum"].([]string)
+	if len(enum) != 2 || enum[0] != "glob" || enum[1] != "regex" {
+		t.Fatalf("advanced type enum should be [glob regex], got %#v", enum)
+	}
+
+	tree, ok := byName["tree"]
+	if !ok {
+		t.Fatalf("expected tree tool")
+	}
+	treeSchema, ok := tree.InputSchema.(map[string]any)
+	if !ok {
+		t.Fatalf("expected tree InputSchema to be a map, got %#v", tree.InputSchema)
+	}
+	treeProps := treeSchema["properties"].(map[string]any)
+	limit := treeProps["limit"].(map[string]any)
+	if limit["default"] != 1000 {
+		t.Fatalf("tree default limit should be 1000, got %#v", limit["default"])
 	}
 }

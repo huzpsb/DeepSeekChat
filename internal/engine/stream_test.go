@@ -227,7 +227,9 @@ func TestRun_Interrupt(t *testing.T) {
 	}
 	// give the goroutine a moment to reach the HTTP call
 	time.Sleep(100 * time.Millisecond)
-	e.RequestInterrupt("c2")
+	if accepted := e.RequestInterrupt("c2"); !accepted {
+		t.Fatalf("expected interrupt request to be accepted while running")
+	}
 
 	done := make(chan struct{})
 	go func() {
@@ -253,6 +255,15 @@ func TestRun_Interrupt(t *testing.T) {
 	sess.mu.Unlock()
 	if savedPos != events {
 		t.Fatalf("savedPos mismatch after interrupt: %d != %d", savedPos, events)
+	}
+}
+
+func TestRequestInterrupt_NoSession(t *testing.T) {
+	setupEngineTest(t)
+	e := newTestEngine("http://127.0.0.1:1")
+
+	if accepted := e.RequestInterrupt("missing"); accepted {
+		t.Fatalf("expected interrupt request for missing session to be rejected")
 	}
 }
 

@@ -163,6 +163,12 @@
         historyReady = false;
         resetStreamDOM();
         setRunning(!!d.running);
+        // The SSE stream re-syncs after every reconnect. A reconnect may
+        // follow a backend restart, which resets the server mode to
+        // readonly; re-fetch it so the Read/Write/Sudo UI stays truthful.
+        if (window.DsApp && window.DsApp.refreshMode) {
+            window.DsApp.refreshMode();
+        }
         // re-baseline history; onHistoryLoaded will flush pending events
         ChatList.loadMessages();
     }
@@ -333,14 +339,27 @@
     async function doInterrupt() {
         var title = ChatList.getCurrentTitle();
         try {
-            await fetch('/api/chat/interrupt', {
+            var resp = await fetch('/api/chat/interrupt', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({title: title})
             });
+            if (!resp.ok) {
+                var err = await resp.json();
+                showToast('Interrupt failed: ' + (err.error || 'Unknown'));
+                return;
+            }
+            var data = await resp.json();
+            // Do not optimistically switch to Send. Some tools (e.g. CLI
+            // tools) may ignore the interrupt and keep running; the SSE
+            // stream remains authoritative and will emit idle only when the
+            // run has truly stopped.
+            if (data && data.accepted === false) {
+                setRunning(false);
+            }
         } catch (e) {
+            showToast('Interrupt failed: ' + (e.message || e));
         }
-        setRunning(false);
     }
 
     async function doContinue(forcedInput) {

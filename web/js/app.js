@@ -50,16 +50,22 @@
         });
     }
 
-    async function init() {
+    async function refreshMode() {
         try {
             var resp = await fetch('/api/mode');
             var data = await resp.json();
             currentMode = data.mode;
             updateModeUI();
+            handleModeChangeForNoob();
         } catch (e) {
             console.error('Failed to load mode:', e);
         }
+    }
 
+    window.DsApp.refreshMode = refreshMode;
+
+    async function init() {
+        await refreshMode();
         initNoobMode();
         initPreferencesModal();
         initSkipConfirm();

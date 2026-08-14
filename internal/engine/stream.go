@@ -180,10 +180,10 @@ func (e *StreamEngine) WaitStatusChange(ctx context.Context, version uint64) (ma
 	}
 }
 
-func (e *StreamEngine) RequestInterrupt(title string) {
+func (e *StreamEngine) RequestInterrupt(title string) bool {
 	sess := e.getSession(title, false)
 	if sess == nil {
-		return
+		return false
 	}
 	sess.mu.Lock()
 	defer sess.mu.Unlock()
@@ -194,7 +194,9 @@ func (e *StreamEngine) RequestInterrupt(title string) {
 			sess.cancel()
 		}
 		sess.broadcastLocked()
+		return true
 	}
+	return false
 }
 
 func (e *StreamEngine) WaitForIdle(title string) {
