@@ -338,7 +338,7 @@
         var props = schema.properties;
         var required = schema.required || [];
         var keys = Object.keys(props);
-        if (keys.length === 0) {
+        if (keys.length === 0 && Object.keys(existing).length === 0) {
             container.innerHTML = '<span style="font-size:11px;color:var(--text-secondary)">No arguments</span>';
             return;
         }
@@ -406,6 +406,41 @@
             table.appendChild(row);
         });
 
+        // unknown parameters (not in the tool schema, e.g. hallucinated by the
+        // AI) are shown as red plain-text rows, so the user can cut & paste
+        // the value into the correct field; empty ones are dropped on save
+        Object.keys(existing).forEach(function (key) {
+            if (props[key]) return;
+
+            var row = document.createElement('tr');
+
+            var labelCell = document.createElement('td');
+            labelCell.textContent = key;
+            labelCell.style.color = 'var(--danger)';
+            labelCell.title = 'Unknown parameter (not in tool schema). Clear the value to drop it on save.';
+
+            var valueCell = document.createElement('td');
+            var val = existing[key];
+            var strVal = (val !== undefined && val !== null) ? (typeof val === 'string' ? val : JSON.stringify(val)) : '';
+
+            var input = document.createElement('textarea');
+            input.rows = Math.max(1, Math.min(6, strVal.split('\n').length + 1));
+            input.style.cssText = 'width:100%;background:var(--bg-primary);color:var(--danger);border:1px solid var(--danger);border-radius:3px;padding:3px 6px;font-family:monospace;font-size:12px;resize:vertical;min-height:24px';
+            input.dataset.field = key;
+            input.value = strVal;
+            input.addEventListener('change', function () {
+                saveTableArgs(tc, table, schema);
+            });
+            input.addEventListener('blur', function () {
+                saveTableArgs(tc, table, schema);
+            });
+            valueCell.appendChild(input);
+
+            row.appendChild(labelCell);
+            row.appendChild(valueCell);
+            table.appendChild(row);
+        });
+
         container.appendChild(table);
     }
 
@@ -415,7 +450,13 @@
             var key = inp.dataset.field;
             if (!key) return;
             var prop = schema.properties[key];
-            if (!prop) return;
+            if (!prop) {
+                // unknown parameter: keep as raw text, drop when emptied
+                if (inp.value !== '') {
+                    result[key] = inp.value;
+                }
+                return;
+            }
 
             if (prop.type === 'boolean') {
                 result[key] = inp.checked;
