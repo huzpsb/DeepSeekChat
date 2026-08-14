@@ -15,6 +15,10 @@ import (
 	"hschat/internal/model"
 )
 
+// maxNewTokens 是转发给服务端的最大生成 token 数（128K），
+// 避免部分服务端默认值过小导致长回答被截断。
+const maxNewTokens = 128 * 1024
+
 type StreamEvent struct {
 	Type     string `json:"type"`
 	Content  string `json:"content,omitempty"`
@@ -51,6 +55,7 @@ func (c *Client) StreamChat(ctx context.Context, messages []model.Message, tools
 		"messages":         apiMessages,
 		"thinking":         map[string]string{"type": "enabled"},
 		"reasoning_effort": "high",
+		"max_new_tokens":   maxNewTokens,
 		"stream":           true,
 	}
 
