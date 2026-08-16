@@ -184,6 +184,12 @@ html, body {
     border-bottom: 1px solid var(--border);
 }
 
+#context-size {
+    color: var(--text-secondary);
+    font-size: 12px;
+    white-space: nowrap;
+}
+
 #mode-controls {
     display: flex;
     gap: 2px;

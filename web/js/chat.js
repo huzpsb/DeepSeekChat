@@ -151,9 +151,29 @@ var ChatList = {
         await this.loadMessages();
     },
 
+    updateContextSize: function (n) {
+        var el = document.getElementById('context-size');
+        if (!n) {
+            el.textContent = '';
+            el.style.display = 'none';
+            return;
+        }
+        el.style.display = '';
+        el.textContent = 'Ctx ' + this.formatTokens(n);
+        el.title = n + ' input tokens (last request)';
+    },
+
+    formatTokens: function (n) {
+        if (n >= 1000) {
+            return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+        }
+        return String(n);
+    },
+
     loadMessages: async function () {
         if (!this.currentTitle) {
             Messages.render(null, document.getElementById('messages'));
+            this.updateContextSize(0);
             if (window.DsApp && window.DsApp.updateRootDirSelector) {
                 window.DsApp.updateRootDirSelector('');
             }
@@ -168,6 +188,7 @@ var ChatList = {
                 this.currentTitle = null;
                 this.saveCurrentTitle(null);
                 Messages.render(null, document.getElementById('messages'));
+                this.updateContextSize(0);
                 if (window.ContinueModule) {
                     window.ContinueModule.onHistoryLoaded(0);
                 }
@@ -176,6 +197,7 @@ var ChatList = {
         }
         var chat = await resp.json();
         Messages.render(chat.messages || [], document.getElementById('messages'));
+        this.updateContextSize(chat.context_size);
         if (window.DsApp && window.DsApp.updateRootDirSelector) {
             window.DsApp.updateRootDirSelector(chat.root_dir || '');
         }

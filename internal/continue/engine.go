@@ -484,6 +484,12 @@ func (e *Engine) streamDeepSeek(ctx context.Context, chat *model.Chat, emit func
 				Type:     "tool_call",
 				ToolCall: &tc,
 			})
+		case "usage":
+			// Lazy: only update the in-memory chat here; it is persisted by
+			// the next save boundary (assistant_done save / final save), not
+			// written per stream event.
+			chat.ContextSize = evt.PromptTokens
+			logContinue("deepseek_event type=usage assistant_idx=%d prompt_tokens=%d", assistantIdx, evt.PromptTokens)
 		case "done":
 			logContinue("deepseek_event type=done assistant_idx=%d content_len=%d reasoning_len=%d tool_calls=%d", assistantIdx, len(chat.Messages[assistantIdx].Content), len(chat.Messages[assistantIdx].ReasoningContent), len(chat.Messages[assistantIdx].ToolCalls))
 		}

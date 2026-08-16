@@ -4,6 +4,10 @@ type Chat struct {
 	Title    string    `json:"title"`
 	RootDir  string    `json:"root_dir,omitempty"`
 	Messages []Message `json:"messages"`
+	// ContextSize is the input (prompt) token count reported by the server
+	// for the most recent request. It is updated in memory as usage arrives
+	// and persisted lazily together with the next regular save.
+	ContextSize int `json:"context_size,omitempty"`
 }
 
 type ChatSummary struct {

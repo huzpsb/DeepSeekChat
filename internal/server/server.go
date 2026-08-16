@@ -311,11 +311,12 @@ func (s *Server) handleGetChat(w http.ResponseWriter, r *http.Request) {
 		rootDir = s.config.Sandbox.DefaultRootDir()
 	}
 	s.writeJSON(w, map[string]any{
-		"title":     chat.Title,
-		"root_dir":  rootDir,
-		"messages":  chat.Messages,
-		"saved_pos": savedPos,
-		"running":   running,
+		"title":        chat.Title,
+		"root_dir":     rootDir,
+		"messages":     chat.Messages,
+		"context_size": chat.ContextSize,
+		"saved_pos":    savedPos,
+		"running":      running,
 	})
 }
 

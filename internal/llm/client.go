@@ -27,6 +27,9 @@ type StreamEvent struct {
 	Args     string `json:"arguments,omitempty"`
 	ToolType string `json:"tool_type,omitempty"`
 	Error    string `json:"error,omitempty"`
+	// PromptTokens is set on Type=="usage" events: the input token count of
+	// the request as reported by the server's usage field.
+	PromptTokens int `json:"prompt_tokens,omitempty"`
 }
 
 type Client struct {
@@ -60,6 +63,10 @@ func (c *Client) StreamChat(ctx context.Context, messages []model.Message, tools
 		"reasoning_effort": "high",
 		"max_new_tokens":   maxNewTokens,
 		"stream":           true,
+		// Ask OpenAI-compatible servers to attach a final usage chunk to the
+		// stream so we can record the actual input token count. Servers that
+		// don't support it simply ignore the option.
+		"stream_options": map[string]bool{"include_usage": true},
 	}
 
 	if len(tools) > 0 {
@@ -259,10 +266,21 @@ func parseSSE(body io.Reader, onEvent func(StreamEvent)) {
 					} `json:"tool_calls"`
 				} `json:"delta"`
 			} `json:"choices"`
+			Usage *struct {
+				PromptTokens     int `json:"prompt_tokens"`
+				CompletionTokens int `json:"completion_tokens"`
+				TotalTokens      int `json:"total_tokens"`
+			} `json:"usage"`
 		}
 
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 			continue
+		}
+
+		// The usage chunk (usually the last one, with empty choices) carries
+		// the token accounting of the whole request.
+		if chunk.Usage != nil && chunk.Usage.PromptTokens > 0 {
+			onEvent(StreamEvent{Type: "usage", PromptTokens: chunk.Usage.PromptTokens})
 		}
 
 		if len(chunk.Choices) == 0 {
