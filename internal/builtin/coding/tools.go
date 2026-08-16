@@ -40,6 +40,11 @@ func (p *Provider) Tools() []model.ToolDef {
 						"type":    "integer",
 						"default": 300,
 					},
+					"output_size_limit": map[string]any{
+						"type":        "integer",
+						"default":     defaultRunOutputSizeLimit,
+						"description": "Max chars to keep from output. Truncates output but won't kill the process on hit.",
+					},
 				},
 				"required": []string{"command"},
 			},
@@ -66,11 +71,15 @@ func (p *Provider) CallTool(ctx context.Context, name string, args map[string]an
 		if v, ok := args["time_out"].(float64); ok {
 			timeout = int(v)
 		}
+		outputSizeLimit := defaultRunOutputSizeLimit
+		if v, ok := args["output_size_limit"].(float64); ok {
+			outputSizeLimit = int(v)
+		}
 		tool := model.ShellTool{
 			Command: cmd,
 			Timeout: timeout,
 		}
-		result = p.runShellTool(ctx, tool, rootDir)
+		result = p.runShellToolWithLimit(ctx, tool, rootDir, outputSizeLimit)
 	} else if tool, ok := p.shellTools[name]; ok {
 		result = p.runShellTool(ctx, tool, rootDir)
 	} else {

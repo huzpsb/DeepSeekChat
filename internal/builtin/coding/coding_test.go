@@ -105,6 +105,13 @@ func TestTools_RunWithRawShell(t *testing.T) {
 			if v, ok := to["default"].(int); !ok || v != 300 {
 				t.Errorf("expected time_out default 300, got %v", to["default"])
 			}
+			oso, ok := props["output_size_limit"].(map[string]any)
+			if !ok {
+				t.Fatalf("expected output_size_limit property in run schema")
+			}
+			if v, ok := oso["default"].(int); !ok || v != defaultRunOutputSizeLimit {
+				t.Errorf("expected output_size_limit default %d, got %v", defaultRunOutputSizeLimit, oso["default"])
+			}
 		}
 	}
 	if !runFound {

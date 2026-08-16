@@ -151,6 +151,64 @@ func TestRunShellTool_StderrCapture(t *testing.T) {
 	checkContains(t, result, "--- Stderr ---")
 }
 
+func TestTruncateShellOutput_TruncatesHeadAndTail(t *testing.T) {
+	s := strings.Repeat("a", 12000)
+	got := truncateShellOutput(s, defaultRunOutputSizeLimit)
+
+	if !strings.Contains(got, "...[truncated]...") {
+		t.Errorf("expected visible truncated marker, got:\n%s", got)
+	}
+	if !strings.Contains(got, "Output was 12000 bytes and has been truncated") {
+		t.Errorf("expected truncation notice with original size, got:\n%s", got)
+	}
+	if !strings.Contains(got, "output_size_limit=10240 bytes") {
+		t.Errorf("expected output_size_limit in notice, got:\n%s", got)
+	}
+	if !strings.HasPrefix(got, strings.Repeat("a", runOutputKeepBytes)+"\n") {
+		t.Errorf("expected output to start with first 1024 bytes, got prefix mismatch")
+	}
+	if !strings.Contains(got, strings.Repeat("a", runOutputKeepBytes)+"\nOutput was") {
+		t.Errorf("expected output to end with last 1024 bytes before notice")
+	}
+}
+
+func TestTruncateShellOutput_NoTruncateBelowLimit(t *testing.T) {
+	s := strings.Repeat("a", 100)
+	got := truncateShellOutput(s, defaultRunOutputSizeLimit)
+	if got != s {
+		t.Errorf("expected unchanged output for small string, got:\n%s", got)
+	}
+}
+
+func TestRunShellToolWithLimit_RaisesBelowMin(t *testing.T) {
+	p := setupProvider(t)
+	p.fileBlacklist = []string{}
+
+	bigFile := filepath.Join(p.rootDir, "big_output.txt")
+	if err := os.WriteFile(bigFile, []byte(strings.Repeat("a", 1024*1024)), 0644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+	defer os.Remove(bigFile)
+
+	command := "type big_output.txt"
+	if runtime.GOOS != "windows" {
+		command = "cat big_output.txt"
+	}
+
+	result := p.runShellToolWithLimit(context.Background(), model.ShellTool{
+		Command: command,
+		Timeout: 10,
+	}, p.getRootDir(), 100)
+
+	// 100 should be raised to the 10k minimum before truncating.
+	if !strings.Contains(result, "output_size_limit=10240 bytes") {
+		t.Errorf("expected limit below 10k to be raised to 10240, got:\n%s", result)
+	}
+	if !strings.Contains(result, "...[truncated]...") {
+		t.Errorf("expected truncated marker for 1MB output, got:\n%s", result)
+	}
+}
+
 func TestShellOutputString_WindowsGB18030(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("Windows shell output decoding is only used on Windows")

@@ -50,6 +50,9 @@ func NewClient(endpoint, apiKey, model string) *Client {
 func (c *Client) StreamChat(ctx context.Context, messages []model.Message, tools []model.ToolDef, onEvent func(StreamEvent)) error {
 	messages = maybeReplaceSystemPrompt(messages)
 	apiMessages := buildAPIMessages(messages)
+	if isDeepSeekModel(c.model) {
+		padDeepSeekAssistantReasoning(apiMessages)
+	}
 	reqBody := map[string]any{
 		"model":            c.model,
 		"messages":         apiMessages,
@@ -97,6 +100,7 @@ func (c *Client) StreamChat(ctx context.Context, messages []model.Message, tools
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+c.apiKey)
 		req.Header.Set("Accept", "text/event-stream")
+		req.Header.Set("User-Agent", "DsChat/v1")
 
 		resp, err = c.httpClient.Do(req)
 		if err != nil {
@@ -192,6 +196,28 @@ func buildAPIMessages(messages []model.Message) []map[string]any {
 		result = append(result, m)
 	}
 	return result
+}
+
+// isDeepSeekModel reports whether the configured model name contains
+// "deepseek" (case-insensitive).
+func isDeepSeekModel(model string) bool {
+	return strings.Contains(strings.ToLower(model), "deepseek")
+}
+
+// padDeepSeekAssistantReasoning ensures every assistant message sent to
+// DeepSeek has a non-empty reasoning_content field. DeepSeek requires this
+// for tool-call requests, but we must not persist the padding back into
+// stored messages because other providers (e.g. Kimi) prefer no reasoning
+// content. This only mutates the in-memory request maps.
+func padDeepSeekAssistantReasoning(apiMessages []map[string]any) {
+	for _, m := range apiMessages {
+		if role, _ := m["role"].(string); role != "assistant" {
+			continue
+		}
+		if rc, ok := m["reasoning_content"].(string); !ok || rc == "" {
+			m["reasoning_content"] = " "
+		}
+	}
 }
 
 func parseSSE(body io.Reader, onEvent func(StreamEvent)) {

@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -97,6 +98,78 @@ func TestBuildAPIMessages_AssistantToolCallsSerialized(t *testing.T) {
 	}
 	if len(tcs) != 2 {
 		t.Fatalf("expected 2 tool calls, got %d", len(tcs))
+	}
+}
+
+func TestPadDeepSeekAssistantReasoning(t *testing.T) {
+	apiMessages := buildAPIMessages([]model.Message{
+		{Role: "user", Content: "hi", SendToServer: true},
+		{Role: "assistant", Content: "ok", SendToServer: true},
+		{Role: "assistant", Content: "thinking", ReasoningContent: "keep me", SendToServer: true},
+		{Role: "tool", Content: "result", ToolCallID: "call_1", SendToServer: true},
+	})
+
+	padDeepSeekAssistantReasoning(apiMessages)
+
+	if got := apiMessages[1]["reasoning_content"]; got != " " {
+		t.Errorf("expected empty assistant reasoning_content to be padded to single space, got %#v", got)
+	}
+	if got := apiMessages[2]["reasoning_content"]; got != "keep me" {
+		t.Errorf("expected non-empty reasoning_content to be preserved, got %#v", got)
+	}
+	if _, ok := apiMessages[3]["reasoning_content"]; ok {
+		t.Errorf("tool message should not be padded with reasoning_content")
+	}
+}
+
+func TestStreamChat_SetsUserAgent(t *testing.T) {
+	var gotUA string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUA = r.Header.Get("User-Agent")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "key", "model")
+	err := client.StreamChat(context.Background(), []model.Message{
+		{Role: "user", Content: "hello", SendToServer: true},
+	}, nil, func(evt StreamEvent) {})
+
+	if err != nil {
+		t.Fatalf("expected success, got error: %v", err)
+	}
+	if gotUA != "DsChat/v1" {
+		t.Errorf("expected User-Agent 'DsChat/v1', got %q", gotUA)
+	}
+}
+
+func TestStreamChat_DeepSeekPadsReasoningWithoutMutatingMessages(t *testing.T) {
+	var gotBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	messages := []model.Message{
+		{Role: "user", Content: "hi", SendToServer: true},
+		{Role: "assistant", Content: "ok", SendToServer: true},
+	}
+	client := NewClient(server.URL, "key", "deepseek-chat")
+	err := client.StreamChat(context.Background(), messages, nil, func(evt StreamEvent) {})
+
+	if err != nil {
+		t.Fatalf("expected success, got error: %v", err)
+	}
+	msgs := gotBody["messages"].([]any)
+	assistant := msgs[1].(map[string]any)
+	if assistant["reasoning_content"] != " " {
+		t.Errorf("expected DeepSeek assistant reasoning_content to be padded to single space, got %#v", assistant["reasoning_content"])
+	}
+	if messages[1].ReasoningContent != "" {
+		t.Errorf("stored message must not be mutated, got reasoning_content %q", messages[1].ReasoningContent)
 	}
 }
 
