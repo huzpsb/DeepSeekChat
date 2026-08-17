@@ -636,7 +636,19 @@ type ValidationError struct {
 
 type ToolDefLookup func(name string) (exists bool)
 
-func ValidateChat(chat *model.Chat, toolLookup ToolDefLookup) []ValidationError {
+// ToolStatusLookup reports a tool's approval status. Tools that are neither
+// approved nor manually approved are "hidden" (unapproved): they exist but
+// are not offered to the model and cannot be executed.
+type ToolStatusLookup func(name string) (approved, manuallyApproved bool)
+
+// statusLookup is optional (variadic) so existing callers/tests that only
+// check structure keep compiling; pass it to also flag tool calls that
+// reference hidden tools.
+func ValidateChat(chat *model.Chat, toolLookup ToolDefLookup, statusLookups ...ToolStatusLookup) []ValidationError {
+	var statusLookup ToolStatusLookup
+	if len(statusLookups) > 0 {
+		statusLookup = statusLookups[0]
+	}
 	var errs []ValidationError
 	groups := buildMessageGroups(chat.Messages)
 
@@ -672,6 +684,18 @@ func ValidateChat(chat *model.Chat, toolLookup ToolDefLookup) []ValidationError 
 					ToolCallID:   tc.ID,
 					Detail:       "Tool not found: " + tc.Function.Name,
 				})
+				continue
+			}
+			// ask_user is exempt from approval (see checkApproval).
+			if statusLookup != nil && tc.Function.Name != "ask_user" {
+				if approved, manually := statusLookup(tc.Function.Name); !approved && !manually {
+					errs = append(errs, ValidationError{
+						MessageIndex: g.AssistantIdx,
+						Type:         "hidden_tool",
+						ToolCallID:   tc.ID,
+						Detail:       "Tool is hidden (unapproved) and cannot be called: " + tc.Function.Name,
+					})
+				}
 			}
 		}
 

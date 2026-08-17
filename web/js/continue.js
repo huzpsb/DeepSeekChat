@@ -196,10 +196,17 @@
     }
 
     function onIdle() {
+        // Only a genuine running -> idle transition (inference just
+        // finished) warrants the stop sound. The server also emits idle
+        // on every connect/sync of an already-idle chat, so switching
+        // chats or SSE reconnects must not beep.
+        var wasRunning = isRunning;
         setRunning(false);
         applied = [];
         pending = [];
-        setStopSoundFlag();
+        if (wasRunning) {
+            setStopSoundFlag();
+        }
         // disk is now authoritative; replace the streaming layer
         ChatList.loadMessages();
     }
@@ -487,7 +494,10 @@
             contentEl.dataset.rawText = (contentEl.dataset.rawText || '') + text;
             contentEl.innerHTML = marked.parse(contentEl.dataset.rawText);
         } else {
-            var contentEl = el.querySelector('.msg-content');
+            // The reasoning block's content also carries .msg-content (for
+            // markdown typography) - exclude it, or content deltas would
+            // land inside the reasoning block.
+            var contentEl = el.querySelector('.msg-content:not(.reasoning-content)');
             if (!contentEl) {
                 contentEl = document.createElement('div');
                 contentEl.className = 'msg-content';

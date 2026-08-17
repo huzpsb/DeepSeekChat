@@ -417,6 +417,60 @@ func TestValidateChat_InvalidToolCall(t *testing.T) {
 	}
 }
 
+func TestValidateChat_HiddenTool(t *testing.T) {
+	chat := &model.Chat{Messages: []model.Message{
+		makeAssistantMsg("", []model.ToolCall{makeToolCall("id1", "some_tool", `{}`)}),
+		makeToolMsg("id1", "res", "some_tool"),
+	}}
+	// hidden = neither approved nor manually approved
+	statusLookup := func(name string) (bool, bool) { return false, false }
+	errs := ValidateChat(chat, nil, statusLookup)
+	found := false
+	for _, e := range errs {
+		if e.Type == "hidden_tool" {
+			found = true
+			if e.ToolCallID != "id1" {
+				t.Errorf("expected ToolCallID=id1, got %s", e.ToolCallID)
+			}
+			if e.MessageIndex != 0 {
+				t.Errorf("expected MessageIndex=0, got %d", e.MessageIndex)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("expected hidden_tool error")
+	}
+}
+
+func TestValidateChat_ApprovedAndManualToolsNotFlagged(t *testing.T) {
+	chat := &model.Chat{Messages: []model.Message{
+		makeAssistantMsg("", []model.ToolCall{
+			makeToolCall("id1", "approved_tool", `{}`),
+			makeToolCall("id2", "manual_tool", `{}`),
+			makeToolCall("id3", "ask_user", `{}`),
+		}),
+		makeToolMsg("id1", "res", "approved_tool"),
+		makeToolMsg("id2", "res", "manual_tool"),
+		makeToolMsg("id3", "res", "ask_user"),
+	}}
+	statusLookup := func(name string) (bool, bool) {
+		switch name {
+		case "approved_tool":
+			return true, false
+		case "manual_tool":
+			return false, true
+		default:
+			return false, false // ask_user must be exempt
+		}
+	}
+	errs := ValidateChat(chat, nil, statusLookup)
+	for _, e := range errs {
+		if e.Type == "hidden_tool" {
+			t.Errorf("unexpected hidden_tool error for %s", e.ToolCallID)
+		}
+	}
+}
+
 func TestValidateChat_SameGroupDuplicateTools(t *testing.T) {
 	chat := &model.Chat{Messages: []model.Message{
 		makeAssistantMsg("", []model.ToolCall{makeToolCall("id1", "tool_a", `{}`)}),

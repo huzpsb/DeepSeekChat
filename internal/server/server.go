@@ -416,7 +416,7 @@ func (s *Server) handleValidate(w http.ResponseWriter, r *http.Request) {
 	lookup := func(name string) bool {
 		return s.mcpMgr.ToolExists(name)
 	}
-	errors := cont.ValidateChat(chat, lookup)
+	errors := cont.ValidateChat(chat, lookup, s.mcpMgr.IsToolApproved)
 	s.writeJSON(w, map[string]any{
 		"valid":  len(errors) == 0,
 		"errors": errors,

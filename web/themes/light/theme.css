@@ -542,3 +542,104 @@ body {
     border-radius: 999px;
     padding: 10px 22px;
 }
+
+/* ============================================================
+   Frosted glass background (bg.jpg sits next to this file).
+   The canvas shows the image; surfaces become translucent white
+   with backdrop blur. Since the source image is already soft,
+   a strong blur keeps everything smooth.
+   ============================================================ */
+
+body {
+    background: var(--bg-primary) url("bg.jpg") center / cover no-repeat fixed;
+}
+
+/* shared glass recipe */
+#sidebar,
+#main-header,
+#input-area,
+.message.role-assistant,
+.message.role-tool,
+.message.role-system,
+.message.role-error {
+    background-color: rgba(255, 255, 255, 0.55);
+    backdrop-filter: blur(16px) saturate(1.4);
+    -webkit-backdrop-filter: blur(16px) saturate(1.4);
+}
+
+#sidebar {
+    border-right-color: rgba(0, 0, 0, 0.06);
+}
+
+/* heavier glass on the content side: the source image is soft,
+   so let a strong blur do the concealing; bubbles float above it */
+#messages {
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(36px) saturate(1.3);
+    -webkit-backdrop-filter: blur(36px) saturate(1.3);
+}
+
+#main-header {
+    border-bottom-color: rgba(0, 0, 0, 0.06);
+}
+
+#input-area {
+    border-top-color: rgba(0, 0, 0, 0.06);
+}
+
+/* bubbles: more opaque than chrome surfaces, for text readability */
+.message.role-assistant {
+    background-color: rgba(255, 255, 255, 0.78);
+    border-color: rgba(255, 255, 255, 0.6);
+}
+
+.message.role-tool {
+    background-color: rgba(248, 250, 252, 0.72);
+    border-color: rgba(255, 255, 255, 0.5);
+}
+
+.message.role-system {
+    background-color: rgba(238, 240, 244, 0.6);
+}
+
+.message.role-error {
+    background-color: rgba(254, 242, 242, 0.82);
+}
+
+/* controls floating over glass */
+#mode-controls {
+    background: rgba(238, 240, 244, 0.75);
+}
+
+#chat-list li:hover {
+    background: rgba(238, 240, 244, 0.8);
+}
+
+#chat-list li.active {
+    background: rgba(224, 231, 255, 0.85);
+}
+
+#sidebar-header button,
+#btn-validate,
+#btn-preferences,
+#btn-version,
+#root-dir-select {
+    background: rgba(255, 255, 255, 0.6);
+}
+
+#sidebar-header #btn-new-chat {
+    background: var(--accent); /* primary action stays solid */
+}
+
+#user-input {
+    background: rgba(255, 255, 255, 0.75);
+}
+
+#user-input:focus {
+    background: rgba(255, 255, 255, 0.95);
+}
+
+/* code stays near-opaque: readability beats glassiness */
+.message .msg-content pre {
+    background: rgba(246, 248, 250, 0.92);
+}
