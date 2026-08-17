@@ -554,10 +554,11 @@ body {
     background: var(--bg-primary) url("bg.jpg") center / cover no-repeat fixed;
 }
 
-/* shared glass recipe */
+/* shared glass recipe (#export-* only exists in exported HTML files) */
 #sidebar,
 #main-header,
 #input-area,
+#export-header,
 .message.role-assistant,
 .message.role-tool,
 .message.role-system,
@@ -572,8 +573,10 @@ body {
 }
 
 /* heavier glass on the content side: the source image is soft,
-   so let a strong blur do the concealing; bubbles float above it */
-#messages {
+   so let a strong blur do the concealing; bubbles float above it.
+   #export-messages is the container in exported HTML files. */
+#messages,
+#export-messages {
     background: rgba(255, 255, 255, 0.05);
     backdrop-filter: blur(36px) saturate(1.3);
     -webkit-backdrop-filter: blur(36px) saturate(1.3);

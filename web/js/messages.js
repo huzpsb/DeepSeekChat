@@ -223,22 +223,8 @@ var Messages = {
         }, 5000);
     },
 
-    // "#rrggbb" -> "rgba(r,g,b,a)"; non-hex values pass through unchanged.
-    hexToRgba: function (hex, alpha) {
-        var m = /^#([0-9a-fA-F]{6})$/.exec((hex || '').trim());
-        if (!m) return hex;
-        var n = parseInt(m[1], 16);
-        return 'rgba(' + ((n >> 16) & 255) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + alpha + ')';
-    },
-
-    // If the active theme ships a background image (convention:
-    // web/themes/<name>/bg.jpg), embed it as a data URL and return extra
-    // CSS that recreates the frosted-glass look in the exported file.
-    fetchThemeGlassCss: function (vars) {
-        var self = this;
-        var name = window.DsTheme ? DsTheme.get() : 'default';
-        if (name === 'default') return Promise.resolve('');
-        return fetch('/web/themes/' + encodeURIComponent(name) + '/bg.jpg')
+    fetchDataUrl: function (url) {
+        return fetch(url)
             .then(function (r) { return r.ok ? r.blob() : null; })
             .then(function (blob) {
                 if (!blob) return null;
@@ -249,18 +235,39 @@ var Messages = {
                     fr.readAsDataURL(blob);
                 });
             })
-            .then(function (dataUrl) {
-                if (!dataUrl) return '';
-                return 'body{background:var(--bg-primary) url("' + dataUrl + '") center/cover no-repeat fixed}\n'
-                    + '.message,#export-header,.reasoning-block,.tool-calls-block{backdrop-filter:blur(16px) saturate(1.4);-webkit-backdrop-filter:blur(16px) saturate(1.4)}\n'
-                    + '#export-header{background:' + self.hexToRgba(vars['--bg-secondary'], 0.65) + '}\n'
-                    + '.message.role-system{background:' + self.hexToRgba(vars['--msg-system'], 0.6) + '}\n'
-                    + '.message.role-assistant{background:' + self.hexToRgba(vars['--msg-assistant'], 0.78) + '}\n'
-                    + '.message.role-tool{background:' + self.hexToRgba(vars['--msg-tool'], 0.72) + '}\n'
-                    + '.reasoning-block,.tool-calls-block{background:' + self.hexToRgba(vars['--bg-secondary'], 0.7) + '}\n'
-                    + '.msg-content pre{background:' + self.hexToRgba(vars['--bg-secondary'], 0.9) + '}\n';
-            })
-            .catch(function () { return ''; });
+            .catch(function () { return null; });
+    },
+
+    // Copy the app's real stylesheets so the export looks exactly like the
+    // app, including the active theme. The theme's relative background
+    // image reference (url("bg.jpg")) is replaced by an embedded data URL.
+    fetchAppCss: async function () {
+        var css = '';
+        try {
+            var resp = await fetch('/web/css/style.css');
+            if (resp.ok) css += await resp.text();
+        } catch (e) {
+        }
+        var name = window.DsTheme ? DsTheme.get() : 'default';
+        if (name !== 'default') {
+            var base = '/web/themes/' + encodeURIComponent(name) + '/';
+            try {
+                var themeResp = await fetch(base + 'theme.css');
+                if (themeResp.ok) {
+                    var themeCss = await themeResp.text();
+                    var bg = await this.fetchDataUrl(base + 'bg.jpg');
+                    if (bg) {
+                        themeCss = themeCss.replace(
+                            /url\((['"]?)bg\.jpg\1\)/g,
+                            'url("' + bg + '")'
+                        );
+                    }
+                    css += '\n' + themeCss;
+                }
+            } catch (e) {
+            }
+        }
+        return css;
     },
 
     exportToHtml: async function () {
@@ -297,82 +304,40 @@ var Messages = {
         }).join('\n');
 
         var t = this.escHtml(title);
-        // Snapshot the active theme: resolve the CSS variables now, so the
-        // exported standalone file looks exactly like what the user
-        // currently sees, whatever theme is selected.
-        var computed = getComputedStyle(document.documentElement);
-        var themeVars = [
-            '--bg-primary', '--bg-secondary', '--bg-tertiary',
-            '--text-primary', '--text-secondary', '--accent', '--accent-dim',
-            '--success', '--warning', '--border',
-            '--msg-system', '--msg-user', '--msg-user-text', '--msg-assistant', '--msg-tool',
-            '--text-on-success', '--text-on-warning'
-        ];
-        var vars = {};
-        themeVars.forEach(function (v) {
-            vars[v] = computed.getPropertyValue(v).trim();
+        // Branding: read the version table from the app itself (single
+        // source of truth is the version overlay in index.html).
+        var meta = {};
+        document.querySelectorAll('.version-table tr').forEach(function (tr) {
+            var tds = tr.querySelectorAll('td');
+            if (tds.length === 2) meta[tds[0].textContent.trim()] = tds[1].textContent.trim();
         });
-        var rootCss = ':root{';
-        themeVars.forEach(function (v) {
-            rootCss += v + ':' + vars[v] + ';';
-        });
-        rootCss += '}\n';
-        var glassCss = await this.fetchThemeGlassCss(vars);
+        var appName = meta.App || 'DsChat';
+        var branding = appName
+            + (meta.Version ? ' v' + meta.Version : '')
+            + (meta.Author ? ' by ' + meta.Author : '');
+        // Copy the app's REAL stylesheets into the export: the exported DOM
+        // is a clone of the live one, so all classes match and the result
+        // always looks exactly like what the user sees, theme included.
+        var appCss = await this.fetchAppCss();
         var html = '<!DOCTYPE html>\n'
             + '<html lang="en">\n<head>\n<meta charset="UTF-8">\n<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
-            + '<title>DsChat - ' + t + '</title>\n'
+            + '<title>' + this.escHtml(appName) + ' - ' + t + '</title>\n'
             + '<style>\n'
-            + rootCss
-            + '*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}\n'
-            + 'body{font-family:"Segoe UI",system-ui,-apple-system,sans-serif;background:var(--bg-primary);color:var(--text-primary);font-size:14px;line-height:1.5;padding:80px 0 40px 0}\n'
+            + 'body{padding:0}\n'
             + '#export-header{position:fixed;top:0;left:0;right:0;background:var(--bg-secondary);border-bottom:1px solid var(--border);padding:16px 24px;z-index:10}\n'
             + '#export-header h1{font-size:18px;font-weight:600;color:var(--accent)}\n'
             + '#export-header .export-meta{font-size:11px;color:var(--text-secondary);margin-top:4px}\n'
-            + '#export-messages{max-width:900px;margin:0 auto;padding:0 16px;display:flex;flex-direction:column;gap:8px}\n'
-            + '.message{padding:12px 16px;border-radius:8px;max-width:85%;position:relative}\n'
-            + '.message.role-system{background:var(--msg-system);align-self:center;max-width:95%;text-align:center;font-style:italic}\n'
-            + '.message.role-user{background:var(--msg-user);color:var(--msg-user-text);align-self:flex-end}\n'
-            + '.message.role-assistant{background:var(--msg-assistant);align-self:flex-start}\n'
-            + '.message.role-tool{background:var(--msg-tool);align-self:flex-start;font-family:Consolas,"Fira Code",monospace;font-size:13px;white-space:pre-wrap}\n'
-            + '.msg-header{display:flex;align-items:center;gap:8px;margin-bottom:4px;font-size:11px;color:var(--text-secondary)}\n'
-            + '.msg-role{font-weight:600;text-transform:uppercase}\n'
-            + '.msg-tags{display:flex;gap:4px}\n'
-            + '.msg-tag{padding:1px 6px;border-radius:3px;font-size:10px;background:var(--bg-tertiary);color:var(--text-secondary)}\n'
-            + '.msg-tag.no-server{background:var(--warning);color:var(--text-on-warning)}\n'
-            + '.msg-tag.approved{background:var(--success);color:var(--text-on-success)}\n'
-            + '.msg-content{word-break:break-word}\n'
-            + '.msg-content>:first-child{margin-top:0}\n'
-            + '.msg-content>:last-child{margin-bottom:0}\n'
-            + '.msg-content p{margin:6px 0}\n'
-            + '.msg-content h1,.msg-content h2,.msg-content h3,.msg-content h4{margin:14px 0 6px;line-height:1.3;font-weight:600}\n'
-            + '.msg-content h1{font-size:19px}\n'
-            + '.msg-content h2{font-size:17px}\n'
-            + '.msg-content h3{font-size:15px}\n'
-            + '.msg-content h4{font-size:14px}\n'
-            + '.msg-content ul,.msg-content ol{margin:6px 0;padding-left:22px}\n'
-            + '.msg-content li{margin:3px 0}\n'
-            + '.msg-content li>p{margin:0}\n'
-            + '.msg-content a{color:var(--accent)}\n'
-            + '.msg-content blockquote{margin:8px 0;padding:4px 12px;background:var(--bg-secondary);border-left:3px solid var(--accent-dim);border-radius:0 4px 4px 0;color:var(--text-secondary)}\n'
-            + '.msg-content hr{margin:12px 0;border:none;border-top:1px solid var(--border)}\n'
-            + '.msg-content table{margin:8px 0;border-collapse:collapse;font-size:13px}\n'
-            + '.msg-content th,.msg-content td{border:1px solid var(--border);padding:5px 10px;text-align:left}\n'
-            + '.msg-content th{background:var(--bg-secondary);font-weight:600}\n'
-            + '.msg-content img{max-width:100%}\n'
-            + '.msg-content pre{margin:8px 0;background:var(--bg-secondary);border:1px solid var(--border);border-radius:4px;padding:8px;overflow-x:auto}\n'
-            + '.msg-content code{background:var(--bg-secondary);padding:1px 4px;border-radius:3px;font-family:Consolas,"Fira Code",monospace;font-size:13px}\n'
-            + '.reasoning-block{margin-bottom:8px;padding:8px;background:var(--bg-secondary);border-left:3px solid var(--accent-dim);border-radius:4px;font-size:12px;color:var(--text-secondary)}\n'
-            + '.reasoning-toggle{cursor:default;color:var(--accent);font-size:11px;user-select:none}\n'
-            + '.tool-calls-block{margin-top:8px;padding:8px;background:var(--bg-secondary);border-left:3px solid var(--accent-dim);border-radius:4px}\n'
-            + '.tool-calls-toggle{cursor:default;color:var(--accent);font-size:11px;user-select:none;margin-bottom:6px}\n'
-            + '.tool-calls-list{display:flex;flex-direction:column;gap:4px}\n'
-            + '.tool-call-item{padding:6px 8px;background:var(--bg-secondary);border-radius:4px;font-size:12px;border:1px solid var(--border)}\n'
-            + '.tool-call-item .tool-call-name{font-weight:600;color:var(--accent)}\n'
-            + '.tool-call-item .tool-call-args{color:var(--text-secondary);font-family:Consolas,"Fira Code",monospace;font-size:11px;white-space:pre-wrap}\n'
+            + '#export-messages{padding:96px 24px 40px;min-height:100vh;display:flex;flex-direction:column;gap:8px}\n'
+            + appCss
+            /* export page scrolls (unlike the app shell), so the 100%
+               height constraint must go or the fixed background misbehaves */
+            + 'html,body{height:auto;min-height:100%}\n'
+            /* full-width glass; messages capped only enough for the
+               left/right alignment to read */
+            + '#export-messages .message{max-width:min(85%,1200px)}\n'
             + '.msg-actions{display:none}\n'
-            + glassCss
             + '</style>\n</head>\n<body>\n'
-            + '<div id="export-header"><h1>HsChat - ' + t + '</h1><div class="export-meta">Exported on ' + new Date().toISOString().split('T')[0] + ' | ' + count + ' messages</div></div>\n'
+            + '<div id="export-header"><h1>' + this.escHtml(appName) + ' - ' + t + '</h1><div class="export-meta">Exported on ' + new Date().toISOString().split('T')[0] + ' | ' + count + ' messages | ' + this.escHtml(branding) + '</div></div>\n'
             + '<div id="export-messages">\n'
             + clones
             + '\n</div>\n'
