@@ -223,7 +223,47 @@ var Messages = {
         }, 5000);
     },
 
-    exportToHtml: function () {
+    // "#rrggbb" -> "rgba(r,g,b,a)"; non-hex values pass through unchanged.
+    hexToRgba: function (hex, alpha) {
+        var m = /^#([0-9a-fA-F]{6})$/.exec((hex || '').trim());
+        if (!m) return hex;
+        var n = parseInt(m[1], 16);
+        return 'rgba(' + ((n >> 16) & 255) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + alpha + ')';
+    },
+
+    // If the active theme ships a background image (convention:
+    // web/themes/<name>/bg.jpg), embed it as a data URL and return extra
+    // CSS that recreates the frosted-glass look in the exported file.
+    fetchThemeGlassCss: function (vars) {
+        var self = this;
+        var name = window.DsTheme ? DsTheme.get() : 'default';
+        if (name === 'default') return Promise.resolve('');
+        return fetch('/web/themes/' + encodeURIComponent(name) + '/bg.jpg')
+            .then(function (r) { return r.ok ? r.blob() : null; })
+            .then(function (blob) {
+                if (!blob) return null;
+                return new Promise(function (resolve) {
+                    var fr = new FileReader();
+                    fr.onload = function () { resolve(fr.result); };
+                    fr.onerror = function () { resolve(null); };
+                    fr.readAsDataURL(blob);
+                });
+            })
+            .then(function (dataUrl) {
+                if (!dataUrl) return '';
+                return 'body{background:var(--bg-primary) url("' + dataUrl + '") center/cover no-repeat fixed}\n'
+                    + '.message,#export-header,.reasoning-block,.tool-calls-block{backdrop-filter:blur(16px) saturate(1.4);-webkit-backdrop-filter:blur(16px) saturate(1.4)}\n'
+                    + '#export-header{background:' + self.hexToRgba(vars['--bg-secondary'], 0.65) + '}\n'
+                    + '.message.role-system{background:' + self.hexToRgba(vars['--msg-system'], 0.6) + '}\n'
+                    + '.message.role-assistant{background:' + self.hexToRgba(vars['--msg-assistant'], 0.78) + '}\n'
+                    + '.message.role-tool{background:' + self.hexToRgba(vars['--msg-tool'], 0.72) + '}\n'
+                    + '.reasoning-block,.tool-calls-block{background:' + self.hexToRgba(vars['--bg-secondary'], 0.7) + '}\n'
+                    + '.msg-content pre{background:' + self.hexToRgba(vars['--bg-secondary'], 0.9) + '}\n';
+            })
+            .catch(function () { return ''; });
+    },
+
+    exportToHtml: async function () {
         var title = window.ChatList ? ChatList.getCurrentTitle() : null;
         if (!title) {
             alert('No chat open to export.');
@@ -268,11 +308,16 @@ var Messages = {
             '--msg-system', '--msg-user', '--msg-user-text', '--msg-assistant', '--msg-tool',
             '--text-on-success', '--text-on-warning'
         ];
+        var vars = {};
+        themeVars.forEach(function (v) {
+            vars[v] = computed.getPropertyValue(v).trim();
+        });
         var rootCss = ':root{';
         themeVars.forEach(function (v) {
-            rootCss += v + ':' + computed.getPropertyValue(v).trim() + ';';
+            rootCss += v + ':' + vars[v] + ';';
         });
         rootCss += '}\n';
+        var glassCss = await this.fetchThemeGlassCss(vars);
         var html = '<!DOCTYPE html>\n'
             + '<html lang="en">\n<head>\n<meta charset="UTF-8">\n<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
             + '<title>DsChat - ' + t + '</title>\n'
@@ -325,6 +370,7 @@ var Messages = {
             + '.tool-call-item .tool-call-name{font-weight:600;color:var(--accent)}\n'
             + '.tool-call-item .tool-call-args{color:var(--text-secondary);font-family:Consolas,"Fira Code",monospace;font-size:11px;white-space:pre-wrap}\n'
             + '.msg-actions{display:none}\n'
+            + glassCss
             + '</style>\n</head>\n<body>\n'
             + '<div id="export-header"><h1>HsChat - ' + t + '</h1><div class="export-meta">Exported on ' + new Date().toISOString().split('T')[0] + ' | ' + count + ' messages</div></div>\n'
             + '<div id="export-messages">\n'

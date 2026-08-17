@@ -6,6 +6,8 @@
 //   theme.js   (optional)  injected after the app has fully loaded; may add
 //               behavior (widgets, a music player, ...). Requires
 //               "js": true in themes.json.
+//   bg.jpg     (optional)  background image; embedded as a data URL into
+//               HTML exports so they keep the theme's background.
 //
 // Themes are listed in web/themes/themes.json (pure data, no code):
 //   { "themes": [ { "name": "light", "label": "Light", "js": false } ] }
