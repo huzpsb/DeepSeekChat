@@ -27,7 +27,7 @@ var Messages = {
         messages.forEach((msg, idx) => {
             try {
                 if (window.NoobMode && window.NoobMode.isActive()) {
-                    if (msg.role !== 'user' && msg.role !== 'assistant') return;
+                    if (msg.role !== 'user' && msg.role !== 'assistant' && msg.role !== 'error') return;
                     if (msg.role === 'assistant' && !msg.content) return;
                 }
                 const isLast = idx === messages.length - 1;

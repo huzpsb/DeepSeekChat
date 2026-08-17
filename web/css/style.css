@@ -425,6 +425,18 @@ html, body {
     white-space: pre-wrap;
 }
 
+.message.role-error {
+    background: #4a1a1a;
+    align-self: flex-start;
+    border-left: 3px solid #e74c3c;
+    color: #f5c6cb;
+    max-width: 90%;
+}
+
+.message.role-error .msg-role {
+    color: #e74c3c;
+}
+
 .message .msg-header {
     display: flex;
     align-items: center;

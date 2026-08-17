@@ -20,7 +20,7 @@
             var tools = await resp.json();
             toolSchemaCache = {};
             tools.forEach(function (t) {
-                if (t.input_schema) {
+                if (t.input_schema && (t.status === 'approved' || t.status === 'manually_approved')) {
                     toolSchemaCache[t.tool_name] = t.input_schema;
                 }
             });

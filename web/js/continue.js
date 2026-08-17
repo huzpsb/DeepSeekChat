@@ -174,6 +174,16 @@
     }
 
     function onStreamEvent(type, evt) {
+        // Error events are never persisted; they must always be shown
+        // regardless of the saved_pos / seq alignment (see failChat).
+        if (type === 'error') {
+            if (!historyReady) {
+                pendingErrors.push(evt);
+                return;
+            }
+            applyEvent(type, evt, false, 0);
+            return;
+        }
         var seq = nextSeq++;
         if (!historyReady) {
             pending.push({seq: seq, type: type, evt: evt});
@@ -213,8 +223,9 @@
         });
         applied = mergeEvents(applied.concat(kept));
         replayApplied();
-        // errors from the sync payload: show them only now, after history
-        // has been re-rendered, so tool-call highlighting can find its DOM
+        // errors from the sync payload and from live events that arrived
+        // before history was ready: show them now, after history has been
+        // re-rendered, so tool-call highlighting can find its DOM.
         if (pendingErrors.length) {
             var errs = pendingErrors;
             pendingErrors = [];
@@ -312,6 +323,10 @@
                 }
                 if (evt.error) {
                     showToast(evt.error.detail || evt.error.type || 'Unknown error');
+                    // Also render a stream-live error div so the failure is
+                    // visible in the message flow immediately (history will
+                    // contain the persisted role-error message after idle).
+                    appendErrorMessage(evt.error);
                 }
                 break;
         }
@@ -594,6 +609,16 @@
         div.className = 'message role-user stream-live';
         div.innerHTML = '<div class="msg-header"><span class="msg-role">USER</span></div>'
             + '<div class="msg-content">' + marked.parse(content) + '</div>';
+        container.appendChild(div);
+        scrollIfNearBottom(container);
+    }
+
+    function appendErrorMessage(err) {
+        var container = document.getElementById('messages');
+        var div = document.createElement('div');
+        div.className = 'message role-error stream-live';
+        div.innerHTML = '<div class="msg-header"><span class="msg-role">ERROR</span></div>'
+            + '<div class="msg-content">' + Messages.escHtml(err.detail || err.type || 'Unknown error') + '</div>';
         container.appendChild(div);
         scrollIfNearBottom(container);
     }
