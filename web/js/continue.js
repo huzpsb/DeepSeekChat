@@ -324,8 +324,10 @@
                 if (evt.error) {
                     showToast(evt.error.detail || evt.error.type || 'Unknown error');
                     // Also render a stream-live error div so the failure is
-                    // visible in the message flow immediately (history will
-                    // contain the persisted role-error message after idle).
+                    // visible in the message flow immediately. It is purely
+                    // transient: errors are never persisted to the chat file,
+                    // and this div is removed on the next stream resync
+                    // (resetStreamDOM).
                     appendErrorMessage(evt.error);
                 }
                 break;
@@ -463,7 +465,9 @@
                 toggle.className = 'reasoning-toggle';
                 toggle.textContent = 'Reasoning ▶';
                 var contentEl = document.createElement('div');
-                contentEl.className = 'reasoning-content';
+                // keep .reasoning-content (queried below), add .msg-content
+                // to reuse the markdown typography rules
+                contentEl.className = 'msg-content reasoning-content';
                 contentEl.style.display = 'none';
                 contentEl.dataset.rawText = '';
                 toggle.addEventListener('click', function () {

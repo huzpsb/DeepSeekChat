@@ -1,0 +1,544 @@
+/* ============================================================
+   Light theme - full visual rewrite (not a recolor of default).
+
+   This file is loaded ONLY while the theme is active (see
+   web/js/theme.js), so it freely restyles layout and shapes.
+   Design language: soft neutral canvas, white elevated surfaces,
+   hairline borders + layered shadows, indigo accent, generous
+   radii, pill-shaped controls, focus rings.
+   ============================================================ */
+
+:root {
+    --bg-primary: #f2f3f6;
+    --bg-secondary: #ffffff;
+    --bg-tertiary: #eef0f4;
+    --text-primary: #1b1f27;
+    --text-secondary: #6b7280;
+    --accent: #6366f1;
+    --accent-dim: #e0e7ff;
+    --danger: #ef4444;
+    --success: #22c55e;
+    --warning: #d97706;
+    --border: #e5e7eb;
+    --msg-system: #eef0f4;
+    --msg-user: #6366f1;
+    --msg-user-text: #ffffff;
+    --msg-assistant: #ffffff;
+    --msg-tool: #f8fafc;
+    --highlight-error: #ef4444;
+    --text-on-accent: #ffffff;
+    --text-on-danger: #ffffff;
+    --text-on-success: #ffffff;
+    --text-on-warning: #ffffff;
+    --danger-hover: #dc2626;
+    --msg-error-bg: #fef2f2;
+    --msg-error-text: #991b1b;
+    --overlay-bg: rgba(15, 23, 42, 0.4);
+    --shadow-color: rgba(16, 24, 40, 0.1);
+
+    /* Theme-local design tokens */
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+    --ring-accent: 0 0 0 3px rgba(99, 102, 241, 0.18);
+    --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.06);
+    --shadow-card: 0 1px 3px rgba(16, 24, 40, 0.08), 0 1px 2px rgba(16, 24, 40, 0.04);
+    --shadow-modal: 0 24px 48px -12px rgba(16, 24, 40, 0.25);
+    --accent-hover: #4f46e5;
+    --input-bg: #f9fafb;
+    --code-bg: #f6f8fa;
+    --transition: 120ms ease;
+}
+
+body {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+}
+
+::selection {
+    background: #c7d2fe;
+}
+
+/* ---- scrollbars ---- */
+
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #d4d7de;
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #b6bbc6;
+}
+
+/* ---- sidebar ---- */
+
+#sidebar {
+    border-right: 1px solid var(--border);
+}
+
+#sidebar-header {
+    border-bottom: none;
+    padding: 14px 12px 10px;
+}
+
+#sidebar-header button {
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-weight: 500;
+    transition: background-color var(--transition), color var(--transition);
+}
+
+#sidebar-header button:hover {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
+#sidebar-header #btn-new-chat {
+    background: var(--accent);
+    border-color: transparent;
+    color: var(--text-on-accent);
+    box-shadow: var(--shadow-sm);
+}
+
+#sidebar-header #btn-new-chat:hover {
+    background: var(--accent-hover);
+    color: var(--text-on-accent);
+}
+
+#chat-list {
+    padding: 6px 8px;
+}
+
+#chat-list li {
+    border-radius: var(--radius-md);
+    padding: 8px 10px;
+    margin: 1px 0;
+    transition: background-color var(--transition);
+}
+
+#chat-list li:hover {
+    background: var(--bg-tertiary);
+}
+
+#chat-list li.active {
+    background: var(--accent-dim);
+    color: #4338ca;
+    font-weight: 500;
+}
+
+#chat-list li.active .chat-actions button {
+    color: #4338ca;
+}
+
+/* ---- main header ---- */
+
+#main-header {
+    border-bottom: 1px solid var(--border);
+    padding: 10px 16px;
+}
+
+/* segmented pill control */
+#mode-controls {
+    gap: 0;
+    background: var(--bg-tertiary);
+    border-radius: 999px;
+    padding: 3px;
+}
+
+.mode-btn,
+.mode-btn:first-child,
+.mode-btn:last-child {
+    border: none;
+    background: transparent;
+    border-radius: 999px;
+    padding: 4px 14px;
+    font-weight: 500;
+    transition: background-color var(--transition), color var(--transition);
+}
+
+.mode-btn.active {
+    color: #ffffff;
+    box-shadow: var(--shadow-sm);
+}
+
+#btn-validate,
+#btn-preferences,
+#btn-version {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    font-weight: 500;
+    transition: background-color var(--transition), color var(--transition),
+        border-color var(--transition);
+}
+
+#btn-validate:hover,
+#btn-preferences:hover,
+#btn-version:hover {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border-color: var(--border);
+}
+
+#btn-validate.success {
+    background: var(--success);
+    border-color: transparent;
+    color: #ffffff;
+}
+
+#btn-validate.error {
+    background: var(--danger);
+    border-color: transparent;
+    color: #ffffff;
+}
+
+#btn-mute-sound {
+    border: none;
+    border-radius: var(--radius-sm);
+}
+
+#root-dir-select {
+    background: var(--bg-secondary);
+    border-radius: var(--radius-sm);
+}
+
+/* ---- message bubbles ---- */
+
+#messages {
+    padding: 20px 24px;
+    gap: 10px;
+}
+
+.message {
+    border-radius: var(--radius-lg);
+    max-width: 80%;
+    box-shadow: var(--shadow-sm);
+}
+
+/* user: solid accent bubble, tail bottom-right */
+.message.role-user {
+    border-radius: var(--radius-lg) var(--radius-lg) 4px var(--radius-lg);
+    box-shadow: 0 1px 2px rgba(99, 102, 241, 0.35);
+}
+
+.message.role-user .msg-header {
+    color: rgba(255, 255, 255, 0.75);
+}
+
+.message.role-user .msg-content a {
+    color: #ffffff;
+    text-decoration: underline;
+}
+
+/* assistant: white card, tail bottom-left */
+.message.role-assistant {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg) var(--radius-lg) var(--radius-lg) 4px;
+    box-shadow: var(--shadow-card);
+}
+
+/* system: quiet centered pill */
+.message.role-system {
+    border-radius: 999px;
+    padding: 6px 18px;
+    box-shadow: none;
+    font-size: 12px;
+}
+
+/* tool: flat mono panel */
+.message.role-tool {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: none;
+    font-size: 12.5px;
+}
+
+.message.role-error {
+    border-radius: var(--radius-md);
+    box-shadow: none;
+}
+
+.message .msg-content a {
+    color: var(--accent);
+}
+
+/* cleaner quotes on white surfaces */
+.message .msg-content blockquote {
+    background: transparent;
+}
+
+/* quotes/tables/code inside the solid accent user bubble */
+.message.role-user .msg-content blockquote {
+    background: rgba(255, 255, 255, 0.12);
+    border-left-color: rgba(255, 255, 255, 0.5);
+    color: rgba(255, 255, 255, 0.85);
+}
+
+.message.role-user .msg-content code {
+    background: rgba(255, 255, 255, 0.18);
+    color: #ffffff;
+}
+
+.message.role-user .msg-content th,
+.message.role-user .msg-content td {
+    border-color: rgba(255, 255, 255, 0.4);
+}
+
+.message.role-user .msg-content th {
+    background: rgba(255, 255, 255, 0.12);
+}
+
+/* pill tags */
+.message .msg-tag {
+    border-radius: 999px;
+    padding: 1px 8px;
+}
+
+/* code: GitHub-style light blocks; no double background inside pre */
+.message .msg-content pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 10px 12px;
+}
+
+.message .msg-content code {
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-size: 12.5px;
+}
+
+.message .msg-content pre code {
+    background: transparent;
+    padding: 0;
+}
+
+.message .reasoning-block,
+.message .tool-calls-block {
+    background: #f8fafc;
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent-dim);
+    border-radius: var(--radius-md);
+}
+
+.message .tool-call-item {
+    background: var(--bg-secondary);
+    border-radius: var(--radius-sm);
+}
+
+/* hover action buttons: floating white pills */
+.msg-actions button {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-sm);
+    padding: 3px 8px;
+    transition: color var(--transition), border-color var(--transition);
+}
+
+.msg-actions button:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+.message.editing .msg-content {
+    border-radius: var(--radius-md);
+}
+
+/* ---- composer ---- */
+
+#input-area {
+    padding: 14px 20px;
+    border-top: 1px solid var(--border);
+}
+
+#user-input {
+    background: var(--input-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 10px 14px;
+    transition: border-color var(--transition), box-shadow var(--transition),
+        background-color var(--transition);
+}
+
+#user-input:focus {
+    background: #ffffff;
+    border-color: var(--accent);
+    box-shadow: var(--ring-accent);
+}
+
+#btn-continue {
+    background: var(--accent);
+    color: var(--text-on-accent);
+    border-radius: var(--radius-md);
+    padding: 8px 22px;
+    box-shadow: var(--shadow-sm);
+    transition: background-color var(--transition);
+}
+
+#btn-continue:hover {
+    background: var(--accent-hover);
+}
+
+#btn-continue.interrupt {
+    background: var(--danger);
+}
+
+#btn-continue.interrupt:hover {
+    background: var(--danger-hover);
+}
+
+/* ---- overlays & modal cards ---- */
+
+#ask-user-overlay,
+#modal-overlay,
+#preferences-overlay,
+#version-overlay,
+#editor-overlay {
+    backdrop-filter: blur(3px);
+}
+
+.ask-user-card,
+#modal-content,
+.editor-card,
+#preferences-content,
+#version-content {
+    border: none;
+    border-radius: 16px;
+    box-shadow: var(--shadow-modal);
+}
+
+/* ---- form controls: soft fill + focus ring ---- */
+
+.ask-user-answer,
+.editor-textarea,
+.tool-table-input,
+.tool-call-raw-area,
+.tool-call-row-header input[type="text"],
+.tool-call-args-table input[type="text"],
+.tool-call-args-table input[type="number"],
+.tool-call-args-table textarea,
+.message.editing textarea,
+.pref-row input[type="text"],
+.pref-row select {
+    background: var(--input-bg);
+    border-radius: var(--radius-sm);
+    transition: border-color var(--transition), box-shadow var(--transition),
+        background-color var(--transition);
+}
+
+.ask-user-answer:focus,
+.editor-textarea:focus,
+.tool-table-input:focus,
+.tool-call-raw-area:focus,
+.tool-call-row-header input[type="text"]:focus,
+.tool-call-args-table input[type="text"]:focus,
+.tool-call-args-table input[type="number"]:focus,
+.tool-call-args-table textarea:focus,
+.pref-row input[type="text"]:focus,
+.pref-row select:focus {
+    background: #ffffff;
+    border-color: var(--accent);
+    box-shadow: var(--ring-accent);
+}
+
+/* ---- modal buttons ---- */
+
+#ask-user-cancel,
+#editor-cancel {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    transition: background-color var(--transition), color var(--transition);
+}
+
+#ask-user-cancel:hover,
+#editor-cancel:hover {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
+#ask-user-submit,
+.ask-user-item-actions button {
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-sm);
+}
+
+#editor-save {
+    background: var(--accent);
+    color: var(--text-on-accent);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-sm);
+    transition: background-color var(--transition);
+}
+
+#editor-save:hover {
+    background: var(--accent-hover);
+}
+
+#editor-tc-insert,
+.tc-btn {
+    border-radius: var(--radius-sm);
+    transition: color var(--transition), border-color var(--transition),
+        background-color var(--transition);
+}
+
+#editor-tc-insert:hover {
+    background: var(--accent-dim);
+    color: #4338ca;
+}
+
+.tool-call-row {
+    background: var(--input-bg);
+    border-radius: var(--radius-md);
+}
+
+.tool-call-args-editor {
+    border-radius: var(--radius-sm);
+}
+
+/* ---- preferences ---- */
+
+.pref-group h4 {
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.pref-root-dir-item {
+    background: var(--input-bg);
+    border-radius: var(--radius-sm);
+}
+
+.pref-root-dir-add button {
+    background: var(--bg-secondary);
+    border-radius: var(--radius-sm);
+    transition: border-color var(--transition), color var(--transition);
+}
+
+/* ---- floating badges & toast ---- */
+
+#backend-offline {
+    border-radius: 999px;
+}
+
+#error-toast {
+    border-radius: 999px;
+    padding: 10px 22px;
+}

@@ -89,7 +89,7 @@
         var html = '';
 
         // error banner (hidden by default)
-        html += '<div id="editor-error-banner" style="display:none;padding:8px 12px;background:var(--danger);color:#fff;border-radius:4px;font-size:12px;font-weight:500"></div>';
+        html += '<div id="editor-error-banner" style="display:none;padding:8px 12px;background:var(--danger);color:var(--text-on-danger);border-radius:4px;font-size:12px;font-weight:500"></div>';
 
         // send_to_server checkbox
         var sts = msg.send_to_server !== false;
@@ -870,7 +870,7 @@
         saveBtn.type = 'button';
         saveBtn.textContent = 'Save';
         saveBtn.className = 'btn-save';
-        saveBtn.style.cssText = 'padding:4px 12px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px';
+        saveBtn.style.cssText = 'padding:4px 12px;background:var(--accent);color:var(--text-on-accent);border:none;border-radius:4px;cursor:pointer;font-size:12px';
         saveBtn.addEventListener('click', save);
         btnRow.appendChild(cancelBtn);
         btnRow.appendChild(saveBtn);

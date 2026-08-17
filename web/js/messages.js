@@ -87,6 +87,7 @@ var Messages = {
             toggle.className = 'reasoning-toggle';
             toggle.textContent = 'Reasoning \u25B6';
             const content = document.createElement('div');
+            content.className = 'msg-content'; // reuse markdown typography
             content.style.display = 'none';
             content.innerHTML = marked.parse(msg.reasoning_content);
             content.dataset.rawText = msg.reasoning_content;
@@ -256,39 +257,73 @@ var Messages = {
         }).join('\n');
 
         var t = this.escHtml(title);
+        // Snapshot the active theme: resolve the CSS variables now, so the
+        // exported standalone file looks exactly like what the user
+        // currently sees, whatever theme is selected.
+        var computed = getComputedStyle(document.documentElement);
+        var themeVars = [
+            '--bg-primary', '--bg-secondary', '--bg-tertiary',
+            '--text-primary', '--text-secondary', '--accent', '--accent-dim',
+            '--success', '--warning', '--border',
+            '--msg-system', '--msg-user', '--msg-user-text', '--msg-assistant', '--msg-tool',
+            '--text-on-success', '--text-on-warning'
+        ];
+        var rootCss = ':root{';
+        themeVars.forEach(function (v) {
+            rootCss += v + ':' + computed.getPropertyValue(v).trim() + ';';
+        });
+        rootCss += '}\n';
         var html = '<!DOCTYPE html>\n'
             + '<html lang="en">\n<head>\n<meta charset="UTF-8">\n<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
             + '<title>DsChat - ' + t + '</title>\n'
             + '<style>\n'
+            + rootCss
             + '*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}\n'
-            + 'body{font-family:"Segoe UI",system-ui,-apple-system,sans-serif;background:#1a1a2e;color:#e0e0e0;font-size:14px;line-height:1.5;padding:80px 0 40px 0}\n'
-            + '#export-header{position:fixed;top:0;left:0;right:0;background:#16213e;border-bottom:1px solid #2a2a4a;padding:16px 24px;z-index:10}\n'
-            + '#export-header h1{font-size:18px;font-weight:600;color:#4fc3f7}\n'
-            + '#export-header .export-meta{font-size:11px;color:#a0a0a0;margin-top:4px}\n'
+            + 'body{font-family:"Segoe UI",system-ui,-apple-system,sans-serif;background:var(--bg-primary);color:var(--text-primary);font-size:14px;line-height:1.5;padding:80px 0 40px 0}\n'
+            + '#export-header{position:fixed;top:0;left:0;right:0;background:var(--bg-secondary);border-bottom:1px solid var(--border);padding:16px 24px;z-index:10}\n'
+            + '#export-header h1{font-size:18px;font-weight:600;color:var(--accent)}\n'
+            + '#export-header .export-meta{font-size:11px;color:var(--text-secondary);margin-top:4px}\n'
             + '#export-messages{max-width:900px;margin:0 auto;padding:0 16px;display:flex;flex-direction:column;gap:8px}\n'
             + '.message{padding:12px 16px;border-radius:8px;max-width:85%;position:relative}\n'
-            + '.message.role-system{background:#2d1b69;align-self:center;max-width:95%;text-align:center;font-style:italic}\n'
-            + '.message.role-user{background:#1a3a5c;align-self:flex-end}\n'
-            + '.message.role-assistant{background:#1a2a1a;align-self:flex-start}\n'
-            + '.message.role-tool{background:#3a2a0a;align-self:flex-start;font-family:Consolas,"Fira Code",monospace;font-size:13px;white-space:pre-wrap}\n'
-            + '.msg-header{display:flex;align-items:center;gap:8px;margin-bottom:4px;font-size:11px;color:#a0a0a0}\n'
+            + '.message.role-system{background:var(--msg-system);align-self:center;max-width:95%;text-align:center;font-style:italic}\n'
+            + '.message.role-user{background:var(--msg-user);color:var(--msg-user-text);align-self:flex-end}\n'
+            + '.message.role-assistant{background:var(--msg-assistant);align-self:flex-start}\n'
+            + '.message.role-tool{background:var(--msg-tool);align-self:flex-start;font-family:Consolas,"Fira Code",monospace;font-size:13px;white-space:pre-wrap}\n'
+            + '.msg-header{display:flex;align-items:center;gap:8px;margin-bottom:4px;font-size:11px;color:var(--text-secondary)}\n'
             + '.msg-role{font-weight:600;text-transform:uppercase}\n'
             + '.msg-tags{display:flex;gap:4px}\n'
-            + '.msg-tag{padding:1px 6px;border-radius:3px;font-size:10px;background:#0f3460;color:#a0a0a0}\n'
-            + '.msg-tag.no-server{background:#f39c12;color:#000}\n'
-            + '.msg-tag.approved{background:#2ecc71;color:#000}\n'
+            + '.msg-tag{padding:1px 6px;border-radius:3px;font-size:10px;background:var(--bg-tertiary);color:var(--text-secondary)}\n'
+            + '.msg-tag.no-server{background:var(--warning);color:var(--text-on-warning)}\n'
+            + '.msg-tag.approved{background:var(--success);color:var(--text-on-success)}\n'
             + '.msg-content{word-break:break-word}\n'
-            + '.msg-content p{margin:4px 0}\n'
-            + '.msg-content pre{background:#16213e;border:1px solid #2a2a4a;border-radius:4px;padding:8px;overflow-x:auto}\n'
-            + '.msg-content code{background:#16213e;padding:1px 4px;border-radius:3px;font-family:Consolas,"Fira Code",monospace;font-size:13px}\n'
-            + '.reasoning-block{margin-bottom:8px;padding:8px;background:#16213e;border-left:3px solid #2a8fc7;border-radius:4px;font-size:12px;color:#a0a0a0}\n'
-            + '.reasoning-toggle{cursor:default;color:#4fc3f7;font-size:11px;user-select:none}\n'
-            + '.tool-calls-block{margin-top:8px;padding:8px;background:#16213e;border-left:3px solid #2a8fc7;border-radius:4px}\n'
-            + '.tool-calls-toggle{cursor:default;color:#4fc3f7;font-size:11px;user-select:none;margin-bottom:6px}\n'
+            + '.msg-content>:first-child{margin-top:0}\n'
+            + '.msg-content>:last-child{margin-bottom:0}\n'
+            + '.msg-content p{margin:6px 0}\n'
+            + '.msg-content h1,.msg-content h2,.msg-content h3,.msg-content h4{margin:14px 0 6px;line-height:1.3;font-weight:600}\n'
+            + '.msg-content h1{font-size:19px}\n'
+            + '.msg-content h2{font-size:17px}\n'
+            + '.msg-content h3{font-size:15px}\n'
+            + '.msg-content h4{font-size:14px}\n'
+            + '.msg-content ul,.msg-content ol{margin:6px 0;padding-left:22px}\n'
+            + '.msg-content li{margin:3px 0}\n'
+            + '.msg-content li>p{margin:0}\n'
+            + '.msg-content a{color:var(--accent)}\n'
+            + '.msg-content blockquote{margin:8px 0;padding:4px 12px;background:var(--bg-secondary);border-left:3px solid var(--accent-dim);border-radius:0 4px 4px 0;color:var(--text-secondary)}\n'
+            + '.msg-content hr{margin:12px 0;border:none;border-top:1px solid var(--border)}\n'
+            + '.msg-content table{margin:8px 0;border-collapse:collapse;font-size:13px}\n'
+            + '.msg-content th,.msg-content td{border:1px solid var(--border);padding:5px 10px;text-align:left}\n'
+            + '.msg-content th{background:var(--bg-secondary);font-weight:600}\n'
+            + '.msg-content img{max-width:100%}\n'
+            + '.msg-content pre{margin:8px 0;background:var(--bg-secondary);border:1px solid var(--border);border-radius:4px;padding:8px;overflow-x:auto}\n'
+            + '.msg-content code{background:var(--bg-secondary);padding:1px 4px;border-radius:3px;font-family:Consolas,"Fira Code",monospace;font-size:13px}\n'
+            + '.reasoning-block{margin-bottom:8px;padding:8px;background:var(--bg-secondary);border-left:3px solid var(--accent-dim);border-radius:4px;font-size:12px;color:var(--text-secondary)}\n'
+            + '.reasoning-toggle{cursor:default;color:var(--accent);font-size:11px;user-select:none}\n'
+            + '.tool-calls-block{margin-top:8px;padding:8px;background:var(--bg-secondary);border-left:3px solid var(--accent-dim);border-radius:4px}\n'
+            + '.tool-calls-toggle{cursor:default;color:var(--accent);font-size:11px;user-select:none;margin-bottom:6px}\n'
             + '.tool-calls-list{display:flex;flex-direction:column;gap:4px}\n'
-            + '.tool-call-item{padding:6px 8px;background:#16213e;border-radius:4px;font-size:12px;border:1px solid #2a2a4a}\n'
-            + '.tool-call-item .tool-call-name{font-weight:600;color:#4fc3f7}\n'
-            + '.tool-call-item .tool-call-args{color:#a0a0a0;font-family:Consolas,"Fira Code",monospace;font-size:11px;white-space:pre-wrap}\n'
+            + '.tool-call-item{padding:6px 8px;background:var(--bg-secondary);border-radius:4px;font-size:12px;border:1px solid var(--border)}\n'
+            + '.tool-call-item .tool-call-name{font-weight:600;color:var(--accent)}\n'
+            + '.tool-call-item .tool-call-args{color:var(--text-secondary);font-family:Consolas,"Fira Code",monospace;font-size:11px;white-space:pre-wrap}\n'
             + '.msg-actions{display:none}\n'
             + '</style>\n</head>\n<body>\n'
             + '<div id="export-header"><h1>HsChat - ' + t + '</h1><div class="export-meta">Exported on ' + new Date().toISOString().split('T')[0] + ' | ' + count + ' messages</div></div>\n'
