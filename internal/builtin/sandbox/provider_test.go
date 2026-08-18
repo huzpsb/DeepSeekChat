@@ -205,6 +205,47 @@ func TestSearchName_InvalidRegex(t *testing.T) {
 	}
 }
 
+func TestSearchName_PlainStarCoercedToGlob(t *testing.T) {
+	root := t.TempDir()
+	os.WriteFile(filepath.Join(root, "AtomNotesPreviewHandler.java"), nil, 0644)
+	os.WriteFile(filepath.Join(root, "bar.txt"), nil, 0644)
+
+	p := &Provider{rootDir: root}
+
+	// plain query containing "*" is treated as glob, with a warning
+	result := p.searchName(map[string]any{"query": "*Handler*.java", "dir": root})
+	if !strings.Contains(result, "AtomNotesPreviewHandler.java") {
+		t.Fatalf("expected AtomNotesPreviewHandler.java, got %q", result)
+	}
+	if strings.Contains(result, "bar.txt") {
+		t.Fatalf("expected bar.txt NOT to match, got %q", result)
+	}
+	if !strings.Contains(result, "WARNING") {
+		t.Fatalf("expected glob coercion warning, got %q", result)
+	}
+
+	// explicit glob: same match, no warning
+	result = p.searchName(map[string]any{"query": "*Handler*.java", "type": "glob", "dir": root})
+	if !strings.Contains(result, "AtomNotesPreviewHandler.java") {
+		t.Fatalf("expected AtomNotesPreviewHandler.java, got %q", result)
+	}
+	if strings.Contains(result, "WARNING") {
+		t.Fatalf("expected no warning for explicit glob, got %q", result)
+	}
+}
+
+func TestSearchName_NoMatches(t *testing.T) {
+	root := t.TempDir()
+	os.WriteFile(filepath.Join(root, "foo.go"), nil, 0644)
+
+	p := &Provider{rootDir: root}
+
+	result := p.searchName(map[string]any{"query": "zzz", "dir": root})
+	if !strings.Contains(result, "No matches found.") {
+		t.Fatalf("expected no-matches message, got %q", result)
+	}
+}
+
 func TestSearchContentPlaintext_UsesKeyword(t *testing.T) {
 	root := t.TempDir()
 	os.WriteFile(filepath.Join(root, "a.txt"), []byte("hello world\nfoo bar\nbaz qux"), 0644)

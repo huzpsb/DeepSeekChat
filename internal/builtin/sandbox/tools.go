@@ -256,6 +256,13 @@ func (p *Provider) searchName(args map[string]any) string {
 	if v, ok := args["type"].(string); ok && v != "" {
 		matchType = v
 	}
+	globWarn := false
+	if matchType == "plain" && strings.Contains(query, "*") {
+		// "*" cannot be part of a file name on Windows; the query is
+		// almost certainly intended as a glob pattern.
+		matchType = "glob"
+		globWarn = true
+	}
 	dirStr := "/"
 	if v, ok := args["dir"].(string); ok {
 		dirStr = v
@@ -282,8 +289,11 @@ func (p *Provider) searchName(args map[string]any) string {
 	var out strings.Builder
 	count := 0
 	_ = filepath.Walk(path, func(fp string, info os.FileInfo, err error) error {
-		if err != nil || count >= limit {
+		if err != nil {
 			return nil
+		}
+		if count >= limit {
+			return filepath.SkipAll
 		}
 		if IsIgnoredName(info.Name()) {
 			if info.IsDir() {
@@ -307,7 +317,14 @@ func (p *Provider) searchName(args map[string]any) string {
 		}
 		return nil
 	})
-	return out.String()
+	result := out.String()
+	if result == "" {
+		result = "No matches found."
+	}
+	if globWarn {
+		result += "\nWARNING: query contains \"*\" which cannot be part of a file name; treated as glob. Set type=\"glob\" explicitly to silence this warning."
+	}
+	return result
 }
 
 func (p *Provider) searchContentPlaintext(args map[string]any) string {
