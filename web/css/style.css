@@ -1266,8 +1266,9 @@ html, body {
     background: var(--bg-secondary);
     border: 1px solid var(--border);
     border-radius: 8px;
-    width: 420px;
+    width: 600px;
     max-width: calc(100vw - 32px);
+    max-height: calc(100vh - 32px);
     display: flex;
     flex-direction: column;
 }
@@ -1294,6 +1295,7 @@ html, body {
 
 #preferences-body {
     padding: 16px;
+    overflow-y: auto;
 }
 
 .pref-group {
@@ -1466,6 +1468,9 @@ html, body {
     flex-direction: column;
     gap: 4px;
     min-width: 55%;
+    max-height: 180px;
+    overflow-y: auto;
+    padding-right: 4px;
 }
 
 .pref-root-dir-item {
