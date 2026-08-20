@@ -249,10 +249,11 @@ body {
     box-shadow: var(--shadow-card);
 }
 
-/* system: quiet centered pill */
+/* system: quiet centered chip (moderate radius so long multi-line
+   text doesn't collide with the curved corners) */
 .message.role-system {
-    border-radius: 999px;
-    padding: 6px 18px;
+    border-radius: var(--radius-lg);
+    padding: 8px 16px;
     box-shadow: none;
     font-size: 12px;
 }
