@@ -25,7 +25,6 @@ type Server struct {
 	mode     string
 	mux      *http.ServeMux
 	staticFS embed.FS
-	config   *model.MCPConfig
 	mcpMgr   *mcp.Manager
 	engine   *engine.StreamEngine
 }
@@ -35,16 +34,14 @@ func New(staticFS embed.FS) *Server {
 		fmt.Printf("failed to init log: %v\n", err)
 	}
 
-	cfg, err := storage.LoadConfig()
-	if err != nil {
-		cfg = &model.MCPConfig{}
-	}
-
 	mcpMgr := mcp.NewManager()
 	if err := mcpMgr.LoadAndConnect(); err != nil {
 		log.Printf("MCP init warning: %v", err)
 	}
 
+	// The MCP Manager is the single owner of the app config; the server
+	// reads it via mcpMgr.Config() and mutates it via mcpMgr.UpdateConfig().
+	cfg := mcpMgr.Config()
 	endpoint, apiKey, modelName := cfg.ResolveModel()
 	client := llm.NewClient(endpoint, apiKey, modelName)
 
@@ -52,7 +49,6 @@ func New(staticFS embed.FS) *Server {
 		mode:     "readonly",
 		mux:      http.NewServeMux(),
 		staticFS: staticFS,
-		config:   cfg,
 		mcpMgr:   mcpMgr,
 		engine:   engine.Init(client, mcpMgr),
 	}
@@ -61,8 +57,8 @@ func New(staticFS embed.FS) *Server {
 }
 
 func (s *Server) Port() int {
-	if s.config != nil && s.config.Port > 0 {
-		return s.config.Port
+	if cfg := s.mcpMgr.Config(); cfg.Port > 0 {
+		return cfg.Port
 	}
 	return 5234
 }
@@ -139,18 +135,19 @@ type providerInfo struct {
 }
 
 func (s *Server) configResponse() map[string]any {
-	providers := make([]providerInfo, 0, len(s.config.ModelProviders))
-	for _, p := range s.config.ModelProviders {
+	cfg := s.mcpMgr.Config()
+	providers := make([]providerInfo, 0, len(cfg.ModelProviders))
+	for _, p := range cfg.ModelProviders {
 		providers = append(providers, providerInfo{Name: p.Name, Models: p.Models})
 	}
-	rootDirs := s.config.Sandbox.RootDirs
+	rootDirs := cfg.Sandbox.RootDirs
 	if len(rootDirs) == 0 {
 		rootDirs = []string{"./agent"}
 	}
 	return map[string]any{
 		"root_dirs": rootDirs,
-		"provider":  s.config.Provider,
-		"model":     s.config.Model,
+		"provider":  cfg.Provider,
+		"model":     cfg.Model,
 		"providers": providers,
 	}
 }
@@ -170,45 +167,11 @@ func (s *Server) handleSetConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Provider != nil {
-		p := s.config.FindProvider(*req.Provider)
-		if p == nil {
-			s.writeError(w, "unknown provider", http.StatusBadRequest)
-			return
-		}
-		s.config.Provider = p.Name
-		valid := false
-		for _, m := range p.Models {
-			if m == s.config.Model {
-				valid = true
-				break
-			}
-		}
-		if !valid && len(p.Models) > 0 {
-			s.config.Model = p.Models[0]
-		}
-	}
-
-	if req.Model != nil {
-		p := s.config.SelectedProvider()
-		valid := false
-		if p != nil {
-			for _, m := range p.Models {
-				if m == *req.Model {
-					valid = true
-					break
-				}
-			}
-		}
-		if !valid {
-			s.writeError(w, "unknown model", http.StatusBadRequest)
-			return
-		}
-		s.config.Model = *req.Model
-	}
-
+	// Validate + compute root dirs up front (pure, no config mutation), and
+	// apply the runtime switch before saving so a SetRootDir failure leaves
+	// both config and disk untouched.
+	var dirs []string
 	if req.RootDirs != nil {
-		var dirs []string
 		seen := map[string]bool{}
 		for _, d := range *req.RootDirs {
 			d = strings.TrimSpace(d)
@@ -232,17 +195,68 @@ func (s *Server) handleSetConfig(w http.ResponseWriter, r *http.Request) {
 			s.writeError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		s.config.Sandbox.RootDirs = dirs
 	}
 
-	if err := storage.SaveConfig(s.config); err != nil {
+	// Mutate + persist atomically under the Manager's write lock. valErr
+	// distinguishes a client-caused validation failure (400) from a save
+	// failure (500).
+	var valErr error
+	err := s.mcpMgr.UpdateConfig(func(cfg *model.MCPConfig) error {
+		if req.Provider != nil {
+			p := cfg.FindProvider(*req.Provider)
+			if p == nil {
+				valErr = fmt.Errorf("unknown provider")
+				return valErr
+			}
+			cfg.Provider = p.Name
+			valid := false
+			for _, m := range p.Models {
+				if m == cfg.Model {
+					valid = true
+					break
+				}
+			}
+			if !valid && len(p.Models) > 0 {
+				cfg.Model = p.Models[0]
+			}
+		}
+
+		if req.Model != nil {
+			p := cfg.SelectedProvider()
+			valid := false
+			if p != nil {
+				for _, m := range p.Models {
+					if m == *req.Model {
+						valid = true
+						break
+					}
+				}
+			}
+			if !valid {
+				valErr = fmt.Errorf("unknown model")
+				return valErr
+			}
+			cfg.Model = *req.Model
+		}
+
+		if req.RootDirs != nil {
+			cfg.Sandbox.RootDirs = dirs
+		}
+		return nil
+	})
+	if valErr != nil {
+		s.writeError(w, valErr.Error(), http.StatusBadRequest)
+		return
+	}
+	if err != nil {
 		s.writeError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	endpoint, apiKey, modelName := s.config.ResolveModel()
+	cfg := s.mcpMgr.Config()
+	endpoint, apiKey, modelName := cfg.ResolveModel()
 	s.engine.SetClient(llm.NewClient(endpoint, apiKey, modelName))
-	log.Printf("[server] config_updated root_dirs=%q provider=%q model=%q\n", s.config.Sandbox.RootDirs, s.config.Provider, s.config.Model)
+	log.Printf("[server] config_updated root_dirs=%q provider=%q model=%q\n", cfg.Sandbox.RootDirs, cfg.Provider, cfg.Model)
 	s.writeJSON(w, s.configResponse())
 }
 
@@ -269,11 +283,12 @@ func (s *Server) handleCreateChat(w http.ResponseWriter, r *http.Request) {
 	}
 	req.RootDir = strings.TrimSpace(req.RootDir)
 
+	cfg := s.mcpMgr.Config()
 	var messages []model.Message
-	if s.config.DefaultPrompt != "" {
+	if cfg.DefaultPrompt != "" {
 		messages = append(messages, model.Message{
 			Role:         "system",
-			Content:      s.config.DefaultPrompt,
+			Content:      cfg.DefaultPrompt,
 			SendToServer: true,
 		})
 	}
@@ -282,11 +297,11 @@ func (s *Server) handleCreateChat(w http.ResponseWriter, r *http.Request) {
 		Messages: messages,
 	}
 	if req.RootDir != "" {
-		if !s.config.Sandbox.HasRootDir(req.RootDir) {
+		if !cfg.Sandbox.HasRootDir(req.RootDir) {
 			s.writeError(w, "root dir not in configured list", http.StatusBadRequest)
 			return
 		}
-		if req.RootDir == s.config.Sandbox.DefaultRootDir() {
+		if req.RootDir == cfg.Sandbox.DefaultRootDir() {
 			chat.RootDir = ""
 		} else {
 			chat.RootDir = req.RootDir
@@ -308,7 +323,8 @@ func (s *Server) handleGetChat(w http.ResponseWriter, r *http.Request) {
 	}
 	rootDir := chat.RootDir
 	if rootDir == "" {
-		rootDir = s.config.Sandbox.DefaultRootDir()
+		cfg := s.mcpMgr.Config()
+		rootDir = cfg.Sandbox.DefaultRootDir()
 	}
 	s.writeJSON(w, map[string]any{
 		"title":        chat.Title,
@@ -380,7 +396,8 @@ func (s *Server) handleSetChatRootDir(w http.ResponseWriter, r *http.Request) {
 	}
 	req.RootDir = strings.TrimSpace(req.RootDir)
 
-	if !s.config.Sandbox.HasRootDir(req.RootDir) {
+	cfg := s.mcpMgr.Config()
+	if !cfg.Sandbox.HasRootDir(req.RootDir) {
 		s.writeError(w, "root dir not in configured list", http.StatusBadRequest)
 		return
 	}
@@ -393,7 +410,7 @@ func (s *Server) handleSetChatRootDir(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, err.Error(), http.StatusNotFound)
 		return
 	}
-	if req.RootDir == s.config.Sandbox.DefaultRootDir() {
+	if req.RootDir == cfg.Sandbox.DefaultRootDir() {
 		chat.RootDir = ""
 	} else {
 		chat.RootDir = req.RootDir

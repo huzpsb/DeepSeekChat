@@ -37,9 +37,32 @@ type Manager struct {
 
 func NewManager() *Manager {
 	return &Manager{
+		config:   &model.MCPConfig{},
 		clients:  make(map[string]Client),
 		allTools: make(map[string][]model.ToolDef),
 	}
+}
+
+// Config returns a copy of the current configuration. Slice fields share
+// their backing arrays with the live config, so the result must be treated
+// as read-only (all writers replace slices wholesale, never mutate in
+// place, so the copy is race-safe).
+func (m *Manager) Config() model.MCPConfig {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return *m.config
+}
+
+// UpdateConfig applies fn to the live config under the write lock and
+// persists the result. If fn returns an error, nothing is mutated or
+// saved by the Manager beyond what fn itself did before failing.
+func (m *Manager) UpdateConfig(fn func(*model.MCPConfig) error) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := fn(m.config); err != nil {
+		return err
+	}
+	return storage.SaveConfig(m.config)
 }
 
 func (m *Manager) LoadAndConnect() error {
@@ -47,7 +70,9 @@ func (m *Manager) LoadAndConnect() error {
 	if err != nil {
 		return err
 	}
+	m.mu.Lock()
 	m.config = cfg
+	m.mu.Unlock()
 
 	for _, srv := range m.config.MCPServers {
 		if err := m.connectServer(srv); err != nil {
