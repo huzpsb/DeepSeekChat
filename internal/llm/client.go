@@ -50,6 +50,11 @@ func NewClient(endpoint, apiKey, model string) *Client {
 	}
 }
 
+// Endpoint and Model expose the client's fixed configuration (captured at
+// construction; a config change means a new Client).
+func (c *Client) Endpoint() string { return c.endpoint }
+func (c *Client) Model() string    { return c.model }
+
 func (c *Client) StreamChat(ctx context.Context, messages []model.Message, tools []model.ToolDef, onEvent func(StreamEvent)) error {
 	messages = maybeReplaceSystemPrompt(messages)
 	apiMessages := buildAPIMessages(messages)

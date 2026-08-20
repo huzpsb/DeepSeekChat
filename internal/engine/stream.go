@@ -67,7 +67,8 @@ func (e *StreamEngine) SetClient(client *llm.Client) {
 	e.client = client
 }
 
-func (e *StreamEngine) getClient() *llm.Client {
+// Client returns the LLM client used by subsequent inference runs.
+func (e *StreamEngine) Client() *llm.Client {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return e.client
@@ -319,7 +320,7 @@ func (e *StreamEngine) run(sess *Session, ctx context.Context, cancel context.Ca
 		log.Printf("[stream] saved title=%q events=%d saved_pos=%d gen=%d messages=%d last=%s\n", title, len(sess.events), sess.savedPos, sess.gen, len(chat.Messages), describeLastMessage(chat))
 	}
 
-	engine := cont.NewEngine(e.getClient(), mode, e.mcpMgr, save)
+	engine := cont.NewEngine(e.Client(), mode, e.mcpMgr, save)
 
 	interrupted := func() bool {
 		sess.mu.Lock()

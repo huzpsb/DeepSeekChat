@@ -620,6 +620,14 @@ func (s *Server) handleMCPReload(w http.ResponseWriter, _ *http.Request) {
 		s.writeError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	// Reload re-read the config from disk; rebuild the LLM client so
+	// provider/model/key edits take effect as well. Otherwise the UI would
+	// show the new provider (GET /api/config reads the fresh config) while
+	// inference silently keeps using the old endpoint.
+	cfg := s.mcpMgr.Config()
+	endpoint, apiKey, modelName := cfg.ResolveModel()
+	s.engine.SetClient(llm.NewClient(endpoint, apiKey, modelName))
+	log.Printf("[server] mcp_reloaded provider=%q model=%q\n", cfg.Provider, cfg.Model)
 	s.writeJSON(w, map[string]bool{"ok": true})
 }
 
