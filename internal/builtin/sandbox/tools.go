@@ -140,13 +140,13 @@ func (p *Provider) CallTool(ctx context.Context, name string, args map[string]an
 
 	switch name {
 	case "tree":
-		result = p.tree(args)
+		result = p.tree(ctx, args)
 	case "search_name":
-		result = p.searchName(args)
+		result = p.searchName(ctx, args)
 	case "search_content_plaintext":
-		result = p.searchContentPlaintext(args)
+		result = p.searchContentPlaintext(ctx, args)
 	case "search_content_advanced":
-		result = p.searchContentAdvanced(args)
+		result = p.searchContentAdvanced(ctx, args)
 	case "read_content":
 		result = p.readContent(args)
 	case "replace_content":
@@ -183,7 +183,13 @@ func unifyNewlines(s string) string {
 	return s
 }
 
-func (p *Provider) tree(args map[string]any) string {
+// walkInterrupted reports whether err came from a context cancellation
+// propagated out of filepath.Walk.
+func walkInterrupted(ctx context.Context, err error) bool {
+	return err != nil && ctx.Err() != nil
+}
+
+func (p *Provider) tree(ctx context.Context, args map[string]any) string {
 	depth := 2
 	if v, ok := args["depth"].(float64); ok {
 		depth = int(v)
@@ -208,7 +214,10 @@ func (p *Provider) tree(args map[string]any) string {
 
 	var out strings.Builder
 	lineCount := 0
-	_ = filepath.Walk(path, func(fp string, info os.FileInfo, err error) error {
+	walkErr := filepath.Walk(path, func(fp string, info os.FileInfo, err error) error {
+		if cerr := ctx.Err(); cerr != nil {
+			return cerr
+		}
 		if err != nil {
 			return nil
 		}
@@ -235,6 +244,9 @@ func (p *Provider) tree(args map[string]any) string {
 		return nil
 	})
 
+	if walkInterrupted(ctx, walkErr) {
+		return "Error: tree interrupted (cancelled)"
+	}
 	if lineCount > limit {
 		return fmt.Sprintf("line limit exceeded (%d > %d)", lineCount, limit)
 	}
@@ -250,11 +262,29 @@ func (p *Provider) tree(args map[string]any) string {
 	return result
 }
 
-func (p *Provider) searchName(args map[string]any) string {
+// stripRegexPrefix removes a leading "regex:" prefix (case-insensitive)
+// that callers frequently prepend to queries instead of setting
+// type="regex". It reports whether the prefix was present.
+func stripRegexPrefix(query string) (string, bool) {
+	const prefix = "regex:"
+	if len(query) > len(prefix) && strings.EqualFold(query[:len(prefix)], prefix) {
+		return query[len(prefix):], true
+	}
+	return query, false
+}
+
+func (p *Provider) searchName(ctx context.Context, args map[string]any) string {
 	query, _ := args["query"].(string)
 	matchType := "plain"
+	typeExplicit := false
 	if v, ok := args["type"].(string); ok && v != "" {
 		matchType = v
+		typeExplicit = true
+	}
+	var hasRegexPrefix bool
+	query, hasRegexPrefix = stripRegexPrefix(query)
+	if hasRegexPrefix && !typeExplicit {
+		matchType = "regex"
 	}
 	globWarn := false
 	if matchType == "plain" && strings.Contains(query, "*") {
@@ -288,7 +318,10 @@ func (p *Provider) searchName(args map[string]any) string {
 
 	var out strings.Builder
 	count := 0
-	_ = filepath.Walk(path, func(fp string, info os.FileInfo, err error) error {
+	walkErr := filepath.Walk(path, func(fp string, info os.FileInfo, err error) error {
+		if cerr := ctx.Err(); cerr != nil {
+			return cerr
+		}
 		if err != nil {
 			return nil
 		}
@@ -317,6 +350,9 @@ func (p *Provider) searchName(args map[string]any) string {
 		}
 		return nil
 	})
+	if walkInterrupted(ctx, walkErr) {
+		return "Error: search interrupted (cancelled)"
+	}
 	result := out.String()
 	if result == "" {
 		result = "No matches found."
@@ -327,24 +363,33 @@ func (p *Provider) searchName(args map[string]any) string {
 	return result
 }
 
-func (p *Provider) searchContentPlaintext(args map[string]any) string {
+func (p *Provider) searchContentPlaintext(ctx context.Context, args map[string]any) string {
 	keyword, _ := args["keyword"].(string)
-	return p.searchContentImpl(keyword, "plain", args)
+	// plaintext stays plain substring matching; just tolerate the prefix.
+	keyword, _ = stripRegexPrefix(keyword)
+	return p.searchContentImpl(ctx, keyword, "plain", args)
 }
 
-func (p *Provider) searchContentAdvanced(args map[string]any) string {
+func (p *Provider) searchContentAdvanced(ctx context.Context, args map[string]any) string {
 	query, _ := args["query"].(string)
 	matchType := "glob"
+	typeExplicit := false
 	if v, ok := args["type"].(string); ok && v != "" {
 		matchType = v
+		typeExplicit = true
+	}
+	var hasRegexPrefix bool
+	query, hasRegexPrefix = stripRegexPrefix(query)
+	if hasRegexPrefix && !typeExplicit {
+		matchType = "regex"
 	}
 	if matchType != "glob" && matchType != "regex" {
 		return "Error: type must be \"glob\" or \"regex\""
 	}
-	return p.searchContentImpl(query, matchType, args)
+	return p.searchContentImpl(ctx, query, matchType, args)
 }
 
-func (p *Provider) searchContentImpl(query, matchType string, args map[string]any) string {
+func (p *Provider) searchContentImpl(ctx context.Context, query, matchType string, args map[string]any) string {
 	fileGlob := "*"
 	if v, ok := args["file_glob"].(string); ok {
 		fileGlob = v
@@ -380,7 +425,10 @@ func (p *Provider) searchContentImpl(query, matchType string, args map[string]an
 	var buf strings.Builder
 	filesFound := 0
 
-	_ = filepath.Walk(path, func(fp string, info os.FileInfo, err error) error {
+	walkErr := filepath.Walk(path, func(fp string, info os.FileInfo, err error) error {
+		if cerr := ctx.Err(); cerr != nil {
+			return cerr
+		}
 		if err != nil {
 			return nil
 		}
@@ -457,6 +505,9 @@ func (p *Provider) searchContentImpl(query, matchType string, args map[string]an
 		return nil
 	})
 
+	if walkInterrupted(ctx, walkErr) {
+		return "Error: search interrupted (cancelled)"
+	}
 	result := buf.String()
 	if result == "" {
 		result = "No matches found."

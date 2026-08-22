@@ -37,6 +37,9 @@ func (p *Provider) runShellToolWithLimit(ctx context.Context, tool model.ShellTo
 
 	if !rawEnabled && len(p.fileBlacklist) > 0 {
 		checkErr := filepath.Walk(rootDir, func(fp string, info os.FileInfo, err error) error {
+			if cerr := ctx.Err(); cerr != nil {
+				return cerr
+			}
 			if err != nil {
 				return nil
 			}
