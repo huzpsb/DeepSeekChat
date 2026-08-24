@@ -1,5 +1,9 @@
 {
     "themes": [
-        { "name": "light", "label": "Light", "js": false }
+        {
+            "name": "light",
+            "label": "Light",
+            "js": false
+        }
     ]
 }

@@ -225,17 +225,25 @@ var Messages = {
 
     fetchDataUrl: function (url) {
         return fetch(url)
-            .then(function (r) { return r.ok ? r.blob() : null; })
+            .then(function (r) {
+                return r.ok ? r.blob() : null;
+            })
             .then(function (blob) {
                 if (!blob) return null;
                 return new Promise(function (resolve) {
                     var fr = new FileReader();
-                    fr.onload = function () { resolve(fr.result); };
-                    fr.onerror = function () { resolve(null); };
+                    fr.onload = function () {
+                        resolve(fr.result);
+                    };
+                    fr.onerror = function () {
+                        resolve(null);
+                    };
                     fr.readAsDataURL(blob);
                 });
             })
-            .catch(function () { return null; });
+            .catch(function () {
+                return null;
+            });
     },
 
     // Copy the app's real stylesheets so the export looks exactly like the

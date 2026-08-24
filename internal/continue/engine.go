@@ -74,11 +74,15 @@ func (e *Engine) Continue(ctx context.Context, chat *model.Chat, input string, a
 		}
 	}
 
-	e.doContinue(ctx, chat, autoContinue, emit, interrupted)
+	e.doContinue(ctx, chat, autoContinue, false, emit, interrupted)
 	logContinue("continue_end messages=%d last=%s", len(chat.Messages), describeLastMessage(chat))
 }
 
-func (e *Engine) doContinue(ctx context.Context, chat *model.Chat, autoContinue bool, emit func(ContinueEvent), interrupted func() bool) {
+// doContinue routes on the last message's role. auto reports whether this
+// invocation comes from the auto-continue recursion (true) or from an
+// explicit user-triggered continue (false); only the manual entry may use
+// sudo's "resume writing" escape hatch (see continueAssistant).
+func (e *Engine) doContinue(ctx context.Context, chat *model.Chat, autoContinue bool, auto bool, emit func(ContinueEvent), interrupted func() bool) {
 	if len(chat.Messages) == 0 {
 		logContinue("do_continue_return reason=empty_chat")
 		return
@@ -104,8 +108,8 @@ func (e *Engine) doContinue(ctx context.Context, chat *model.Chat, autoContinue 
 		}
 
 	case "assistant":
-		logContinue("route_continue_assistant idx=%d tool_calls=%d", lastIdx, len(last.ToolCalls))
-		e.continueAssistant(ctx, chat, autoContinue, lastIdx, emit, interrupted)
+		logContinue("route_continue_assistant idx=%d tool_calls=%d auto=%v", lastIdx, len(last.ToolCalls), auto)
+		e.continueAssistant(ctx, chat, autoContinue, auto, lastIdx, emit, interrupted)
 
 	case "tool":
 		logContinue("route_continue_tool idx=%d tool_call_id=%q name=%q", lastIdx, last.ToolCallID, last.Name)
@@ -116,27 +120,38 @@ func (e *Engine) doContinue(ctx context.Context, chat *model.Chat, autoContinue 
 	}
 }
 
-func (e *Engine) continueAssistant(ctx context.Context, chat *model.Chat, autoContinue bool, idx int, emit func(ContinueEvent), interrupted func() bool) {
+func (e *Engine) continueAssistant(ctx context.Context, chat *model.Chat, autoContinue bool, auto bool, idx int, emit func(ContinueEvent), interrupted func() bool) {
 	if interrupted() {
 		logContinue("continue_assistant_return reason=interrupted idx=%d", idx)
 		return
 	}
 
 	msg := chat.Messages[idx]
-	logContinue("continue_assistant_start idx=%d mode=%s tool_calls=%d approved=%v content_len=%d reasoning_len=%d", idx, e.mode, len(msg.ToolCalls), msg.Approved, len(msg.Content), len(msg.ReasoningContent))
+	logContinue("continue_assistant_start idx=%d mode=%s auto=%v tool_calls=%d approved=%v content_len=%d reasoning_len=%d", idx, e.mode, auto, len(msg.ToolCalls), msg.Approved, len(msg.Content), len(msg.ReasoningContent))
 
 	if len(msg.ToolCalls) == 0 {
-		if e.mode == "sudo" {
+		// An assistant message without tool_calls is a natural stop in every
+		// mode. sudo's "resume writing" (treat it as unfinished and keep
+		// streaming) is a MANUAL-only escape hatch: if the auto-continue
+		// recursion entered it, every natural end block would trigger another
+		// unsolicited generation, looping forever and piling up consecutive
+		// end blocks that look like replies to empty user messages.
+		if e.mode == "sudo" && !auto {
 			logContinue("continue_assistant_no_tools_sudo_stream idx=%d", idx)
 			if err := e.streamDeepSeek(ctx, chat, emit, interrupted); err != nil {
 				logContinue("continue_assistant_sudo_stream_error idx=%d err=%q", idx, err.Error())
 				return
 			}
-			if autoContinue && len(chat.Messages) > 0 && chat.Messages[len(chat.Messages)-1].Role != "user" {
-				e.checkAutoContinue(ctx, chat, autoContinue, emit, interrupted)
+			// Resume-writing may itself produce tool calls; only then does
+			// the agent loop continue (a resumed bare answer stops again).
+			if autoContinue && len(chat.Messages) > 0 {
+				last := chat.Messages[len(chat.Messages)-1]
+				if last.Role == "assistant" && len(last.ToolCalls) > 0 {
+					e.checkAutoContinue(ctx, chat, autoContinue, emit, interrupted)
+				}
 			}
 		}
-		logContinue("continue_assistant_return reason=no_tool_calls idx=%d mode=%s", idx, e.mode)
+		logContinue("continue_assistant_return reason=no_tool_calls idx=%d mode=%s auto=%v", idx, e.mode, auto)
 		return
 	}
 
@@ -535,7 +550,7 @@ func (e *Engine) streamDeepSeek(ctx context.Context, chat *model.Chat, emit func
 func (e *Engine) checkAutoContinue(ctx context.Context, chat *model.Chat, autoContinue bool, emit func(ContinueEvent), interrupted func() bool) {
 	if autoContinue && !interrupted() {
 		logContinue("auto_continue_enter messages=%d last=%s", len(chat.Messages), describeLastMessage(chat))
-		e.doContinue(ctx, chat, true, emit, interrupted)
+		e.doContinue(ctx, chat, true, true, emit, interrupted)
 	} else {
 		logContinue("auto_continue_skip auto_continue=%v interrupted=%v messages=%d last=%s", autoContinue, interrupted(), len(chat.Messages), describeLastMessage(chat))
 	}

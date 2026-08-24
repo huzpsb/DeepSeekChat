@@ -1467,6 +1467,57 @@ func TestContinue_LastAssistant_NoToolCalls_NonSudo_Noop(t *testing.T) {
 	}
 }
 
+func TestContinue_SudoAutoContinue_StopsAtEndBlock(t *testing.T) {
+	// An assistant message without tool_calls is a natural stop in every
+	// mode — including sudo — when reached via the auto-continue recursion.
+	// Otherwise every end block would trigger another unsolicited
+	// generation, looping forever and piling up consecutive end blocks.
+	engine := newTestEngine("sudo", nil)
+	chat := &model.Chat{Messages: []model.Message{
+		makeUserMsg("hello"),
+		makeAssistantMsg("final answer", nil),
+	}}
+	var events []ContinueEvent
+	engine.doContinue(context.Background(), chat, true, true, func(evt ContinueEvent) {
+		events = append(events, evt)
+	}, func() bool { return false })
+	if len(events) != 0 {
+		t.Errorf("expected 0 events for auto-continue into sudo end block, got %d", len(events))
+	}
+	if len(chat.Messages) != 2 {
+		t.Errorf("expected messages unchanged, got %d", len(chat.Messages))
+	}
+}
+
+func TestContinue_SudoManualContinue_ResumeWriting(t *testing.T) {
+	// The manual entry keeps sudo's "resume writing": a user-triggered
+	// continue on an end block attempts a stream. The test client has no
+	// reachable endpoint, so the attempt surfaces as a deepseek_error and
+	// the placeholder assistant is rolled back — proving the stream was
+	// actually started (non-sudo/auto paths produce zero events instead).
+	engine := newTestEngine("sudo", nil)
+	chat := &model.Chat{Messages: []model.Message{
+		makeUserMsg("hello"),
+		makeAssistantMsg("truncated answer", nil),
+	}}
+	var events []ContinueEvent
+	engine.doContinue(context.Background(), chat, true, false, func(evt ContinueEvent) {
+		events = append(events, evt)
+	}, func() bool { return false })
+	foundStreamError := false
+	for _, e := range events {
+		if e.Type == "error" && e.Error != nil && e.Error.Type == "deepseek_error" {
+			foundStreamError = true
+		}
+	}
+	if !foundStreamError {
+		t.Errorf("expected deepseek_error proving manual resume-writing attempted a stream, got %+v", events)
+	}
+	if len(chat.Messages) != 2 {
+		t.Errorf("expected placeholder assistant rolled back, got %d messages", len(chat.Messages))
+	}
+}
+
 func TestContinue_LastAssistant_WithToolCalls_Invalid(t *testing.T) {
 	executor := &mockToolExecutor{
 		existingTools: map[string]bool{"nonexistent": false},

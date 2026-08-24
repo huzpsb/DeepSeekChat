@@ -47,14 +47,16 @@
 
     function fetchManifest() {
         return fetch(BASE + 'themes.json').then(function (r) {
-            return r.ok ? r.json() : { themes: [] };
+            return r.ok ? r.json() : {themes: []};
         }).catch(function () {
-            return { themes: [] };
+            return {themes: []};
         });
     }
 
     function findTheme(manifest, name) {
-        return (manifest.themes || []).find(function (t) { return t.name === name; }) || null;
+        return (manifest.themes || []).find(function (t) {
+            return t.name === name;
+        }) || null;
     }
 
     // After the app is fully loaded: inject the theme's script, if any.
@@ -75,7 +77,7 @@
         if (!sel) return;
         fetchManifest().then(function (manifest) {
             sel.innerHTML = '';
-            [{ name: 'default', label: 'Default' }].concat(manifest.themes || [])
+            [{name: 'default', label: 'Default'}].concat(manifest.themes || [])
                 .forEach(function (t) {
                     var opt = document.createElement('option');
                     opt.value = t.name;
@@ -105,5 +107,5 @@
     document.addEventListener('DOMContentLoaded', initThemeSelector);
     window.addEventListener('load', injectThemeScript);
 
-    window.DsTheme = { get: getTheme };
+    window.DsTheme = {get: getTheme};
 })();

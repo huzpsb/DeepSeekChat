@@ -40,13 +40,21 @@ type Client struct {
 }
 
 func NewClient(endpoint, apiKey, model string) *Client {
+	// No total http.Client.Timeout: it covers the streaming body read, so a
+	// long generation (a model emitting tens of thousands of reasoning tokens
+	// at ~200 tok/s needs minutes; 128K max_new_tokens needs more) would be
+	// cut off mid-stream — and a truncated body used to be reported by
+	// parseSSE as a normal "done". Only the wait for response headers is
+	// bounded; a broken or truncated stream is surfaced as an error by
+	// parseSSE, and mid-stream liveness is left to ctx cancellation (user
+	// interrupt).
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.ResponseHeaderTimeout = 2 * time.Minute
 	return &Client{
-		apiKey: apiKey,
-		httpClient: &http.Client{
-			Timeout: 5 * time.Minute,
-		},
-		endpoint: endpoint,
-		model:    model,
+		apiKey:     apiKey,
+		httpClient: &http.Client{Transport: transport},
+		endpoint:   endpoint,
+		model:      model,
 	}
 }
 
@@ -133,7 +141,9 @@ func (c *Client) StreamChat(ctx context.Context, messages []model.Message, tools
 		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	parseSSE(resp.Body, onEvent)
+	if err := parseSSE(resp.Body, onEvent); err != nil {
+		return fmt.Errorf("stream interrupted: %w", err)
+	}
 	return nil
 }
 
@@ -232,8 +242,15 @@ func padDeepSeekAssistantReasoning(apiMessages []map[string]any) {
 	}
 }
 
-func parseSSE(body io.Reader, onEvent func(StreamEvent)) {
+// parseSSE consumes the event stream until [DONE] or EOF. A read error
+// (connection dropped, body truncated, line over the buffer limit) is
+// returned as an error — it must NOT be mistaken for a clean completion,
+// or a truncated generation would look like a finished assistant message.
+func parseSSE(body io.Reader, onEvent func(StreamEvent)) error {
 	scanner := bufio.NewScanner(body)
+	// SSE lines are usually tiny, but a server may pack large deltas into a
+	// single data line; allow up to 4MB before erroring out.
+	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	var currentToolCall struct {
 		ID   string
 		Name string
@@ -251,7 +268,7 @@ func parseSSE(body io.Reader, onEvent func(StreamEvent)) {
 		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 		if data == "[DONE]" {
 			onEvent(StreamEvent{Type: "done"})
-			return
+			return nil
 		}
 
 		var chunk struct {
@@ -322,5 +339,9 @@ func parseSSE(body io.Reader, onEvent func(StreamEvent)) {
 		}
 	}
 
+	if err := scanner.Err(); err != nil {
+		return err
+	}
 	onEvent(StreamEvent{Type: "done"})
+	return nil
 }

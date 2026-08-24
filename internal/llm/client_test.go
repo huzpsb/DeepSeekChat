@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -217,17 +218,52 @@ data: {"choices":[{"delta":{"content":"hello"}}]}
 	}
 }
 
-func TestParseSSE_EmitsDoneOnScannerError(t *testing.T) {
-	// parseSSE always emits a "done" event at the end, even after scanner errors
-	// The scanner silently continues past errors
+// errReader returns the prefix once, then fails — simulating a connection
+// dropped mid-stream.
+type errReader struct {
+	data string
+	done bool
+}
+
+func (r *errReader) Read(p []byte) (int, error) {
+	if r.done {
+		return 0, errors.New("connection reset")
+	}
+	r.done = true
+	return copy(p, r.data), nil
+}
+
+func TestParseSSE_ReturnsErrorOnStreamError(t *testing.T) {
+	// A truncated stream must surface as an error, not a clean "done" —
+	// otherwise a cut-off generation looks like a finished assistant message.
+	input := `data: {"choices":[{"delta":{"content":"hello"}}]}
+
+`
+	var events []StreamEvent
+	err := parseSSE(&errReader{data: input}, func(evt StreamEvent) {
+		events = append(events, evt)
+	})
+	if err == nil {
+		t.Fatal("expected error from broken stream, got nil")
+	}
+	for _, e := range events {
+		if e.Type == "done" {
+			t.Error("broken stream must not emit done")
+		}
+	}
+}
+
+func TestParseSSE_DoneMarkerEmitsDone(t *testing.T) {
 	input := `data: [DONE]
 `
 
 	var events []StreamEvent
-	parseSSE(strings.NewReader(input), func(evt StreamEvent) {
+	err := parseSSE(strings.NewReader(input), func(evt StreamEvent) {
 		events = append(events, evt)
 	})
-
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if len(events) != 1 || events[0].Type != "done" {
 		t.Errorf("expected single [DONE] event, got %d events: %+v", len(events), events)
 	}

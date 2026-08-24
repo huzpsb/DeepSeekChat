@@ -181,7 +181,7 @@ body {
     color: var(--text-secondary);
     font-weight: 500;
     transition: background-color var(--transition), color var(--transition),
-        border-color var(--transition);
+    border-color var(--transition);
 }
 
 #btn-validate:hover,
@@ -372,7 +372,7 @@ body {
     border-radius: var(--radius-md);
     padding: 10px 14px;
     transition: border-color var(--transition), box-shadow var(--transition),
-        background-color var(--transition);
+    background-color var(--transition);
 }
 
 #user-input:focus {
@@ -438,7 +438,7 @@ body {
     background: var(--input-bg);
     border-radius: var(--radius-sm);
     transition: border-color var(--transition), box-shadow var(--transition),
-        background-color var(--transition);
+    background-color var(--transition);
 }
 
 .ask-user-answer:focus,
@@ -495,7 +495,7 @@ body {
 .tc-btn {
     border-radius: var(--radius-sm);
     transition: color var(--transition), border-color var(--transition),
-        background-color var(--transition);
+    background-color var(--transition);
 }
 
 #editor-tc-insert:hover {

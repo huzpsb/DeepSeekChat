@@ -44,6 +44,49 @@
         'tool_result', 'user_added', 'assistant_done', 'error'
     ];
 
+    // ---- reasoning render throttle ----
+    //
+    // Long-CoT models (e.g. glm) stream tens of KB of reasoning at
+    // ~200 deltas/s. Re-parsing the whole accumulated markdown and
+    // rebuilding the DOM per delta is O(n^2) and freezes the page, so
+    // reasoning rendering is rate-limited (the ONLY throttled field:
+    // normal content/tool args have never reached pathological sizes).
+    // The buffer (contentEl.dataset.rawText) stays authoritative and is
+    // updated per delta; the DOM is a lossy view of it. There is no timer:
+    // dropped renders are picked up by the next delta, and the tail is
+    // guaranteed by flushReasoning() before every non-reasoning event.
+    var REASONING_RENDER_INTERVAL = 200; // ms (max ~5 fps)
+    var reasoningLastRenderAt = 0;
+    var reasoningPendingEl = null; // reasoning content el with unrendered text
+    var replaying = false;         // replayApplied: render synchronously
+
+    function renderReasoning(contentEl, force) {
+        var now = Date.now();
+        if (!force && now - reasoningLastRenderAt < REASONING_RENDER_INTERVAL) {
+            reasoningPendingEl = contentEl;
+            return false;
+        }
+        reasoningLastRenderAt = now;
+        reasoningPendingEl = null;
+        contentEl.innerHTML = marked.parse(contentEl.dataset.rawText || '');
+        return true;
+    }
+
+    // Renders any buffered reasoning text. Must run before applying any
+    // non-reasoning event (content delta, tool_call, tool_result,
+    // user_added, assistant_done, error) and before the streaming DOM is
+    // torn down — otherwise the stream tail stays invisible until the next
+    // history reload.
+    function flushReasoning() {
+        if (!reasoningPendingEl) return;
+        var el = reasoningPendingEl;
+        reasoningPendingEl = null;
+        reasoningLastRenderAt = Date.now();
+        if (el.isConnected) {
+            el.innerHTML = marked.parse(el.dataset.rawText || '');
+        }
+    }
+
     function showToast(msg) {
         var toast = document.getElementById('error-toast');
         if (!toast) {
@@ -117,6 +160,7 @@
         pending = [];
         applied = [];
         pendingErrors = [];
+        reasoningPendingEl = null;
         curGen = -1;
         setRunning(false);
     }
@@ -269,12 +313,22 @@
 
     function replayApplied() {
         resetStreamDOM();
-        applied.forEach(function (a) {
-            applyEvent(a.type, a.evt, false, 0);
-        });
+        // Replay applies merged segments back to back; the throttle's time
+        // check would drop all but the first, so replay renders are forced
+        // and the tail is flushed explicitly.
+        replaying = true;
+        try {
+            applied.forEach(function (a) {
+                applyEvent(a.type, a.evt, false, 0);
+            });
+        } finally {
+            replaying = false;
+        }
+        flushReasoning();
     }
 
     function resetStreamDOM() {
+        reasoningPendingEl = null;
         var container = document.getElementById('messages');
         container.querySelectorAll('.stream-live').forEach(function (el) {
             el.remove();
@@ -292,12 +346,17 @@
     }
 
     function applyEvent(type, evt, record, seq) {
+        // Any event that is not a reasoning delta must see the reasoning
+        // buffer fully rendered first (stream tail + block ordering).
+        if (type !== 'reasoning_delta') {
+            flushReasoning();
+        }
         switch (type) {
             case 'delta':
                 appendToAssistant(evt.content || '', 'content');
                 break;
             case 'reasoning_delta':
-                appendToAssistant(evt.content || '', 'reasoning');
+                appendToAssistant(evt.content || '', 'reasoning', replaying);
                 break;
             case 'tool_call':
                 if (evt.tool_call && !(window.NoobMode && window.NoobMode.isActive())) {
@@ -461,7 +520,7 @@
         return currentAssistant;
     }
 
-    function appendToAssistant(text, field) {
+    function appendToAssistant(text, field, force) {
         var el = getOrCreateAssistant();
         if (field === 'reasoning') {
             var reasoningEl = el.querySelector('.reasoning-block');
@@ -491,22 +550,27 @@
                 el.appendChild(reasoningEl);
             }
             var contentEl = reasoningEl.querySelector('.reasoning-content');
+            // The buffer is always updated; only the DOM write is throttled.
             contentEl.dataset.rawText = (contentEl.dataset.rawText || '') + text;
-            contentEl.innerHTML = marked.parse(contentEl.dataset.rawText);
-        } else {
-            // The reasoning block's content also carries .msg-content (for
-            // markdown typography) - exclude it, or content deltas would
-            // land inside the reasoning block.
-            var contentEl = el.querySelector('.msg-content:not(.reasoning-content)');
-            if (!contentEl) {
-                contentEl = document.createElement('div');
-                contentEl.className = 'msg-content';
-                contentEl.dataset.rawText = '';
-                el.appendChild(contentEl);
+            if (renderReasoning(contentEl, force)) {
+                scrollIfNearBottom(document.getElementById('messages'));
             }
-            contentEl.dataset.rawText = (contentEl.dataset.rawText || '') + text;
-            contentEl.innerHTML = marked.parse(contentEl.dataset.rawText);
+            return;
         }
+        // The reasoning block's content also carries .msg-content (for
+        // markdown typography) - exclude it, or content deltas would
+        // land inside the reasoning block.
+        var contentEl = el.querySelector('.msg-content:not(.reasoning-content)');
+        if (!contentEl) {
+            contentEl = document.createElement('div');
+            contentEl.className = 'msg-content';
+            contentEl.dataset.rawText = '';
+            el.appendChild(contentEl);
+        }
+        // Content is NOT throttled: only reasoning reaches pathological
+        // sizes in practice (long-CoT models); normal answers stay live.
+        contentEl.dataset.rawText = (contentEl.dataset.rawText || '') + text;
+        contentEl.innerHTML = marked.parse(contentEl.dataset.rawText);
         scrollIfNearBottom(document.getElementById('messages'));
     }
 
