@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -25,8 +26,11 @@ type Server struct {
 	mode     string
 	mux      *http.ServeMux
 	staticFS embed.FS
-	mcpMgr   *mcp.Manager
-	engine   *engine.StreamEngine
+	// indexHTML is web/index.html with the version placeholder already
+	// substituted; computed once at startup.
+	indexHTML []byte
+	mcpMgr    *mcp.Manager
+	engine    *engine.StreamEngine
 }
 
 func New(staticFS embed.FS) *Server {
@@ -51,6 +55,9 @@ func New(staticFS embed.FS) *Server {
 		staticFS: staticFS,
 		mcpMgr:   mcpMgr,
 		engine:   engine.Init(client, mcpMgr),
+	}
+	if data, err := staticFS.ReadFile("web/index.html"); err == nil {
+		s.indexHTML = bytes.ReplaceAll(data, []byte(versionPlaceholder), []byte(appVersion))
 	}
 	s.registerRoutes()
 	return s
@@ -874,6 +881,12 @@ func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
 		path = "web/index.html"
 	} else {
 		path = path[1:]
+	}
+
+	if path == "web/index.html" && s.indexHTML != nil {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(s.indexHTML)
+		return
 	}
 
 	data, err := s.staticFS.ReadFile(path)

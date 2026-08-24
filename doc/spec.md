@@ -19,10 +19,10 @@ LLM 流式接口。另有无头 CLI 模式（`main.go -prompt`）。
 
 ```go
 type Chat struct {
-    Title       string    // 唯一标识；文件名 = sanitize(title) + ".json"
-    RootDir     string    // 可选；空 = 用 config 默认根目录；注入 ctx 供沙盒工具使用
-    Messages    []Message
-    ContextSize int       // 最近一次请求的 prompt tokens，usage 事件到内存、随下次保存落盘
+Title       string // 唯一标识；文件名 = sanitize(title) + ".json"
+RootDir     string // 可选；空 = 用 config 默认根目录；注入 ctx 供沙盒工具使用
+Messages    []Message
+ContextSize int // 最近一次请求的 prompt tokens，usage 事件到内存、随下次保存落盘
 }
 ```
 
@@ -164,12 +164,12 @@ approved。
 
 ```go
 type Session struct {
-    running, interrupt bool
-    gen       int64              // 运行世代号：每次 StartInference +1
-    events    []ContinueEvent    // 本次 run 的事件日志（仅内存）
-    savedPos  int                // 事件日志中已落盘的前缀长度
-    cancel    context.CancelFunc
-    notify    chan struct{}      // 每次状态变化 close+换新，唤醒所有等待者
+running, interrupt bool
+gen       int64 // 运行世代号：每次 StartInference +1
+events    []ContinueEvent // 本次 run 的事件日志（仅内存）
+savedPos  int             // 事件日志中已落盘的前缀长度
+cancel    context.CancelFunc
+notify    chan struct{}      // 每次状态变化 close+换新，唤醒所有等待者
 }
 ```
 
