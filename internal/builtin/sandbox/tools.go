@@ -548,7 +548,7 @@ func (p *Provider) readContent(args map[string]any) string {
 		return fmt.Sprintf("Error: %v", err)
 	}
 
-	if stat, err := os.Stat(path); err == nil && stat.Size() > 1024*1024 {
+	if stat, err := os.Stat(path); err == nil && stat.Size() > 5*1024*1024 {
 		return "Error: file is larger than 1MB"
 	}
 
@@ -585,7 +585,7 @@ func (p *Provider) replaceContent(args map[string]any) string {
 		return fmt.Sprintf("Error: %v", err)
 	}
 
-	if stat, err := os.Stat(path); err == nil && stat.Size() > 1024*1024 {
+	if stat, err := os.Stat(path); err == nil && stat.Size() > 5*1024*1024 {
 		return "Error: file is larger than 1MB"
 	}
 

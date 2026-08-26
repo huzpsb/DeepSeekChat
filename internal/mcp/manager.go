@@ -552,9 +552,10 @@ func (m *Manager) ExecuteTool(ctx context.Context, fullName string, arguments st
 		args = map[string]any{}
 	}
 
-	// Protocol-layer auto-fix: rename aliased argument keys in place
-	// according to the tool's declared ArgAliases before dispatch.
-	if fixes := AutoFixArgs(toolDef, args); len(fixes) > 0 {
+	// Protocol-layer auto-fix: rename aliased argument keys and coerce
+	// value types in place (driven by the tool's declared ArgAliases and
+	// InputSchema) before dispatch.
+	if fixes := FixArgs(toolDef, args); len(fixes) > 0 {
 		log.Printf("MCP [%s] auto-fixed args for '%s': %v", mcpName, toolName, fixes)
 	}
 

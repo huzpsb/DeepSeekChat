@@ -99,6 +99,93 @@ func TestAutoFixArgs_NoopCases(t *testing.T) {
 	}
 }
 
+func schemaTool() *model.ToolDef {
+	return &model.ToolDef{
+		Name: "read_content",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"file":   map[string]any{"type": "string"},
+				"start":  map[string]any{"type": "integer", "default": 0},
+				"length": map[string]any{"type": "integer", "default": 2000},
+				"flag":   map[string]any{"type": "boolean"},
+				"tags":   map[string]any{"type": "array"},
+				"opts":   map[string]any{"type": "object"},
+			},
+			"required": []string{"file"},
+		},
+	}
+}
+
+func TestCoerceArgs_StringToInteger(t *testing.T) {
+	args := map[string]any{"file": "a.txt", "length": "30"}
+	fixes := CoerceArgs(schemaTool(), args)
+
+	if len(fixes) != 1 || fixes[0].Field != "length" || fixes[0].From != "string->integer" {
+		t.Fatalf("unexpected fixes: %v", fixes)
+	}
+	if args["length"] != 30.0 {
+		t.Errorf("expected length=30.0 (float64), got %#v", args["length"])
+	}
+}
+
+func TestCoerceArgs_ScalarConversions(t *testing.T) {
+	args := map[string]any{
+		"file": 42.0,      // number -> string
+		"flag": "True",    // string -> boolean
+		"tags": `["a"]`,   // string -> array
+		"opts": `{"k":1}`, // string -> object
+	}
+	fixes := CoerceArgs(schemaTool(), args)
+
+	if len(fixes) != 4 {
+		t.Fatalf("expected 4 fixes, got %v", fixes)
+	}
+	if args["file"] != "42" {
+		t.Errorf("file: expected \"42\", got %#v", args["file"])
+	}
+	if args["flag"] != true {
+		t.Errorf("flag: expected true, got %#v", args["flag"])
+	}
+	if arr, ok := args["tags"].([]any); !ok || len(arr) != 1 || arr[0] != "a" {
+		t.Errorf("tags: expected [a], got %#v", args["tags"])
+	}
+	if obj, ok := args["opts"].(map[string]any); !ok || obj["k"] != 1.0 {
+		t.Errorf("opts: expected map[k:1], got %#v", args["opts"])
+	}
+}
+
+func TestCoerceArgs_LeavesValidAndUnconvertibleAlone(t *testing.T) {
+	args := map[string]any{
+		"file":    "a.txt", // already string
+		"length":  50.0,    // already numeric
+		"start":   "abc",   // not a number -> untouched
+		"flag":    "yes",   // not true/false -> untouched
+		"unknown": "30",    // not in schema -> untouched
+	}
+	fixes := CoerceArgs(schemaTool(), args)
+
+	if len(fixes) != 0 {
+		t.Errorf("expected no fixes, got %v", fixes)
+	}
+	if args["start"] != "abc" || args["flag"] != "yes" || args["unknown"] != "30" {
+		t.Errorf("unconvertible/unknown args were modified: %v", args)
+	}
+}
+
+func TestCoerceArgs_NoopCases(t *testing.T) {
+	if fixes := CoerceArgs(nil, map[string]any{"x": "1"}); fixes != nil {
+		t.Errorf("nil tool: expected nil fixes, got %v", fixes)
+	}
+	noSchema := &model.ToolDef{Name: "t"}
+	if fixes := CoerceArgs(noSchema, map[string]any{"x": "1"}); fixes != nil {
+		t.Errorf("no schema: expected nil fixes, got %v", fixes)
+	}
+	if fixes := CoerceArgs(schemaTool(), nil); fixes != nil {
+		t.Errorf("nil args: expected nil fixes, got %v", fixes)
+	}
+}
+
 // fakeClient captures the args passed to CallTool.
 type fakeClient struct {
 	gotName string
@@ -164,5 +251,40 @@ func TestManager_ExecuteTool_AutoFixBareName(t *testing.T) {
 	}
 	if fc.gotArgs["length"] != 42.0 {
 		t.Errorf("expected length=42, got %v", fc.gotArgs["length"])
+	}
+}
+
+// Reproduces the real-world call seen in chats/2026-08-26 205037.json:
+// {"file": "...", "limit": "30"} — wrong key AND string-typed value.
+// The fix must rename limit->length AND coerce "30"->30.0, or the
+// builtin's .(float64) assertion would silently fall back to the default.
+func TestManager_ExecuteTool_AutoFixAliasAndType(t *testing.T) {
+	mgr := NewManager()
+	fc := &fakeClient{}
+	mgr.mu.Lock()
+	mgr.clients["Sandbox"] = fc
+	mgr.allTools["Sandbox"] = []model.ToolDef{{
+		Name: "read_content",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"file":   map[string]any{"type": "string"},
+				"length": map[string]any{"type": "integer"},
+			},
+		},
+		ArgAliases: map[string][]string{"length": {"limit"}},
+	}}
+	mgr.mu.Unlock()
+
+	_, err := mgr.ExecuteTool(context.Background(), "Sandbox::read_content",
+		`{"file":"a.txt","limit":"30"}`)
+	if err != nil {
+		t.Fatalf("ExecuteTool failed: %v", err)
+	}
+	if fc.gotArgs["length"] != 30.0 {
+		t.Errorf("expected length=30.0 (float64), got %#v", fc.gotArgs["length"])
+	}
+	if _, ok := fc.gotArgs["limit"]; ok {
+		t.Error("alias key 'limit' should have been deleted before CallTool")
 	}
 }
