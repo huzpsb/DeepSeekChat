@@ -75,6 +75,11 @@ type ToolDef struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	InputSchema any    `json:"inputSchema"`
+	// ArgAliases declares argument auto-fix rules as data: canonical field
+	// name -> alias names. ExecuteTool renames an alias key in place when
+	// the canonical key is absent (see mcp.AutoFixArgs). Not serialized:
+	// it is a server-side concern and must never reach the wire.
+	ArgAliases map[string][]string `json:"-"`
 }
 
 type ToolResult struct {

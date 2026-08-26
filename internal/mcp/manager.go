@@ -513,20 +513,30 @@ func (m *Manager) GetToolDef(name string) *model.ToolDef {
 func (m *Manager) ExecuteTool(ctx context.Context, fullName string, arguments string) (*model.ToolResult, error) {
 	mcpName, toolName := SplitToolName(fullName)
 
+	// Resolve the tool definition (a copy, so it stays valid after the
+	// lock is released) alongside the MCP name.
+	var toolDef *model.ToolDef
+	m.mu.RLock()
 	if toolName == "" {
-		m.mu.RLock()
 		for name, tools := range m.allTools {
 			for _, t := range tools {
 				if t.Name == fullName {
 					mcpName = name
 					toolName = fullName
+					td := t
+					toolDef = &td
 				}
 			}
 		}
-		m.mu.RUnlock()
+	} else {
+		for _, t := range m.allTools[mcpName] {
+			if t.Name == toolName {
+				td := t
+				toolDef = &td
+				break
+			}
+		}
 	}
-
-	m.mu.RLock()
 	client, ok := m.clients[mcpName]
 	m.mu.RUnlock()
 
@@ -540,6 +550,12 @@ func (m *Manager) ExecuteTool(ctx context.Context, fullName string, arguments st
 	}
 	if args == nil {
 		args = map[string]any{}
+	}
+
+	// Protocol-layer auto-fix: rename aliased argument keys in place
+	// according to the tool's declared ArgAliases before dispatch.
+	if fixes := AutoFixArgs(toolDef, args); len(fixes) > 0 {
+		log.Printf("MCP [%s] auto-fixed args for '%s': %v", mcpName, toolName, fixes)
 	}
 
 	return client.CallTool(ctx, toolName, args)

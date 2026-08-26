@@ -74,6 +74,9 @@ func (p *Provider) Tools() []model.ToolDef {
 				},
 				"required": []string{"file"},
 			},
+			ArgAliases: map[string][]string{
+				"length": {"limit"},
+			},
 		},
 		{Name: "replace_content", Description: "Replace file content",
 			InputSchema: map[string]any{
@@ -85,6 +88,9 @@ func (p *Provider) Tools() []model.ToolDef {
 					"allow_batch": map[string]any{"type": "boolean"},
 				},
 				"required": []string{"file", "original", "new"},
+			},
+			ArgAliases: map[string][]string{
+				"original": {"old"},
 			},
 		},
 		{Name: "create_dir", Description: "Create a directory",
