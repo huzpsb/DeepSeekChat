@@ -454,7 +454,7 @@ func (p *Provider) searchContentImpl(ctx context.Context, query, matchType strin
 		if filesFound >= limitFile {
 			return filepath.SkipAll
 		}
-		if info.Size() > 1024*1024 {
+		if info.Size() > 5*1024*1024 {
 			return nil
 		}
 

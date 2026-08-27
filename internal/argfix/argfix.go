@@ -1,4 +1,9 @@
-package mcp
+// Package argfix implements protocol-layer, data-driven auto-fixing of
+// tool call arguments: aliased keys are renamed and mistyped values are
+// coerced, in place, before validation and execution. The rules are not
+// config: they travel with the tool definition itself (ToolDef.ArgAliases
+// and the declared types in ToolDef.InputSchema).
+package argfix
 
 import (
 	"encoding/json"
@@ -9,22 +14,22 @@ import (
 	"hschat/internal/model"
 )
 
-// ArgFix records one in-place argument fix applied at the protocol layer.
-type ArgFix struct {
+// Fix records one in-place argument fix applied at the protocol layer.
+type Fix struct {
 	Field string // argument name that was fixed
 	From  string // what was fixed: an alias name ("old"), or a type
 	//             coercion ("string->integer")
 }
 
 // FixArgs applies all protocol-layer argument fixes in place: alias
-// renaming (AutoFixArgs) followed by schema-guided type coercion
-// (CoerceArgs). Renaming runs first so the coercer sees canonical names.
-func FixArgs(tool *model.ToolDef, args map[string]any) []ArgFix {
-	fixes := AutoFixArgs(tool, args)
-	return append(fixes, CoerceArgs(tool, args)...)
+// renaming (RenameAliases) followed by schema-guided type coercion
+// (Coerce). Renaming runs first so the coercer sees canonical names.
+func FixArgs(tool *model.ToolDef, args map[string]any) []Fix {
+	fixes := RenameAliases(tool, args)
+	return append(fixes, Coerce(tool, args)...)
 }
 
-// AutoFixArgs renames aliased argument keys in place according to the
+// RenameAliases renames aliased argument keys in place according to the
 // tool's declared ArgAliases (canonical field -> alias names).
 //
 // Rules:
@@ -34,11 +39,11 @@ func FixArgs(tool *model.ToolDef, args map[string]any) []ArgFix {
 //
 // Returns the applied fixes (for logging). Nil tool / empty args / empty
 // alias table are all no-ops.
-func AutoFixArgs(tool *model.ToolDef, args map[string]any) []ArgFix {
+func RenameAliases(tool *model.ToolDef, args map[string]any) []Fix {
 	if tool == nil || len(tool.ArgAliases) == 0 || len(args) == 0 {
 		return nil
 	}
-	var fixes []ArgFix
+	var fixes []Fix
 	for canonical, aliases := range tool.ArgAliases {
 		if _, ok := args[canonical]; ok {
 			continue
@@ -47,7 +52,7 @@ func AutoFixArgs(tool *model.ToolDef, args map[string]any) []ArgFix {
 			if v, ok := args[alias]; ok {
 				args[canonical] = v
 				delete(args, alias)
-				fixes = append(fixes, ArgFix{Field: canonical, From: alias})
+				fixes = append(fixes, Fix{Field: canonical, From: alias})
 				break
 			}
 		}
@@ -55,7 +60,7 @@ func AutoFixArgs(tool *model.ToolDef, args map[string]any) []ArgFix {
 	return fixes
 }
 
-// CoerceArgs converts argument values in place to the type declared by the
+// Coerce converts argument values in place to the type declared by the
 // tool's InputSchema (properties.<name>.type) when the conversion is
 // unambiguous:
 //
@@ -68,12 +73,12 @@ func AutoFixArgs(tool *model.ToolDef, args map[string]any) []ArgFix {
 // failed conversions are left untouched. LLMs routinely serialize numbers
 // as strings inside tool arguments; the builtin tools assert concrete Go
 // types (e.g. float64) and would silently fall back to defaults.
-func CoerceArgs(tool *model.ToolDef, args map[string]any) []ArgFix {
+func Coerce(tool *model.ToolDef, args map[string]any) []Fix {
 	types := schemaPropTypes(tool)
 	if len(types) == 0 || len(args) == 0 {
 		return nil
 	}
-	var fixes []ArgFix
+	var fixes []Fix
 	for name, want := range types {
 		v, ok := args[name]
 		if !ok {
@@ -81,7 +86,7 @@ func CoerceArgs(tool *model.ToolDef, args map[string]any) []ArgFix {
 		}
 		if nv, from, ok := coerceValue(v, want); ok {
 			args[name] = nv
-			fixes = append(fixes, ArgFix{Field: name, From: from})
+			fixes = append(fixes, Fix{Field: name, From: from})
 		}
 	}
 	return fixes
@@ -162,6 +167,6 @@ func coerceValue(v any, want string) (nv any, from string, ok bool) {
 	return nil, "", false
 }
 
-func (f ArgFix) String() string {
+func (f Fix) String() string {
 	return fmt.Sprintf("%s<-%s", f.Field, f.From)
 }

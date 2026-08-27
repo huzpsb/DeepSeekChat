@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"hschat/internal/argfix"
 	"hschat/internal/llm"
 	"hschat/internal/log"
 	"hschat/internal/model"
@@ -362,6 +363,26 @@ func (e *Engine) executeToolCall(ctx context.Context, chat *model.Chat, autoCont
 	}
 	tc := assistant.ToolCalls[toolCallIdx]
 	logContinue("execute_tool_start assistant_idx=%d tool_call_idx=%d tool_call_id=%q name=%q args_len=%d", assistantIdx, toolCallIdx, tc.ID, tc.Function.Name, len(tc.Function.Arguments))
+
+	// Protocol-layer auto-fix: rename aliased argument keys and coerce
+	// value types in place (driven by the tool's declared ArgAliases and
+	// InputSchema). This must run BEFORE validateArgs below, otherwise a
+	// fixable call (e.g. {"limit": "30"} instead of {"length": 30}) is
+	// rejected as invalid_args before ExecuteTool ever sees it.
+	if e.toolExecutor != nil {
+		if def := e.toolExecutor.GetToolDef(tc.Function.Name); def != nil {
+			var args map[string]any
+			if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err == nil && args != nil {
+				if fixes := argfix.FixArgs(def, args); len(fixes) > 0 {
+					if data, err := json.Marshal(args); err == nil {
+						tc.Function.Arguments = string(data)
+						chat.Messages[assistantIdx].ToolCalls[toolCallIdx] = tc
+						logContinue("execute_tool_args_fixed tool_call_id=%q name=%q fixes=%v", tc.ID, tc.Function.Name, fixes)
+					}
+				}
+			}
+		}
+	}
 
 	emit(ContinueEvent{
 		Type:     "tool_execute",

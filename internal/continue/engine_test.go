@@ -2,6 +2,7 @@ package cont
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -1709,6 +1710,63 @@ func TestContinue_ToolExecutionErrors(t *testing.T) {
 	}
 	if !foundToolResult {
 		t.Errorf("expected tool_result even on execution error")
+	}
+}
+
+// Regression test for the chats/2026-08-27 113902.json incident: a
+// fixable call ({"limit": "30"} for read_content) was rejected as
+// invalid_args ("unknown argument 'limit'") because validation ran before
+// the protocol-layer auto-fix. The fix must run first, the call must
+// execute, and the persisted arguments must be the fixed ones.
+func TestContinue_ArgsAutoFixRunsBeforeValidation(t *testing.T) {
+	executor := &mockToolExecutor{
+		approvedTools: map[string]bool{"read_content": true},
+		existingTools: map[string]bool{"read_content": true},
+		toolDefs: map[string]*model.ToolDef{
+			"read_content": {
+				Name: "read_content",
+				InputSchema: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"file":   map[string]any{"type": "string"},
+						"length": map[string]any{"type": "integer"},
+					},
+					"required": []string{"file"},
+				},
+				ArgAliases: map[string][]string{"length": {"limit"}},
+			},
+		},
+	}
+	engine := newTestEngine("writable", executor)
+	chat := &model.Chat{Messages: []model.Message{
+		makeAssistantMsg("", []model.ToolCall{
+			makeToolCall("id1", "read_content", `{"file":"a.txt","limit":"30"}`),
+		}),
+	}}
+	events := runContinue(engine, chat, "", false)
+
+	for _, e := range events {
+		if e.Type == "error" && e.Error != nil && e.Error.Type == "invalid_args" {
+			t.Fatalf("fixable args were rejected as invalid_args: %s", e.Error.Detail)
+		}
+	}
+	if len(executor.executedCalls) != 1 {
+		t.Fatalf("expected 1 executed call, got %d", len(executor.executedCalls))
+	}
+	var gotArgs map[string]any
+	if err := json.Unmarshal([]byte(executor.executedCalls[0].arguments), &gotArgs); err != nil {
+		t.Fatalf("executed arguments are not valid JSON: %v", err)
+	}
+	if gotArgs["length"] != 30.0 {
+		t.Errorf("expected executed length=30.0, got %#v", gotArgs["length"])
+	}
+	if _, ok := gotArgs["limit"]; ok {
+		t.Error("alias key 'limit' should have been removed")
+	}
+	// The assistant message itself must carry the fixed arguments.
+	persisted := chat.Messages[len(chat.Messages)-2]
+	if !strings.Contains(persisted.ToolCalls[0].Function.Arguments, `"length":30`) {
+		t.Errorf("persisted arguments were not fixed in place: %s", persisted.ToolCalls[0].Function.Arguments)
 	}
 }
 
