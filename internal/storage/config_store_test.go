@@ -2,6 +2,7 @@ package storage
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"hschat/internal/model"
@@ -181,5 +182,79 @@ func TestSaveConfig_StreamableServer(t *testing.T) {
 	}
 	if loaded.MCPServers[0].Command != nil {
 		t.Errorf("expected nil command for streamable, got %v", loaded.MCPServers[0].Command)
+	}
+}
+
+func selectionConfig(provider, mdl string) *model.MCPConfig {
+	return &model.MCPConfig{
+		ModelProviders: []model.ModelProvider{
+			{Name: "kimi-code", Models: []string{"k3-256k", "k3"}},
+			{Name: "deepseek", Models: []string{"deepseek-v4-flash"}},
+		},
+		Provider: provider,
+		Model:    mdl,
+	}
+}
+
+func TestNormalizeModelSelection_ValidUntouched(t *testing.T) {
+	cfg := selectionConfig("kimi-code", "k3")
+	if normalizeModelSelection(cfg) {
+		t.Fatal("valid selection must not be rewritten")
+	}
+	if cfg.Provider != "kimi-code" || cfg.Model != "k3" {
+		t.Fatalf("unexpected rewrite: %s/%s", cfg.Provider, cfg.Model)
+	}
+}
+
+func TestNormalizeModelSelection_DeletedProvider(t *testing.T) {
+	// Reproduces the reported bug: provider "opencode-zen" was removed from
+	// model_providers, leaving a stale selection the UI cannot render (the
+	// model dropdown falls back to displaying the first option).
+	cfg := selectionConfig("opencode-zen", "k3")
+	if !normalizeModelSelection(cfg) {
+		t.Fatal("stale provider must be rewritten")
+	}
+	if cfg.Provider != "kimi-code" || cfg.Model != "k3" {
+		t.Fatalf("want kimi-code/k3 (valid model preserved), got %s/%s", cfg.Provider, cfg.Model)
+	}
+}
+
+func TestNormalizeModelSelection_UnknownModel(t *testing.T) {
+	cfg := selectionConfig("deepseek", "k3")
+	if !normalizeModelSelection(cfg) {
+		t.Fatal("model not offered by provider must be rewritten")
+	}
+	if cfg.Provider != "deepseek" || cfg.Model != "deepseek-v4-flash" {
+		t.Fatalf("want deepseek/deepseek-v4-flash, got %s/%s", cfg.Provider, cfg.Model)
+	}
+}
+
+func TestNormalizeModelSelection_NoProviders(t *testing.T) {
+	cfg := &model.MCPConfig{Provider: "gone", Model: "gone"}
+	if normalizeModelSelection(cfg) {
+		t.Fatal("no providers configured: nothing to fall back to")
+	}
+}
+
+func TestLoadConfig_NormalizesStaleSelection(t *testing.T) {
+	tmpDir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(origDir)
+
+	if err := SaveConfig(selectionConfig("opencode-zen", "k3")); err != nil {
+		t.Fatalf("SaveConfig failed: %v", err)
+	}
+	loaded, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if loaded.Provider != "kimi-code" || loaded.Model != "k3" {
+		t.Fatalf("want persisted kimi-code/k3, got %s/%s", loaded.Provider, loaded.Model)
+	}
+	// Must be persisted, not just in-memory.
+	raw, _ := os.ReadFile(configPath)
+	if !strings.Contains(string(raw), `"provider": "kimi-code"`) {
+		t.Errorf("fallback not persisted to config.json:\n%s", raw)
 	}
 }

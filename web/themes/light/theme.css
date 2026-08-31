@@ -292,6 +292,20 @@ body {
     color: #ffffff;
 }
 
+/* fenced code blocks inside the solid accent user bubble: the
+   GitHub-style light block inherits the bubble's white text and
+   becomes unreadable, so use a dark translucent block instead */
+.message.role-user .msg-content pre {
+    background: rgba(15, 23, 42, 0.35);
+    border-color: rgba(255, 255, 255, 0.25);
+    color: #ffffff;
+}
+
+.message.role-user .msg-content pre code {
+    background: transparent;
+    color: #ffffff;
+}
+
 .message.role-user .msg-content th,
 .message.role-user .msg-content td {
     border-color: rgba(255, 255, 255, 0.4);

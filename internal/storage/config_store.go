@@ -23,7 +23,47 @@ func LoadConfig() (*model.MCPConfig, error) {
 	if err := json.Unmarshal(data, cfg); err != nil {
 		return nil, err
 	}
+	// The selected provider/model may refer to entries the user has since
+	// deleted from model_providers. ResolveModel already falls back at
+	// inference time, but the raw fields still reach the UI (GET
+	// /api/config), where a stale provider matches nothing and the model
+	// dropdown silently renders the first option. Normalize and persist
+	// here so config, UI, and inference all agree.
+	if normalizeModelSelection(cfg) {
+		SaveConfig(cfg)
+	}
 	return cfg, nil
+}
+
+// normalizeModelSelection falls the selection back to the first configured
+// provider/model when the stored provider is unknown or the stored model is
+// not offered by the selected provider. It reports whether anything changed.
+func normalizeModelSelection(cfg *model.MCPConfig) bool {
+	if len(cfg.ModelProviders) == 0 {
+		return false
+	}
+	changed := false
+	p := cfg.FindProvider(cfg.Provider)
+	if p == nil {
+		p = &cfg.ModelProviders[0]
+		cfg.Provider = p.Name
+		changed = true
+	}
+	if len(p.Models) == 0 {
+		return changed
+	}
+	found := false
+	for _, m := range p.Models {
+		if m == cfg.Model {
+			found = true
+			break
+		}
+	}
+	if !found {
+		cfg.Model = p.Models[0]
+		changed = true
+	}
+	return changed
 }
 
 func defaultConfig() *model.MCPConfig {
