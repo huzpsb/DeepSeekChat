@@ -220,6 +220,11 @@ func TestCreateChat_HasTimestampTitle(t *testing.T) {
 
 func TestCreateChat_WithRootDir(t *testing.T) {
 	setupServerTest(t)
+	// Root dirs that do not exist on disk are pruned from the config at
+	// load time, so the second root dir must actually exist.
+	if err := os.MkdirAll("./agent2", 0755); err != nil {
+		t.Fatal(err)
+	}
 	storage.SaveConfig(&model.MCPConfig{
 		Sandbox: model.SandboxConfig{RootDirs: []string{"./agent", "./agent2"}},
 	})

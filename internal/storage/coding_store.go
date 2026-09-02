@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 
+	"hschat/internal/jupyter"
 	"hschat/internal/model"
 )
 
@@ -27,6 +28,21 @@ func LoadCodingConfig() (*model.CodingConfig, error) {
 }
 
 func DefaultCodingConfig() *model.CodingConfig {
+	// On a Linux box with a running Jupyter server the intended workflow
+	// is "start DsChat and immediately chat with full shell access", so
+	// the default coding config there is a raw bash shell instead of the
+	// curated Windows-oriented tool set.
+	if jupyter.Detect() {
+		return &model.CodingConfig{
+			ShellTools: map[string]model.ShellTool{},
+			Blacklist:  []string{},
+			RawShell: &model.RawShellConfig{
+				Enabled:  true,
+				Shell:    []string{"bash", "-c"},
+				Preamble: "$original",
+			},
+		}
+	}
 	relativeOverwrite := true
 	return &model.CodingConfig{
 		ShellTools: map[string]model.ShellTool{

@@ -1510,6 +1510,82 @@ html, body {
     color: var(--danger);
 }
 
+.pref-providers-row {
+    align-items: flex-start;
+}
+
+#pref-providers {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 55%;
+    max-height: 160px;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+.pref-provider-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 3px 6px;
+    font-size: 12px;
+}
+
+.pref-provider-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pref-provider-btns {
+    flex-shrink: 0;
+}
+
+.pref-provider-btns button {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 0 2px;
+}
+
+.pref-provider-btns button:hover {
+    color: var(--danger);
+}
+
+.pref-provider-form {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 55%;
+}
+
+.pref-provider-form-btns {
+    display: flex;
+    gap: 6px;
+}
+
+.pref-provider-form-btns button {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 3px 10px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.pref-provider-form-btns button:hover {
+    border-color: var(--accent);
+}
+
 .pref-root-dir-add {
     display: flex;
     gap: 6px;

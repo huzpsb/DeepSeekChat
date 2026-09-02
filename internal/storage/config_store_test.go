@@ -258,3 +258,92 @@ func TestLoadConfig_NormalizesStaleSelection(t *testing.T) {
 		t.Errorf("fallback not persisted to config.json:\n%s", raw)
 	}
 }
+
+func TestLoadConfig_PrunesMissingRootDirs(t *testing.T) {
+	tmpDir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(origDir)
+
+	// One root dir exists, one was deleted, plus the exempt default.
+	if err := os.MkdirAll("./real", 0755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &model.MCPConfig{
+		Sandbox: model.SandboxConfig{RootDirs: []string{"./agent", "./real", "./gone"}},
+	}
+	if err := SaveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := loaded.Sandbox.RootDirs
+	if len(got) != 2 || got[0] != "./agent" || got[1] != "./real" {
+		t.Fatalf("want [./agent ./real], got %v", got)
+	}
+	// The deleted dir must not be recreated.
+	if _, err := os.Stat("./gone"); !os.IsNotExist(err) {
+		t.Errorf("deleted root dir must not be recreated, stat err=%v", err)
+	}
+	// Must be persisted.
+	raw, _ := os.ReadFile(configPath)
+	if strings.Contains(string(raw), "gone") {
+		t.Errorf("pruned dir still in config.json:\n%s", raw)
+	}
+}
+
+func TestLoadConfig_PruneAllMissingFallsBackToAgent(t *testing.T) {
+	tmpDir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(origDir)
+
+	cfg := &model.MCPConfig{
+		Sandbox: model.SandboxConfig{RootDirs: []string{"./gone1", "./gone2"}},
+	}
+	if err := SaveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := loaded.Sandbox.RootDirs
+	if len(got) != 1 || got[0] != "./agent" {
+		t.Fatalf("want [./agent] fallback, got %v", got)
+	}
+}
+
+func TestLoadConfig_ExistingRootDirsUntouched(t *testing.T) {
+	tmpDir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(origDir)
+
+	if err := os.MkdirAll("./real", 0755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &model.MCPConfig{
+		Sandbox: model.SandboxConfig{RootDirs: []string{"./real", "./agent"}},
+	}
+	if err := SaveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(configPath)
+
+	loaded, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.Sandbox.RootDirs) != 2 {
+		t.Fatalf("existing dirs must be kept, got %v", loaded.Sandbox.RootDirs)
+	}
+	after, _ := os.ReadFile(configPath)
+	if string(before) != string(after) {
+		t.Errorf("config with all-existing root dirs must not be rewritten")
+	}
+}

@@ -53,20 +53,18 @@ func (p *Provider) Initialize(_ string) error {
 		return err
 	}
 
+	// Missing fields fall back to the shared platform-aware defaults (raw
+	// bash shell on Linux boxes running Jupyter, curated tool set
+	// otherwise) instead of a second hardcoded copy.
+	defaults := storage.DefaultCodingConfig()
+
 	if cfg.Blacklist == nil {
-		cfg.Blacklist = []string{"os/exec"}
+		cfg.Blacklist = defaults.Blacklist
 	}
 	p.fileBlacklist = cfg.Blacklist
 
 	if cfg.ShellTools == nil {
-		cfg.ShellTools = map[string]model.ShellTool{
-			"go_test": {
-				Description:       "Run go test",
-				Command:           "go test ./...",
-				Timeout:           60,
-				RelativeOverwrite: boolPtr(true),
-			},
-		}
+		cfg.ShellTools = defaults.ShellTools
 	}
 	for name, tool := range cfg.ShellTools {
 		if tool.Timeout <= 0 {
@@ -80,16 +78,7 @@ func (p *Provider) Initialize(_ string) error {
 	p.shellTools = cfg.ShellTools
 
 	if cfg.RawShell == nil {
-		cfg.RawShell = &model.RawShellConfig{
-			Enabled: false,
-			Shell:   []string{"powershell", "-NoProfile", "-Command"},
-			Preamble: "function python { & \"E:\\rl\\rt3913\\python\" $args }; " +
-				"function pip { & \"E:\\rl\\rt3913\\python\" -m pip $args }; " +
-				"$env:all_proxy = \"socks5://127.0.0.1:1080\"; " +
-				"$env:https_proxy = \"socks5://127.0.0.1:1080\"; " +
-				"$env:http_proxy = \"socks5://127.0.0.1:1080\"; " +
-				"$original",
-		}
+		cfg.RawShell = defaults.RawShell
 	}
 	p.rawShell = cfg.RawShell
 

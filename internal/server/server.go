@@ -15,6 +15,7 @@ import (
 	"hschat/internal/builtin/sandbox"
 	cont "hschat/internal/continue"
 	"hschat/internal/engine"
+	"hschat/internal/jupyter"
 	"hschat/internal/llm"
 	"hschat/internal/log"
 	"hschat/internal/mcp"
@@ -60,7 +61,60 @@ func New(staticFS embed.FS) *Server {
 		s.indexHTML = bytes.ReplaceAll(data, []byte(versionPlaceholder), []byte(appVersion))
 	}
 	s.registerRoutes()
+	s.maybeIntegrateJupyter()
 	return s
+}
+
+// maybeIntegrateJupyter performs the one-time Linux/Jupyter setup: when a
+// Jupyter server is running and DsChat has not been registered with
+// jupyter-server-proxy yet, it approves all tools (ask_user stays manually
+// approved), registers the proxy entry, and restarts Jupyter so the new
+// config is picked up. Subsequent startups see the marker in the Jupyter
+// config and do nothing.
+func (s *Server) maybeIntegrateJupyter() {
+	if !jupyter.Detect() {
+		return
+	}
+	if jupyter.Registered() {
+		return
+	}
+	changed, err := jupyter.Register(s.Port())
+	if err != nil {
+		log.Printf("[jupyter] proxy registration failed: %v", err)
+		return
+	}
+	if !changed {
+		return
+	}
+	if err := s.approveAllTools(); err != nil {
+		log.Printf("[jupyter] approve tools failed: %v", err)
+	}
+	if err := jupyter.Restart(); err != nil {
+		log.Printf("[jupyter] restart failed: %v", err)
+	}
+}
+
+// approveAllTools marks every connected tool as approved, except
+// AskUser::ask_user, which stays manually approved (interactive by design).
+func (s *Server) approveAllTools() error {
+	tools := s.mcpMgr.GetTools()
+	var approved, manual []string
+	for _, t := range tools {
+		if !t.Available {
+			continue
+		}
+		full := t.MCPName + "::" + t.ToolName
+		if t.MCPName == "AskUser" && t.ToolName == "ask_user" {
+			manual = append(manual, full)
+		} else {
+			approved = append(approved, full)
+		}
+	}
+	return s.mcpMgr.UpdateConfig(func(cfg *model.MCPConfig) error {
+		cfg.ApprovedTools = approved
+		cfg.ManuallyApprovedTools = manual
+		return nil
+	})
 }
 
 func (s *Server) Port() int {
@@ -136,17 +190,14 @@ func (s *Server) handleSetMode(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, map[string]string{"mode": s.mode})
 }
 
-type providerInfo struct {
-	Name   string   `json:"name"`
-	Models []string `json:"models"`
-}
-
+// configResponse is the single read interface for provider config. It
+// returns providers in full — endpoint and API key included. The sandbox
+// can be pointed at "." by an approved model anyway, so ./config.json can
+// never be confidential; masking keys in the UI would be security theater.
 func (s *Server) configResponse() map[string]any {
 	cfg := s.mcpMgr.Config()
-	providers := make([]providerInfo, 0, len(cfg.ModelProviders))
-	for _, p := range cfg.ModelProviders {
-		providers = append(providers, providerInfo{Name: p.Name, Models: p.Models})
-	}
+	providers := make([]model.ModelProvider, 0, len(cfg.ModelProviders))
+	providers = append(providers, cfg.ModelProviders...)
 	rootDirs := cfg.Sandbox.RootDirs
 	if len(rootDirs) == 0 {
 		rootDirs = []string{"./agent"}
@@ -163,15 +214,66 @@ func (s *Server) handleGetConfig(w http.ResponseWriter, _ *http.Request) {
 	s.writeJSON(w, s.configResponse())
 }
 
+// refreshLLMClient rebuilds the engine's LLM client from the current
+// config; call after any mutation that can change provider/model/key.
+func (s *Server) refreshLLMClient() {
+	cfg := s.mcpMgr.Config()
+	endpoint, apiKey, modelName := cfg.ResolveModel()
+	s.engine.SetClient(llm.NewClient(endpoint, apiKey, modelName))
+}
+
 func (s *Server) handleSetConfig(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		RootDirs *[]string `json:"root_dirs"`
-		Provider *string   `json:"provider"`
-		Model    *string   `json:"model"`
+		RootDirs  *[]string              `json:"root_dirs"`
+		Provider  *string                `json:"provider"`
+		Model     *string                `json:"model"`
+		Providers *[]model.ModelProvider `json:"providers"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, "invalid body", http.StatusBadRequest)
 		return
+	}
+
+	// Validate + normalize a provider list replacement up front (pure, no
+	// config mutation). An empty list is allowed: the user may delete all
+	// providers and re-add them via the UI.
+	var providers []model.ModelProvider
+	if req.Providers != nil {
+		providers = make([]model.ModelProvider, 0, len(*req.Providers))
+		seen := map[string]bool{}
+		for _, p := range *req.Providers {
+			name := strings.TrimSpace(p.Name)
+			if name == "" {
+				s.writeError(w, "provider name cannot be empty", http.StatusBadRequest)
+				return
+			}
+			if seen[name] {
+				s.writeError(w, fmt.Sprintf("duplicate provider %q", name), http.StatusBadRequest)
+				return
+			}
+			seen[name] = true
+			endpoint := strings.TrimSpace(p.Endpoint)
+			if endpoint == "" {
+				s.writeError(w, fmt.Sprintf("provider %q: endpoint cannot be empty", name), http.StatusBadRequest)
+				return
+			}
+			var models []string
+			seenModel := map[string]bool{}
+			for _, m := range p.Models {
+				m = strings.TrimSpace(m)
+				if m == "" || seenModel[m] {
+					continue
+				}
+				seenModel[m] = true
+				models = append(models, m)
+			}
+			providers = append(providers, model.ModelProvider{
+				Name:     name,
+				Endpoint: endpoint,
+				APIKey:   p.APIKey,
+				Models:   models,
+			})
+		}
 	}
 
 	// Validate + compute root dirs up front (pure, no config mutation), and
@@ -209,6 +311,38 @@ func (s *Server) handleSetConfig(w http.ResponseWriter, r *http.Request) {
 	// failure (500).
 	var valErr error
 	err := s.mcpMgr.UpdateConfig(func(cfg *model.MCPConfig) error {
+		// Provider list replacement goes first so the provider/model
+		// selection below is resolved against the new list.
+		if req.Providers != nil {
+			cfg.ModelProviders = providers
+			p := cfg.FindProvider(cfg.Provider)
+			if p == nil {
+				if len(cfg.ModelProviders) > 0 {
+					p = &cfg.ModelProviders[0]
+					cfg.Provider = p.Name
+				} else {
+					cfg.Provider = ""
+					cfg.Model = ""
+				}
+			}
+			if p != nil {
+				valid := false
+				for _, m := range p.Models {
+					if m == cfg.Model {
+						valid = true
+						break
+					}
+				}
+				if !valid {
+					if len(p.Models) > 0 {
+						cfg.Model = p.Models[0]
+					} else {
+						cfg.Model = ""
+					}
+				}
+			}
+		}
+
 		if req.Provider != nil {
 			p := cfg.FindProvider(*req.Provider)
 			if p == nil {
@@ -260,10 +394,9 @@ func (s *Server) handleSetConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.refreshLLMClient()
 	cfg := s.mcpMgr.Config()
-	endpoint, apiKey, modelName := cfg.ResolveModel()
-	s.engine.SetClient(llm.NewClient(endpoint, apiKey, modelName))
-	log.Printf("[server] config_updated root_dirs=%q provider=%q model=%q\n", cfg.Sandbox.RootDirs, cfg.Provider, cfg.Model)
+	log.Printf("[server] config_updated root_dirs=%q provider=%q model=%q providers=%d\n", cfg.Sandbox.RootDirs, cfg.Provider, cfg.Model, len(cfg.ModelProviders))
 	s.writeJSON(w, s.configResponse())
 }
 
@@ -631,9 +764,8 @@ func (s *Server) handleMCPReload(w http.ResponseWriter, _ *http.Request) {
 	// provider/model/key edits take effect as well. Otherwise the UI would
 	// show the new provider (GET /api/config reads the fresh config) while
 	// inference silently keeps using the old endpoint.
+	s.refreshLLMClient()
 	cfg := s.mcpMgr.Config()
-	endpoint, apiKey, modelName := cfg.ResolveModel()
-	s.engine.SetClient(llm.NewClient(endpoint, apiKey, modelName))
 	log.Printf("[server] mcp_reloaded provider=%q model=%q\n", cfg.Provider, cfg.Model)
 	s.writeJSON(w, map[string]bool{"ok": true})
 }

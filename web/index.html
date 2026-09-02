@@ -146,6 +146,23 @@
                         <button id="pref-root-dir-add">Add</button>
                     </span>
                 </div>
+                <div class="pref-row pref-providers-row">
+                    <span>Providers &amp; keys</span>
+                    <div id="pref-providers"></div>
+                </div>
+                <div class="pref-row">
+                    <span id="pref-provider-form-label">Add provider</span>
+                    <span class="pref-provider-form">
+                        <input id="pref-prov-name" placeholder="name" type="text">
+                        <input id="pref-prov-endpoint" placeholder="endpoint URL" type="text">
+                        <input id="pref-prov-key" placeholder="api key" type="text">
+                        <input id="pref-prov-models" placeholder="models (comma separated)" type="text">
+                        <span class="pref-provider-form-btns">
+                            <button id="pref-prov-save">Add</button>
+                            <button id="pref-prov-cancel" style="display:none">Cancel</button>
+                        </span>
+                    </span>
+                </div>
                 <label class="pref-row">
                     <span>Model provider</span>
                     <select id="pref-provider"></select>

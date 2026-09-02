@@ -129,6 +129,7 @@
         if (!backendConfig) return;
         renderRootDirList();
         renderRootDirSelector();
+        renderProvidersList();
         var providerSel = document.getElementById('pref-provider');
         providerSel.innerHTML = '';
         (backendConfig.providers || []).forEach(function (p) {
@@ -139,6 +140,133 @@
             providerSel.appendChild(opt);
         });
         renderModelOptions();
+    }
+
+    // ---- provider CRUD (unified onto GET/PUT /api/config) ----
+
+    var editingProvider = null;
+
+    function renderProvidersList() {
+        var box = document.getElementById('pref-providers');
+        if (!box) return;
+        box.innerHTML = '';
+        (backendConfig.providers || []).forEach(function (p) {
+            var row = document.createElement('div');
+            row.className = 'pref-provider-item';
+            var label = document.createElement('span');
+            label.className = 'pref-provider-name';
+            label.textContent = p.name + (p.name === backendConfig.provider ? ' ✓' : '');
+            label.title = p.endpoint || '';
+            var btns = document.createElement('span');
+            btns.className = 'pref-provider-btns';
+            var edit = document.createElement('button');
+            edit.textContent = 'Edit';
+            edit.title = 'Edit provider';
+            edit.addEventListener('click', function () {
+                editProvider(p.name);
+            });
+            var del = document.createElement('button');
+            del.textContent = '×';
+            del.title = 'Delete provider';
+            del.addEventListener('click', function () {
+                deleteProvider(p.name);
+            });
+            btns.appendChild(edit);
+            btns.appendChild(del);
+            row.appendChild(label);
+            row.appendChild(btns);
+            box.appendChild(row);
+        });
+    }
+
+    function resetProviderForm() {
+        editingProvider = null;
+        document.getElementById('pref-prov-name').value = '';
+        document.getElementById('pref-prov-endpoint').value = '';
+        document.getElementById('pref-prov-key').value = '';
+        document.getElementById('pref-prov-models').value = '';
+        document.getElementById('pref-provider-form-label').textContent = 'Add provider';
+        document.getElementById('pref-prov-save').textContent = 'Add';
+        document.getElementById('pref-prov-cancel').style.display = 'none';
+    }
+
+    function editProvider(name) {
+        var p = null;
+        (backendConfig.providers || []).forEach(function (x) {
+            if (x.name === name) p = x;
+        });
+        if (!p) return;
+        editingProvider = name;
+        document.getElementById('pref-prov-name').value = p.name;
+        document.getElementById('pref-prov-endpoint').value = p.endpoint || '';
+        document.getElementById('pref-prov-key').value = p.api_key || '';
+        document.getElementById('pref-prov-models').value = (p.models || []).join(', ');
+        document.getElementById('pref-provider-form-label').textContent = 'Edit provider';
+        document.getElementById('pref-prov-save').textContent = 'Save';
+        document.getElementById('pref-prov-cancel').style.display = '';
+    }
+
+    function parseModels(text) {
+        var out = [];
+        (text || '').split(',').forEach(function (m) {
+            m = m.trim();
+            if (m && out.indexOf(m) < 0) out.push(m);
+        });
+        return out;
+    }
+
+    function providersSnapshot() {
+        return (backendConfig.providers || []).map(function (p) {
+            return {name: p.name, endpoint: p.endpoint || '', api_key: p.api_key || '', models: p.models || []};
+        });
+    }
+
+    async function saveProvider() {
+        var name = document.getElementById('pref-prov-name').value.trim();
+        var endpoint = document.getElementById('pref-prov-endpoint').value.trim();
+        var key = document.getElementById('pref-prov-key').value.trim();
+        var models = parseModels(document.getElementById('pref-prov-models').value);
+        if (!name || !endpoint) {
+            alert('Provider name and endpoint are required.');
+            return;
+        }
+        var providers = providersSnapshot();
+        var entry = {name: name, endpoint: endpoint, api_key: key, models: models};
+        if (editingProvider) {
+            var found = false;
+            providers = providers.map(function (p) {
+                if (p.name !== editingProvider) return p;
+                found = true;
+                return entry;
+            });
+            if (!found) providers.push(entry);
+        } else {
+            for (var i = 0; i < providers.length; i++) {
+                if (providers[i].name === name) {
+                    alert('Provider "' + name + '" already exists. Use Edit instead.');
+                    return;
+                }
+            }
+            providers.push(entry);
+        }
+        var update = {providers: providers};
+        // Renaming the selected provider: follow the rename so the
+        // selection does not silently fall back to the first provider.
+        if (editingProvider && backendConfig.provider === editingProvider && name !== editingProvider) {
+            update.provider = name;
+        }
+        if (await saveBackendSettings(update)) {
+            resetProviderForm();
+        }
+    }
+
+    async function deleteProvider(name) {
+        if (!window.isSkipConfirm() && !confirm('Delete provider "' + name + '"?')) return;
+        var providers = providersSnapshot().filter(function (p) {
+            return p.name !== name;
+        });
+        if (editingProvider === name) resetProviderForm();
+        await saveBackendSettings({providers: providers});
     }
 
     function rootDirs() {
@@ -261,12 +389,15 @@
             if (!resp.ok) {
                 var err = await resp.json();
                 console.error('Failed to save config:', err.error);
-                return;
+                alert('Save failed: ' + (err.error || 'Unknown'));
+                return false;
             }
             backendConfig = await resp.json();
             renderBackendSettings();
+            return true;
         } catch (e) {
             console.error('Failed to save config:', e);
+            return false;
         }
     }
 
@@ -285,6 +416,8 @@
                 document.getElementById('pref-root-dir-add').click();
             }
         });
+        document.getElementById('pref-prov-save').addEventListener('click', saveProvider);
+        document.getElementById('pref-prov-cancel').addEventListener('click', resetProviderForm);
         document.getElementById('pref-provider').addEventListener('change', function () {
             saveBackendSettings({provider: this.value});
         });
