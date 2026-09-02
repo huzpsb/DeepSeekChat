@@ -12,7 +12,7 @@
             return;
         }
         try {
-            const resp = await fetch('/api/validate/' + encodeURIComponent(chatTitle));
+            const resp = await fetch('api/validate/' + encodeURIComponent(chatTitle));
             const data = await resp.json();
             if (data.errors && data.errors.length > 0) {
                 Messages.highlightErrors(data.errors);

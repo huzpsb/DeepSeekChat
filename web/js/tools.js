@@ -16,7 +16,7 @@
         modal.classList.remove('hidden');
         modalBody.innerHTML = '<div style="padding:20px;text-align:center">Loading...</div>';
         try {
-            var resp = await fetch('/api/mcp/tools');
+            var resp = await fetch('api/mcp/tools');
             var tools = await resp.json();
             renderTools(tools);
         } catch (e) {
@@ -87,7 +87,7 @@
                 var update = {};
                 update[fullName] = status;
                 try {
-                    await fetch('/api/mcp/tools', {
+                    await fetch('api/mcp/tools', {
                         method: 'PUT',
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify(update)
@@ -106,7 +106,7 @@
                 this.disabled = true;
                 this.textContent = 'Reloading...';
                 try {
-                    await fetch('/api/mcp/reload', {method: 'POST'});
+                    await fetch('api/mcp/reload', {method: 'POST'});
                     await loadTools();
                 } catch (e) {
                     this.textContent = 'Failed';

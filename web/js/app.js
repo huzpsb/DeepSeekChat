@@ -52,7 +52,7 @@
 
     async function refreshMode() {
         try {
-            var resp = await fetch('/api/mode');
+            var resp = await fetch('api/mode');
             var data = await resp.json();
             currentMode = data.mode;
             updateModeUI();
@@ -117,7 +117,7 @@
 
     async function loadBackendSettings() {
         try {
-            var resp = await fetch('/api/config');
+            var resp = await fetch('api/config');
             backendConfig = await resp.json();
             renderBackendSettings();
         } catch (e) {
@@ -343,7 +343,7 @@
         var title = ChatList.getCurrentTitle();
         var sel = document.getElementById('root-dir-select');
         if (!title) return;
-        var resp = await fetch('/api/chats/' + encodeURIComponent(title) + '/rootdir', {
+        var resp = await fetch('api/chats/' + encodeURIComponent(title) + '/rootdir', {
             method: 'PUT',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({root_dir: dir})
@@ -381,7 +381,7 @@
 
     async function saveBackendSettings(update) {
         try {
-            var resp = await fetch('/api/config', {
+            var resp = await fetch('api/config', {
                 method: 'PUT',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(update)
@@ -433,7 +433,7 @@
         var btn = e.target.closest('.mode-btn');
         if (!btn) return;
         var mode = btn.dataset.mode;
-        await fetch('/api/mode', {
+        await fetch('api/mode', {
             method: 'PUT',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({mode: mode})

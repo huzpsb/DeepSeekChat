@@ -75,23 +75,67 @@ func (s *Server) maybeIntegrateJupyter() {
 	if !jupyter.Detect() {
 		return
 	}
-	if jupyter.Registered() {
-		return
+	needRestart := false
+
+	// The proxy entry only materializes when the jupyter-server-proxy
+	// extension is installed in Jupyter's Python environment — stock
+	// images often lack it. This check runs even when DsChat is already
+	// registered, so a box where an earlier run registered the proxy but
+	// the extension was missing still gets fixed on the next start.
+	if !jupyter.ExtensionInstalled() {
+		if err := jupyter.InstallExtension(); err != nil {
+			log.Printf("[jupyter] jupyter-server-proxy missing and auto-install failed: %v", err)
+			log.Printf("[jupyter] install it manually, then restart jupyter: <jupyter-python> -m pip install jupyter-server-proxy")
+		} else {
+			needRestart = true
+		}
 	}
-	changed, err := jupyter.Register(s.Port())
+
+	if !jupyter.Registered() {
+		changed, err := jupyter.Register(s.Port(), s.jupyterIcon())
+		if err != nil {
+			log.Printf("[jupyter] proxy registration failed: %v", err)
+		} else if changed {
+			needRestart = true
+			if err := s.approveAllTools(); err != nil {
+				log.Printf("[jupyter] approve tools failed: %v", err)
+			}
+		}
+	}
+
+	// Jupyter started with an explicit --config file does not load the
+	// default config dir (~/.jupyter) at all; bridge it with a
+	// load_subconfig line. This runs on every startup, independent of
+	// registration state, and intentionally does NOT touch tool
+	// approvals. It runs after Register so the bridge target exists.
+	if changed, err := jupyter.EnsureSubconfig(); err != nil {
+		log.Printf("[jupyter] --config subconfig bridge failed: %v", err)
+	} else if changed {
+		needRestart = true
+	}
+
+	if needRestart {
+		if err := jupyter.Restart(); err != nil {
+			log.Printf("[jupyter] restart failed: %v", err)
+			return
+		}
+		log.Printf("[jupyter] dschat should now be reachable at <jupyter-url>/proxy/%d/ and the JupyterLab launcher", s.Port())
+	}
+}
+
+// jupyterIcon extracts the embedded SVG logo next to the Jupyter config so
+// the launcher tile can reference it via icon_path. Returns "" on failure.
+func (s *Server) jupyterIcon() string {
+	data, err := s.staticFS.ReadFile("assets/dschat.svg")
 	if err != nil {
-		log.Printf("[jupyter] proxy registration failed: %v", err)
-		return
+		return ""
 	}
-	if !changed {
-		return
+	path, err := jupyter.WriteIcon(data, "dschat.svg")
+	if err != nil {
+		log.Printf("[jupyter] icon write failed: %v", err)
+		return ""
 	}
-	if err := s.approveAllTools(); err != nil {
-		log.Printf("[jupyter] approve tools failed: %v", err)
-	}
-	if err := jupyter.Restart(); err != nil {
-		log.Printf("[jupyter] restart failed: %v", err)
-	}
+	return path
 }
 
 // approveAllTools marks every connected tool as approved, except

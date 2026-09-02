@@ -71,7 +71,7 @@
     }
 
     function connect() {
-        var es = new EventSource('/api/chats/status');
+        var es = new EventSource('api/chats/status');
         es.onopen = noteOpen;
         es.onerror = function () {
             noteError(es);

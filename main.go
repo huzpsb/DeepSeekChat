@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"hschat/internal/cli"
+	"hschat/internal/jupyter"
 	ilog "hschat/internal/log"
 	"hschat/internal/server"
 	"log"
@@ -51,6 +52,13 @@ func main() {
 			fmt.Fprintf(os.Stderr, "CLI error: %v\n", err)
 			os.Exit(1)
 		}
+		return
+	}
+
+	// Linux only: relaunch detached inside screen when started from a
+	// transient terminal (e.g. a jupyter web terminal), so the server
+	// survives the terminal closing. No-op when already in screen.
+	if jupyter.EnsureScreen() {
 		return
 	}
 

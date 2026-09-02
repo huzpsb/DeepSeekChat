@@ -20,7 +20,7 @@
 // so themes ship with the app and adding one requires a rebuild.
 (function () {
     var STORAGE_KEY = 'theme';
-    var BASE = '/web/themes/';
+    var BASE = 'web/themes/';
 
     function getTheme() {
         return localStorage.getItem(STORAGE_KEY) || 'default';

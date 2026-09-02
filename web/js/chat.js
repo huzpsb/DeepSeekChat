@@ -10,7 +10,7 @@ var ChatList = {
 
         if (savedTitle) {
             this.currentTitle = savedTitle;
-            var resp = await fetch('/api/chats/' + encodeURIComponent(savedTitle));
+            var resp = await fetch('api/chats/' + encodeURIComponent(savedTitle));
             if (resp.ok) {
                 if (window.ContinueModule) {
                     window.ContinueModule.switchChat(savedTitle);
@@ -52,7 +52,7 @@ var ChatList = {
     },
 
     refresh: async function () {
-        var resp = await fetch('/api/chats');
+        var resp = await fetch('api/chats');
         var chats = await resp.json();
         var list = document.getElementById('chat-list');
         list.innerHTML = '';
@@ -108,7 +108,7 @@ var ChatList = {
         var body = null;
         if (this.currentTitle) {
             try {
-                var currentResp = await fetch('/api/chats/' + encodeURIComponent(this.currentTitle));
+                var currentResp = await fetch('api/chats/' + encodeURIComponent(this.currentTitle));
                 if (currentResp.ok) {
                     var current = await currentResp.json();
                     if (current.root_dir) {
@@ -120,7 +120,7 @@ var ChatList = {
                 // server default root dir rather than failing to create.
             }
         }
-        var resp = await fetch('/api/chats', {
+        var resp = await fetch('api/chats', {
             method: 'POST',
             headers: body ? {'Content-Type': 'application/json'} : {},
             body: body
@@ -182,7 +182,7 @@ var ChatList = {
             }
             return;
         }
-        var resp = await fetch('/api/chats/' + encodeURIComponent(this.currentTitle));
+        var resp = await fetch('api/chats/' + encodeURIComponent(this.currentTitle));
         if (!resp.ok) {
             if (resp.status === 404) {
                 this.currentTitle = null;
@@ -210,12 +210,12 @@ var ChatList = {
     },
 
     dupe: async function (title) {
-        await fetch('/api/chats/' + encodeURIComponent(title) + '/dupe', {method: 'POST'});
+        await fetch('api/chats/' + encodeURIComponent(title) + '/dupe', {method: 'POST'});
         await this.refresh();
     },
 
     del: async function (title) {
-        var resp = await fetch('/api/chats/' + encodeURIComponent(title), {method: 'DELETE'});
+        var resp = await fetch('api/chats/' + encodeURIComponent(title), {method: 'DELETE'});
         if (!resp.ok) {
             var data = await resp.json();
             alert('Delete failed: ' + (data.error || 'Unknown'));
@@ -245,7 +245,7 @@ var ChatList = {
         var save = async function () {
             var newTitle = input.value.trim();
             if (newTitle && newTitle !== chat.title) {
-                var resp = await fetch('/api/chats/' + encodeURIComponent(chat.title) + '/rename', {
+                var resp = await fetch('api/chats/' + encodeURIComponent(chat.title) + '/rename', {
                     method: 'PUT',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({title: newTitle})

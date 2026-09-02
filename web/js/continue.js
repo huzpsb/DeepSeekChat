@@ -169,7 +169,7 @@
         disconnect();
         if (!title) return;
         subscribedTitle = title;
-        var es = new EventSource('/api/chat/stream?title=' + encodeURIComponent(title));
+        var es = new EventSource('api/chat/stream?title=' + encodeURIComponent(title));
         evtSource = es;
         es.addEventListener('sync', function (e) {
             var d;
@@ -422,7 +422,7 @@
     async function doInterrupt() {
         var title = ChatList.getCurrentTitle();
         try {
-            var resp = await fetch('/api/chat/interrupt', {
+            var resp = await fetch('api/chat/interrupt', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({title: title})
@@ -466,7 +466,7 @@
         }
 
         try {
-            var resp = await fetch('/api/chat/continue', {
+            var resp = await fetch('api/chat/continue', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({
@@ -489,7 +489,7 @@
 
     async function reopenPendingAsk(title) {
         try {
-            var resp = await fetch('/api/chats/' + encodeURIComponent(title));
+            var resp = await fetch('api/chats/' + encodeURIComponent(title));
             if (!resp.ok) return false;
             var chat = await resp.json();
             var pendingAsk = getPendingAsk(chat);
@@ -869,10 +869,10 @@
         status.textContent = '';
         try {
             var title = ChatList.getCurrentTitle();
-            var chatResp = await fetch('/api/chats/' + encodeURIComponent(title));
+            var chatResp = await fetch('api/chats/' + encodeURIComponent(title));
             if (!chatResp.ok) throw new Error('Failed to reload chat');
             var chat = await chatResp.json();
-            var resp = await fetch('/api/chat/' + encodeURIComponent(title) + '/message/' + chat.messages.length, {
+            var resp = await fetch('api/chat/' + encodeURIComponent(title) + '/message/' + chat.messages.length, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({

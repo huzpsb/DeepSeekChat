@@ -252,13 +252,13 @@ var Messages = {
     fetchAppCss: async function () {
         var css = '';
         try {
-            var resp = await fetch('/web/css/style.css');
+            var resp = await fetch('web/css/style.css');
             if (resp.ok) css += await resp.text();
         } catch (e) {
         }
         var name = window.DsTheme ? DsTheme.get() : 'default';
         if (name !== 'default') {
-            var base = '/web/themes/' + encodeURIComponent(name) + '/';
+            var base = 'web/themes/' + encodeURIComponent(name) + '/';
             try {
                 var themeResp = await fetch(base + 'theme.css');
                 if (themeResp.ok) {

@@ -16,7 +16,7 @@
     async function fetchToolSchemas() {
         if (toolSchemaCache) return toolSchemaCache;
         try {
-            var resp = await fetch('/api/mcp/tools');
+            var resp = await fetch('api/mcp/tools');
             var tools = await resp.json();
             toolSchemaCache = {};
             tools.forEach(function (t) {
@@ -634,7 +634,7 @@
             }
         }
 
-        var resp = await fetch('/api/chat/' + encodeURIComponent(ChatList.getCurrentTitle()) + '/message/' + editingIndex, {
+        var resp = await fetch('api/chat/' + encodeURIComponent(ChatList.getCurrentTitle()) + '/message/' + editingIndex, {
             method: 'PUT',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(msg)
@@ -682,7 +682,7 @@
             return;
         }
 
-        var resp = await fetch('/api/chat/' + encodeURIComponent(ChatList.getCurrentTitle()) + '/message/' + (editingIndex + 1), {
+        var resp = await fetch('api/chat/' + encodeURIComponent(ChatList.getCurrentTitle()) + '/message/' + (editingIndex + 1), {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
@@ -827,7 +827,7 @@
                 return;
             }
 
-            var resp = await fetch('/api/chat/' + encodeURIComponent(ChatList.getCurrentTitle()) + '/message/' + index, {
+            var resp = await fetch('api/chat/' + encodeURIComponent(ChatList.getCurrentTitle()) + '/message/' + index, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({role: roleSelect.value, content: content, send_to_server: true})
@@ -897,7 +897,7 @@
             alert('Cannot approve while chat is being processed.');
             return;
         }
-        var resp = await fetch('/api/chat/' + encodeURIComponent(ChatList.getCurrentTitle()) + '/message/' + index + '/approve', {
+        var resp = await fetch('api/chat/' + encodeURIComponent(ChatList.getCurrentTitle()) + '/message/' + index + '/approve', {
             method: 'PUT'
         });
         if (resp.ok) {
@@ -921,7 +921,7 @@
             if (!confirm('Delete this message?')) return;
         }
 
-        var resp = await fetch('/api/chat/' + encodeURIComponent(ChatList.getCurrentTitle()) + '/message/' + index, {
+        var resp = await fetch('api/chat/' + encodeURIComponent(ChatList.getCurrentTitle()) + '/message/' + index, {
             method: 'DELETE'
         });
 
