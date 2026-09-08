@@ -33,7 +33,8 @@ func FixArgs(tool *model.ToolDef, args map[string]any) []Fix {
 // tool's declared ArgAliases (canonical field -> alias names).
 //
 // Rules:
-//   - the canonical key always wins: if it is present, nothing is touched;
+//   - the canonical key always wins: if it is present its value is kept
+//     and any alias keys are still deleted (they are redundant);
 //   - among multiple present aliases, the first declared alias wins;
 //   - a consumed alias key is deleted; untouched aliases are left as-is.
 //
@@ -45,16 +46,21 @@ func RenameAliases(tool *model.ToolDef, args map[string]any) []Fix {
 	}
 	var fixes []Fix
 	for canonical, aliases := range tool.ArgAliases {
+		canonicalPresent := false
 		if _, ok := args[canonical]; ok {
-			continue
+			canonicalPresent = true
 		}
 		for _, alias := range aliases {
-			if v, ok := args[alias]; ok {
-				args[canonical] = v
-				delete(args, alias)
-				fixes = append(fixes, Fix{Field: canonical, From: alias})
-				break
+			if _, ok := args[alias]; !ok {
+				continue
 			}
+			if !canonicalPresent {
+				args[canonical] = args[alias]
+				canonicalPresent = true
+			}
+			delete(args, alias)
+			fixes = append(fixes, Fix{Field: canonical, From: alias})
+			break
 		}
 	}
 	return fixes

@@ -13,6 +13,21 @@ import (
 	"hschat/internal/model"
 )
 
+// isBlacklistedExt reports whether the file name's extension is in the
+// provider's ext blacklist.
+func (p *Provider) isBlacklistedExt(name string) bool {
+	if len(p.extBlacklist) == 0 {
+		return false
+	}
+	ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(name), "."))
+	for _, bl := range p.extBlacklist {
+		if ext == strings.ToLower(bl) {
+			return true
+		}
+	}
+	return false
+}
+
 func (p *Provider) Tools() []model.ToolDef {
 	tools := []model.ToolDef{
 		{Name: "tree", Description: "Recursively list directory tree",
@@ -340,6 +355,9 @@ func (p *Provider) searchName(ctx context.Context, args map[string]any) string {
 			}
 			return nil
 		}
+		if !info.IsDir() && p.isBlacklistedExt(info.Name()) {
+			return nil
+		}
 		var match bool
 		switch matchType {
 		case "regex":
@@ -445,6 +463,9 @@ func (p *Provider) searchContentImpl(ctx context.Context, query, matchType strin
 			return nil
 		}
 		if info.IsDir() {
+			return nil
+		}
+		if p.isBlacklistedExt(info.Name()) {
 			return nil
 		}
 		match, _ := filepath.Match(fileGlob, info.Name())

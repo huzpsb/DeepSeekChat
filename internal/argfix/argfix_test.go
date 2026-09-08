@@ -35,14 +35,14 @@ func TestRenameAliases_CanonicalWins(t *testing.T) {
 
 	fixes := RenameAliases(tool, args)
 
-	if len(fixes) != 0 {
-		t.Errorf("expected no fixes, got %v", fixes)
+	if len(fixes) != 1 || fixes[0].Field != "original" || fixes[0].From != "old" {
+		t.Fatalf("expected 1 fix (old deleted), got %v", fixes)
 	}
 	if args["original"] != "canon" {
 		t.Errorf("canonical value was modified: %v", args["original"])
 	}
-	if _, ok := args["old"]; !ok {
-		t.Error("untouched alias should be left as-is")
+	if _, ok := args["old"]; ok {
+		t.Error("alias key 'old' should have been deleted when canonical is present")
 	}
 }
 
