@@ -85,14 +85,11 @@ func (p *Provider) getRootDir() string {
 }
 
 // withRootDir returns a lightweight copy of the provider rooted at dir.
-// Used for per-call overrides carried by the tool-call context.
 func (p *Provider) withRootDir(dir string) *Provider {
-	rootDir := ResolveRootDir(dir)
-	_ = os.MkdirAll(rootDir, 0755)
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return &Provider{
-		rootDir:         rootDir,
+		rootDir:         ResolveLiveRootDir(dir, p.rootDir),
 		extBlacklist:    p.extBlacklist,
 		sandboxDisabled: p.sandboxDisabled,
 	}
@@ -106,6 +103,18 @@ func ResolveRootDir(dir string) string {
 		return abs
 	}
 	return dir
+}
+
+// ResolveLiveRootDir resolves dir to an absolute path, falling back to
+// fallback (also resolved) when dir no longer exists on disk. A deleted
+// project directory must never be resurrected by an implicit MkdirAll, nor
+// cause tool failures: everything falls back to the provider default.
+func ResolveLiveRootDir(dir, fallback string) string {
+	resolved := ResolveRootDir(dir)
+	if info, err := os.Stat(resolved); err == nil && info.IsDir() {
+		return resolved
+	}
+	return ResolveRootDir(fallback)
 }
 
 // ValidateRootDir resolves dir and ensures the directory can be created,

@@ -521,3 +521,51 @@ func TestTools_SearchContentSplitAndTreeDefaultLimit(t *testing.T) {
 		t.Fatalf("tree default limit should be 1000, got %#v", limit["default"])
 	}
 }
+
+func TestWithRootDirFallsBackWhenDirDeleted(t *testing.T) {
+	root := t.TempDir()
+	p := &Provider{rootDir: root}
+
+	gone := filepath.Join(t.TempDir(), "deleted_project")
+	sub := p.withRootDir(gone)
+
+	if sub.getRootDir() != root {
+		t.Fatalf("expected fallback to provider root %q, got %q", root, sub.getRootDir())
+	}
+	if _, err := os.Stat(gone); !os.IsNotExist(err) {
+		t.Fatalf("deleted dir must not be resurrected, stat err=%v", err)
+	}
+}
+
+func TestWithRootDirUsesExistingDir(t *testing.T) {
+	root := t.TempDir()
+	other := t.TempDir()
+	p := &Provider{rootDir: root}
+
+	sub := p.withRootDir(other)
+	if sub.getRootDir() != other {
+		t.Fatalf("expected override dir %q, got %q", other, sub.getRootDir())
+	}
+}
+
+func TestResolveLiveRootDir(t *testing.T) {
+	fallback := t.TempDir()
+	live := t.TempDir()
+
+	if got := ResolveLiveRootDir(live, fallback); got != ResolveRootDir(live) {
+		t.Fatalf("expected live dir %q, got %q", ResolveRootDir(live), got)
+	}
+
+	gone := filepath.Join(t.TempDir(), "gone")
+	if got := ResolveLiveRootDir(gone, fallback); got != ResolveRootDir(fallback) {
+		t.Fatalf("expected fallback %q for deleted dir, got %q", ResolveRootDir(fallback), got)
+	}
+
+	notDir := filepath.Join(t.TempDir(), "a_file")
+	if err := os.WriteFile(notDir, []byte("x"), 0644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+	if got := ResolveLiveRootDir(notDir, fallback); got != ResolveRootDir(fallback) {
+		t.Fatalf("expected fallback %q for non-dir path, got %q", ResolveRootDir(fallback), got)
+	}
+}

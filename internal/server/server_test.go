@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -277,7 +278,7 @@ func TestCreateChat_DefaultRootDirStoredEmpty(t *testing.T) {
 	}
 }
 
-func TestCreateChat_InvalidRootDir(t *testing.T) {
+func TestCreateChat_StaleRootDirFallsBackToDefault(t *testing.T) {
 	setupServerTest(t)
 	storage.SaveConfig(&model.MCPConfig{
 		Sandbox: model.SandboxConfig{RootDirs: []string{"./agent"}},
@@ -285,14 +286,25 @@ func TestCreateChat_InvalidRootDir(t *testing.T) {
 
 	srv := New(testStaticFS)
 
+	// A root_dir that is not in the configured list (e.g. inherited from a
+	// chat whose project directory was deleted) falls back to the default
+	// instead of failing the creation.
 	body := `{"root_dir":"./not_in_list"}`
 	req := httptest.NewRequest("POST", "/api/chats", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	srv.mux.ServeHTTP(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for invalid root_dir, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for stale root_dir, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var chat model.Chat
+	if err := json.Unmarshal(w.Body.Bytes(), &chat); err != nil {
+		t.Fatalf("failed to decode created chat: %v", err)
+	}
+	if chat.RootDir != "" {
+		t.Fatalf("expected empty root_dir (server default), got %q", chat.RootDir)
 	}
 }
 
@@ -893,5 +905,34 @@ func TestHandleEditMessage_NonNumericIndex(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected 400 for non-numeric index, got %d", w.Code)
+	}
+}
+
+func TestGetChat_StaleRootDirReportsDefault(t *testing.T) {
+	setupServerTest(t)
+	storage.SaveConfig(&model.MCPConfig{
+		Sandbox: model.SandboxConfig{RootDirs: []string{"./agent"}},
+	})
+	stale := filepath.Join(t.TempDir(), "gone")
+	storage.SaveChat(&model.Chat{Title: "stale_root", RootDir: stale})
+
+	srv := New(testStaticFS)
+
+	req := httptest.NewRequest("GET", "/api/chats/stale_root", nil)
+	w := httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		RootDir string `json:"root_dir"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	want, _ := filepath.Abs("./agent")
+	if resp.RootDir != want {
+		t.Fatalf("expected default %q, got %q", want, resp.RootDir)
 	}
 }

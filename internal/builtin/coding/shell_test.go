@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"hschat/internal/builtin/sandbox"
 	"hschat/internal/encoding"
 	"hschat/internal/model"
 )
@@ -346,4 +347,39 @@ func TestRunShellTool_InterruptKillsProcess(t *testing.T) {
 	}
 
 	t.Logf("killed after %v, exit info: %s", elapsed, result)
+}
+
+func TestCallTool_Run_DeletedCtxRootDirFallsBack(t *testing.T) {
+	p := setupProvider(t)
+	p.fileBlacklist = []string{}
+	if runtime.GOOS == "windows" {
+		p.rawShell = &model.RawShellConfig{Enabled: true, Shell: []string{"cmd.exe", "/c"}, Preamble: "$original"}
+	} else {
+		p.rawShell = &model.RawShellConfig{Enabled: true, Shell: []string{"sh", "-c"}, Preamble: "$original"}
+	}
+
+	marker := "fallback_cwd_marker.txt"
+	if err := os.WriteFile(filepath.Join(p.rootDir, marker), []byte("fallback_ok"), 0644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	deleted := filepath.Join(t.TempDir(), "gone")
+	ctx := sandbox.WithRootDir(context.Background(), deleted)
+
+	command := "type " + marker
+	if runtime.GOOS != "windows" {
+		command = "cat " + marker
+	}
+	result, err := p.CallTool(ctx, "run", map[string]any{
+		"command":  command,
+		"time_out": float64(10),
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	checkContains(t, result.Content[0].Text, "fallback_ok")
+
+	if _, err := os.Stat(deleted); !os.IsNotExist(err) {
+		t.Fatalf("deleted dir must not be resurrected, stat err=%v", err)
+	}
 }

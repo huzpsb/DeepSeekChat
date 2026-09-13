@@ -59,7 +59,7 @@ func (p *Provider) CallTool(ctx context.Context, name string, args map[string]an
 
 	rootDir := p.getRootDir()
 	if dir, ok := sandbox.RootDirFromContext(ctx); ok {
-		rootDir = sandbox.ResolveRootDir(dir)
+		rootDir = sandbox.ResolveLiveRootDir(dir, rootDir)
 	}
 
 	if name == "run" && p.rawShell != nil && p.rawShell.Enabled {

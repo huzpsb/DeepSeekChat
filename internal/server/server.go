@@ -482,10 +482,10 @@ func (s *Server) handleCreateChat(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.RootDir != "" {
 		if !cfg.Sandbox.HasRootDir(req.RootDir) {
-			s.writeError(w, "root dir not in configured list", http.StatusBadRequest)
-			return
-		}
-		if req.RootDir == cfg.Sandbox.DefaultRootDir() {
+			// Stale dir inherited from a chat whose project was deleted:
+			// fall back to the default instead of failing the creation.
+			log.Printf("[http] create_chat root_dir_fallback stale=%q\n", req.RootDir)
+		} else if req.RootDir == cfg.Sandbox.DefaultRootDir() {
 			chat.RootDir = ""
 		} else {
 			chat.RootDir = req.RootDir
@@ -505,10 +505,15 @@ func (s *Server) handleGetChat(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, err.Error(), http.StatusNotFound)
 		return
 	}
+	cfg := s.mcpMgr.Config()
+	// Report the effective root dir: a stored dir whose project has been
+	// deleted falls back to the configured default, matching what the
+	// runtime sandbox actually uses.
 	rootDir := chat.RootDir
 	if rootDir == "" {
-		cfg := s.mcpMgr.Config()
 		rootDir = cfg.Sandbox.DefaultRootDir()
+	} else {
+		rootDir = sandbox.ResolveLiveRootDir(rootDir, cfg.Sandbox.DefaultRootDir())
 	}
 	s.writeJSON(w, map[string]any{
 		"title":        chat.Title,
