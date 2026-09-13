@@ -366,6 +366,32 @@ func TestSearchContentPlaintext_UsesKeyword(t *testing.T) {
 	}
 }
 
+func TestSearchContentPlaintext_TruncatesLongLines(t *testing.T) {
+	root := t.TempDir()
+	longLine := strings.Repeat("x", 3000) + "needle"
+	os.WriteFile(filepath.Join(root, "a.txt"), []byte("short line\n"+longLine+"\nqux qux"), 0644)
+
+	p := &Provider{rootDir: root}
+
+	result := p.searchContentPlaintext(context.Background(), map[string]any{"keyword": "needle", "dir": root})
+	if strings.Contains(result, longLine) {
+		t.Fatalf("expected long line to be truncated, got %q", result)
+	}
+	if !strings.Contains(result, "[truncated 1982 chars]") {
+		t.Fatalf("expected truncation marker, got %q", result)
+	}
+
+	// Short lines must pass through untouched.
+	os.WriteFile(filepath.Join(root, "b.txt"), []byte("foo bar"), 0644)
+	result = p.searchContentPlaintext(context.Background(), map[string]any{"keyword": "foo", "dir": root})
+	if !strings.Contains(result, "foo bar") {
+		t.Fatalf("expected 'foo bar', got %q", result)
+	}
+	if strings.Contains(result, "[truncated") {
+		t.Fatalf("short lines must not be truncated, got %q", result)
+	}
+}
+
 func TestSearchContentPlaintext_NoRegexHint(t *testing.T) {
 	root := t.TempDir()
 	os.WriteFile(filepath.Join(root, "a.txt"), []byte("hello world"), 0644)

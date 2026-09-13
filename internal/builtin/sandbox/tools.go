@@ -413,6 +413,21 @@ func (p *Provider) searchContentAdvanced(ctx context.Context, args map[string]an
 	return p.searchContentImpl(ctx, query, matchType, args)
 }
 
+// maxSearchResultLineLen caps the length of a single line shown in
+// search content results; unreasonably long lines (e.g. minified files,
+// one-line JSON) are truncated to keep results readable.
+const maxSearchResultLineLen = 1024
+
+// truncateLongLine truncates lines longer than maxSearchResultLineLen,
+// appending a marker with the number of dropped runes.
+func truncateLongLine(line string) string {
+	runes := []rune(line)
+	if len(runes) <= maxSearchResultLineLen {
+		return line
+	}
+	return string(runes[:maxSearchResultLineLen]) + fmt.Sprintf(" …[truncated %d chars]", len(runes)-maxSearchResultLineLen)
+}
+
 func (p *Provider) searchContentImpl(ctx context.Context, query, matchType string, args map[string]any) string {
 	fileGlob := "*"
 	if v, ok := args["file_glob"].(string); ok {
@@ -526,7 +541,9 @@ func (p *Provider) searchContentImpl(ctx context.Context, query, matchType strin
 			buf.WriteString(fmt.Sprintf("==> %s\n", rel))
 			for _, s := range spans {
 				buf.WriteString(fmt.Sprintf("-- Lines %d-%d --\n", s.start+1, s.end))
-				buf.WriteString(strings.Join(lines[s.start:s.end], "\n") + "\n")
+				for _, line := range lines[s.start:s.end] {
+					buf.WriteString(truncateLongLine(line) + "\n")
+				}
 			}
 		}
 		return nil
