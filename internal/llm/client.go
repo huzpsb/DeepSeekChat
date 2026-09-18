@@ -72,7 +72,6 @@ func (c *Client) StreamChat(ctx context.Context, messages []model.Message, tools
 	reqBody := map[string]any{
 		"model":            c.model,
 		"messages":         apiMessages,
-		"thinking":         map[string]string{"type": "enabled"},
 		"reasoning_effort": "high",
 		"max_new_tokens":   maxNewTokens,
 		"stream":           true,
@@ -80,6 +79,16 @@ func (c *Client) StreamChat(ctx context.Context, messages []model.Message, tools
 		// stream so we can record the actual input token count. Servers that
 		// don't support it simply ignore the option.
 		"stream_options": map[string]bool{"include_usage": true},
+	}
+
+	// Quirk: the *.nccsec.cn gateway (MiniMax upstream) rejects
+	// thinking.type="enabled" — it only allows "adaptive"/"disabled" —
+	// and worse, it reports the failure as HTTP 200 with an SSE
+	// "event:error" frame that parseSSE would silently swallow, making a
+	// hard failure look like an empty-but-successful reply. Just don't
+	// send the field to it.
+	if !strings.Contains(c.endpoint, ".nccsec.cn") {
+		reqBody["thinking"] = map[string]string{"type": "enabled"}
 	}
 
 	if len(tools) > 0 {
