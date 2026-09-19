@@ -408,6 +408,78 @@ func TestSearchContentPlaintext_NoRegexHint(t *testing.T) {
 	}
 }
 
+func TestSearchContentPlaintext_FileGlobPathSeparatorHint(t *testing.T) {
+	root := t.TempDir()
+	os.MkdirAll(filepath.Join(root, "web", "js"), 0755)
+	os.WriteFile(filepath.Join(root, "web", "js", "continue.js"), []byte("hello world"), 0644)
+	os.WriteFile(filepath.Join(root, "a.txt"), []byte("hello world"), 0644)
+
+	p := &Provider{rootDir: root}
+
+	// a glob containing a path separator can never match a file NAME —
+	// the keyword IS present, so the empty result must come with a hint
+	// suggesting the corrected base-name pattern.
+	result := p.searchContentPlaintext(context.Background(), map[string]any{"keyword": "hello", "file_glob": "web/js/continue.js", "dir": root})
+	if !strings.Contains(result, "No matches found.") {
+		t.Fatalf("expected 'No matches found.', got %q", result)
+	}
+	if !strings.Contains(result, "Hint:") {
+		t.Fatalf("expected file_glob miss hint, got %q", result)
+	}
+	if !strings.Contains(result, `"continue.js"`) {
+		t.Fatalf("hint should suggest \"continue.js\", got %q", result)
+	}
+
+	// corrected base-name glob: real hits, no hint.
+	result = p.searchContentPlaintext(context.Background(), map[string]any{"keyword": "hello", "file_glob": "continue.js", "dir": root})
+	if !strings.Contains(result, "hello world") {
+		t.Fatalf("expected 'hello world', got %q", result)
+	}
+	if strings.Contains(result, "Hint:") {
+		t.Fatalf("expected no hint when the glob matches, got %q", result)
+	}
+}
+
+func TestSearchContentPlaintext_FileGlobNameMissHint(t *testing.T) {
+	root := t.TempDir()
+	os.WriteFile(filepath.Join(root, "a.txt"), []byte("hello world"), 0644)
+
+	p := &Provider{rootDir: root}
+
+	// glob without separators that matches no file names at all → generic hint
+	result := p.searchContentPlaintext(context.Background(), map[string]any{"keyword": "hello", "file_glob": "*.java", "dir": root})
+	if !strings.Contains(result, "No matches found.") {
+		t.Fatalf("expected 'No matches found.', got %q", result)
+	}
+	if !strings.Contains(result, "Hint:") || !strings.Contains(result, `"*.java"`) {
+		t.Fatalf("expected hint quoting the offending glob, got %q", result)
+	}
+
+	// keyword miss with a glob that DOES match files → plain no-matches, no hint
+	result = p.searchContentPlaintext(context.Background(), map[string]any{"keyword": "zzz", "file_glob": "*.txt", "dir": root})
+	if !strings.Contains(result, "No matches found.") {
+		t.Fatalf("expected 'No matches found.', got %q", result)
+	}
+	if strings.Contains(result, "Hint:") {
+		t.Fatalf("keyword miss with matching glob should not hint, got %q", result)
+	}
+}
+
+func TestSearchContentPlaintext_EmptyDirHint(t *testing.T) {
+	root := t.TempDir()
+	p := &Provider{rootDir: root}
+
+	// default glob "*" matching nothing means there are no searchable files
+	// at all — the generic empty-dir hint, not a pattern correction.
+	result := p.searchContentPlaintext(context.Background(), map[string]any{"keyword": "hello", "dir": root})
+	if !strings.Contains(result, "No matches found.") {
+		t.Fatalf("expected 'No matches found.', got %q", result)
+	}
+	if !strings.Contains(result, "no searchable files found under dir.") {
+		t.Fatalf("expected empty-dir hint, got %q", result)
+	}
+}
+
 func TestSearchContentAdvanced_Glob(t *testing.T) {
 	root := t.TempDir()
 	os.WriteFile(filepath.Join(root, "a.txt"), []byte("hello world\nfoo bar\nbaz qux"), 0644)

@@ -52,7 +52,7 @@ func (p *Provider) Tools() []model.ToolDef {
 				"required": []string{"query"},
 			},
 		},
-		{Name: "search_content_plaintext", Description: "Search files with keyword. Uses plain substring match. Optionally filter by filename with file_glob (glob).",
+		{Name: "search_content_plaintext", Description: "Search files with keyword. Uses plain substring match. Optionally filter by file NAME with file_glob (glob on the base name only, e.g. \"*.go\"; path separators never match).",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -65,7 +65,7 @@ func (p *Provider) Tools() []model.ToolDef {
 				"required": []string{"keyword"},
 			},
 		},
-		{Name: "search_content_advanced", Description: "Search files with query. Set type=\"glob\" for glob (matches WHOLE line; *2* matches \"123\" but *2 does NOT), e.g. \"*depth :=*\". Set type=\"regex\" for regex (substring by default, use ^/$ to anchor), e.g. \"depth\\s*:=\". Optionally filter by filename with file_glob (glob).",
+		{Name: "search_content_advanced", Description: "Search files with query. Set type=\"glob\" for glob (matches WHOLE line; *2* matches \"123\" but *2 does NOT), e.g. \"*depth :=*\". Set type=\"regex\" for regex (substring by default, use ^/$ to anchor), e.g. \"depth\\s*:=\". Optionally filter by file NAME with file_glob (glob on the base name only, e.g. \"*.go\"; path separators never match).",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -463,6 +463,12 @@ func (p *Provider) searchContentImpl(ctx context.Context, query, matchType strin
 	type span struct{ start, end int }
 	var buf strings.Builder
 	filesFound := 0
+	// globFiles counts files whose NAME matched file_glob (before the
+	// limit/size filters). When it stays 0 the empty result is the glob's
+	// fault, not the keyword's — worth an explicit hint, because a glob
+	// containing a path separator (e.g. "web/js/continue.js") silently
+	// matches nothing and looks exactly like "keyword not found".
+	globFiles := 0
 
 	walkErr := filepath.Walk(path, func(fp string, info os.FileInfo, err error) error {
 		if cerr := ctx.Err(); cerr != nil {
@@ -487,6 +493,7 @@ func (p *Provider) searchContentImpl(ctx context.Context, query, matchType strin
 		if !match {
 			return nil
 		}
+		globFiles++
 		if filesFound >= limitFile {
 			return filepath.SkipAll
 		}
@@ -555,8 +562,35 @@ func (p *Provider) searchContentImpl(ctx context.Context, query, matchType strin
 	result := buf.String()
 	if result == "" {
 		result = "No matches found."
+		if globFiles == 0 {
+			result += " (Hint: " + fileGlobMissHint(fileGlob) + ")"
+		}
 	}
 	return result
+}
+
+// globBaseName returns everything after the last path separator in g, or
+// g itself when it contains none. Used to suggest the corrected pattern
+// when a file_glob containing path separators matched nothing.
+func globBaseName(g string) string {
+	if i := strings.LastIndexAny(g, `/\`); i >= 0 {
+		return g[i+1:]
+	}
+	return g
+}
+
+// fileGlobMissHint explains why file_glob matched nothing. file_glob is
+// matched against the file NAME only (info.Name(), path excluded), so a
+// pattern with a path separator can never match; the most useful hint is
+// then the corrected base-name pattern.
+func fileGlobMissHint(fileGlob string) string {
+	if base := globBaseName(fileGlob); base != fileGlob {
+		return fmt.Sprintf("file_glob %q contains a path separator, but it is matched against the file NAME only (path excluded); use %q or scope with dir.", fileGlob, base)
+	}
+	if fileGlob != "*" {
+		return fmt.Sprintf("file_glob %q matched no file names; it is matched against the file NAME only (path excluded), e.g. \"*.go\"; omit it to search every file.", fileGlob)
+	}
+	return "no searchable files found under dir."
 }
 
 func (p *Provider) readContent(args map[string]any) string {
