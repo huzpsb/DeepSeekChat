@@ -131,6 +131,146 @@ html, body {
     }
 }
 
+/* --- chat search (search.js) --- */
+
+#search-bar {
+    display: flex;
+    gap: 6px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+}
+
+#chat-search {
+    flex: 1;
+    min-width: 0;
+    padding: 5px 8px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+#chat-search:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+#search-toggle-tool {
+    padding: 4px 8px;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+#search-toggle-tool:hover {
+    border-color: var(--accent);
+}
+
+#search-toggle-tool.active {
+    background: var(--accent);
+    color: var(--text-on-accent);
+    border-color: var(--accent);
+}
+
+#search-results {
+    flex: 1;
+    overflow-y: auto;
+    padding: 6px;
+}
+
+#search-results.hidden {
+    display: none;
+}
+
+.search-empty {
+    color: var(--text-secondary);
+    font-size: 12px;
+    padding: 12px 8px;
+}
+
+.search-group {
+    margin-bottom: 6px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.search-group-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 8px;
+    background: var(--bg-tertiary);
+    cursor: pointer;
+}
+
+.search-group-head:hover {
+    filter: brightness(1.15);
+}
+
+.search-group-title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--accent);
+    font-size: 12px;
+}
+
+.search-group-title.title-match {
+    font-style: italic;
+    font-weight: 600;
+}
+
+.search-group-count {
+    flex-shrink: 0;
+    color: var(--text-secondary);
+    font-size: 10px;
+}
+
+.search-hit {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 5px 8px;
+    cursor: pointer;
+    border-top: 1px solid var(--border);
+}
+
+.search-hit:hover {
+    background: var(--bg-tertiary);
+}
+
+.search-hit-meta {
+    color: var(--text-secondary);
+    font-size: 10px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.search-hit-snippet {
+    color: var(--text-primary);
+    font-size: 12px;
+    word-break: break-all;
+    max-height: 3.6em;
+    overflow: hidden;
+}
+
+.search-hit-snippet mark {
+    background: var(--warning);
+    color: var(--text-on-warning);
+    border-radius: 2px;
+    padding: 0 1px;
+}
+
 /* backend connectivity marker, toggled by status.js */
 #backend-offline {
     position: fixed;

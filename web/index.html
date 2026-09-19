@@ -16,6 +16,11 @@
             <button id="btn-tools">Tools</button>
             <button id="btn-export">Export</button>
         </div>
+        <div id="search-bar">
+            <input id="chat-search" autocomplete="off" placeholder="Search all chats…" title="Full-text search over all chats (case-insensitive)" type="text">
+            <button id="search-toggle-tool" title="Also search tool calls &amp; tool results">tool</button>
+        </div>
+        <div class="hidden" id="search-results"></div>
         <ul id="chat-list"></ul>
     </aside>
     <main id="main">
@@ -200,6 +205,7 @@
 <script src="web/js/messages.js"></script>
 <script src="web/js/continue.js"></script>
 <script src="web/js/editor.js"></script>
+<script src="web/js/search.js"></script>
 <script src="web/js/validate.js"></script>
 <script src="web/js/tools.js"></script>
 </body>

@@ -34,6 +34,10 @@ type ContinueEvent struct {
 	ToolResult *toolResultEvt  `json:"tool_result,omitempty"`
 	Error      *ErrorDetail    `json:"error,omitempty"`
 	Message    *model.Message  `json:"message,omitempty"`
+	// PromptTokens is set on Type=="usage" events: the input token count
+	// of the LLM request as reported by its usage chunk. Not persisted per
+	// event — the next save boundary persists it as chat.ContextSize.
+	PromptTokens int `json:"prompt_tokens,omitempty"`
 }
 
 type toolResultEvt struct {
@@ -523,9 +527,12 @@ func (e *Engine) streamDeepSeek(ctx context.Context, chat *model.Chat, emit func
 		case "usage":
 			// Lazy: only update the in-memory chat here; it is persisted by
 			// the next save boundary (assistant_done save / final save), not
-			// written per stream event.
+			// written per stream event. The event is still forwarded to the
+			// client so the Ctx counter updates live mid-run instead of
+			// only on the next history reload after the run ends.
 			chat.ContextSize = evt.PromptTokens
 			logContinue("deepseek_event type=usage assistant_idx=%d prompt_tokens=%d", assistantIdx, evt.PromptTokens)
+			emit(ContinueEvent{Type: "usage", PromptTokens: evt.PromptTokens})
 		case "done":
 			logContinue("deepseek_event type=done assistant_idx=%d content_len=%d reasoning_len=%d tool_calls=%d", assistantIdx, len(chat.Messages[assistantIdx].Content), len(chat.Messages[assistantIdx].ReasoningContent), len(chat.Messages[assistantIdx].ToolCalls))
 		}

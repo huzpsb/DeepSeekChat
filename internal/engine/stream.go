@@ -423,6 +423,9 @@ func describeLastMessage(chat *model.Chat) string {
 
 func describeEvent(evt cont.ContinueEvent) string {
 	s := fmt.Sprintf("content_len=%d", len(evt.Content))
+	if evt.PromptTokens > 0 {
+		s += fmt.Sprintf(" prompt_tokens=%d", evt.PromptTokens)
+	}
 	if evt.ToolCall != nil {
 		s += fmt.Sprintf(" tool_call_id=%q tool_name=%q args_len=%d", evt.ToolCall.ID, evt.ToolCall.Function.Name, len(evt.ToolCall.Function.Arguments))
 	}

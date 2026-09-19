@@ -179,6 +179,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("PUT /api/config", s.handleSetConfig)
 	s.mux.HandleFunc("GET /api/chats", s.handleListChats)
 	s.mux.HandleFunc("GET /api/chats/status", s.handleChatsStatus)
+	s.mux.HandleFunc("GET /api/chats/search", s.handleSearchChats)
 	s.mux.HandleFunc("POST /api/chats", s.handleCreateChat)
 	s.mux.HandleFunc("GET /api/chats/{title}", s.handleGetChat)
 	s.mux.HandleFunc("DELETE /api/chats/{title}", s.handleDeleteChat)
@@ -456,6 +457,30 @@ func (s *Server) handleListChats(w http.ResponseWriter, _ *http.Request) {
 		summaries = append(summaries, model.ChatSummary{Title: c.Title, Running: running[c.Title]})
 	}
 	s.writeJSON(w, summaries)
+}
+
+// handleSearchChats implements GET /api/chats/search?q=<text>&tool=<0|1>,
+// a case-insensitive full-text search over all chats. tool=1 additionally
+// searches tool results and tool call arguments. Per chat at most
+// DefaultMaxHitsPerChat hits are returned; when there are more, the later
+// hits are kept (see storage.SearchChats).
+func (s *Server) handleSearchChats(w http.ResponseWriter, r *http.Request) {
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	if query == "" {
+		s.writeError(w, "missing q", http.StatusBadRequest)
+		return
+	}
+	includeTool := r.URL.Query().Get("tool") == "1" || r.URL.Query().Get("tool") == "true"
+	results := storage.SearchChats(query, includeTool, storage.DefaultMaxHitsPerChat)
+	if results == nil {
+		results = []model.ChatSearchResult{}
+	}
+	log.Printf("[server] chat_search q=%q tool=%v results=%d\n", query, includeTool, len(results))
+	s.writeJSON(w, map[string]any{
+		"query":        query,
+		"include_tool": includeTool,
+		"results":      results,
+	})
 }
 
 func (s *Server) handleCreateChat(w http.ResponseWriter, r *http.Request) {

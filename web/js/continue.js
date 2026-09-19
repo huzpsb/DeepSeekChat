@@ -41,7 +41,7 @@
 
     var STREAM_EVENT_TYPES = [
         'delta', 'reasoning_delta', 'tool_call', 'tool_execute',
-        'tool_result', 'user_added', 'assistant_done', 'error'
+        'tool_result', 'user_added', 'assistant_done', 'usage', 'error'
     ];
 
     // ---- reasoning render throttle ----
@@ -336,13 +336,14 @@
         currentAssistant = null;
     }
 
-    // assistant_done is recorded too: it produces no DOM, but acts as a
-    // barrier so deltas of two different assistant messages never merge
-    // across a save boundary
+    // assistant_done and usage are recorded too: they produce no DOM, but
+    // assistant_done acts as a barrier so deltas of two different assistant
+    // messages never merge across a save boundary, and usage carries the
+    // live Ctx count that a mid-run reconnect must restore on replay.
     function isDomEvent(type) {
         return type === 'delta' || type === 'reasoning_delta'
             || type === 'tool_call' || type === 'tool_result' || type === 'user_added'
-            || type === 'assistant_done';
+            || type === 'assistant_done' || type === 'usage';
     }
 
     function applyEvent(type, evt, record, seq) {
@@ -374,6 +375,14 @@
             case 'assistant_done':
                 // next stream segment starts a new assistant message
                 currentAssistant = null;
+                break;
+            case 'usage':
+                // Live input-token count of the just-finished LLM request.
+                // Without this, the Ctx counter would stay frozen at the
+                // pre-run value for the whole run (which can span many
+                // requests with tools/auto-continue) and only update on
+                // the next history reload.
+                ChatList.updateContextSize(evt.prompt_tokens || 0);
                 break;
             case 'error':
                 if (evt.error && evt.error.ids) {

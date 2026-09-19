@@ -123,8 +123,8 @@ func TestStreamReentrant_Integration(t *testing.T) {
 	// wait until the user message is persisted (run is now blocked in the LLM gate)
 	deadline := time.Now().Add(3 * time.Second)
 	for {
-		chat, _ := storage.GetChat("rc")
-		if len(chat.Messages) >= 1 {
+		chat, err := storage.GetChat("rc")
+		if err == nil && len(chat.Messages) >= 1 {
 			break
 		}
 		if time.Now().After(deadline) {
@@ -209,6 +209,114 @@ func TestStreamReentrant_Integration(t *testing.T) {
 	}
 	if syncMsg.Running {
 		t.Fatalf("expected running=false after run, got %s", events[0].data)
+	}
+}
+
+// TestStreamUsageEvent_Integration verifies that the LLM usage chunk is
+// forwarded to SSE subscribers as a live "usage" event (so the client's Ctx
+// counter updates mid-run instead of only after a history reload) and that
+// the same value is persisted as context_size for later loads.
+func TestStreamUsageEvent_Integration(t *testing.T) {
+	setupServerTest(t)
+
+	gate := make(chan struct{})
+	llm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-gate:
+		case <-r.Context().Done():
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\n" +
+			"data: {\"choices\":[],\"usage\":{\"prompt_tokens\":60300,\"total_tokens\":60305}}\n\n" +
+			"data: [DONE]\n\n"))
+	}))
+	defer llm.Close()
+
+	storage.SaveConfig(&model.MCPConfig{
+		ModelProviders: []model.ModelProvider{
+			{
+				Name:     "mock",
+				Endpoint: llm.URL,
+				APIKey:   "k",
+				Models:   []string{"mock"},
+			},
+		},
+		Provider: "mock",
+		Model:    "mock",
+	})
+	storage.SaveChat(&model.Chat{Title: "ctx"})
+
+	srv := New(testStaticFS)
+	web := httptest.NewServer(srv.mux)
+	defer web.Close()
+
+	resp, err := http.Post(web.URL+"/api/chat/continue", "application/json",
+		strings.NewReader(`{"title":"ctx","input":"hi","auto_continue":false}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("continue start failed: %d", resp.StatusCode)
+	}
+
+	// wait until the user message is persisted (run is now blocked in the LLM gate)
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		chat, err := storage.GetChat("ctx")
+		if err == nil && len(chat.Messages) >= 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("user message was not persisted immediately")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// subscribe mid-run: the usage event must arrive live, before idle
+	streamResp, err := http.Get(web.URL + "/api/chat/stream?title=ctx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer streamResp.Body.Close()
+
+	close(gate)
+	events := readSSEUntil(t, streamResp, "idle", 5*time.Second)
+	var usageEvt *struct {
+		PromptTokens int `json:"prompt_tokens"`
+	}
+	for _, ev := range events {
+		if ev.typ != "usage" {
+			continue
+		}
+		var ue struct {
+			PromptTokens int `json:"prompt_tokens"`
+		}
+		if err := json.Unmarshal([]byte(ev.data), &ue); err != nil {
+			t.Fatalf("bad usage event payload %q: %v", ev.data, err)
+		}
+		usageEvt = &ue
+	}
+	if usageEvt == nil {
+		t.Fatalf("expected a live usage event before idle, got %#v", events)
+	}
+	if usageEvt.PromptTokens != 60300 {
+		t.Fatalf("expected prompt_tokens=60300, got %d", usageEvt.PromptTokens)
+	}
+
+	// the same value is persisted for plain history loads
+	resp2, err := http.Get(web.URL + "/api/chats/ctx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var chatView struct {
+		ContextSize int `json:"context_size"`
+	}
+	json.NewDecoder(resp2.Body).Decode(&chatView)
+	resp2.Body.Close()
+	if chatView.ContextSize != 60300 {
+		t.Fatalf("expected persisted context_size=60300, got %d", chatView.ContextSize)
 	}
 }
 

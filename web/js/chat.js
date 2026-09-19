@@ -144,10 +144,11 @@ var ChatList = {
         if (window.ContinueModule) {
             window.ContinueModule.switchChat(title);
         }
+        // dataset-based so both click handlers and programmatic callers
+        // (e.g. search results) mark the active chat correctly
         document.querySelectorAll('#chat-list li').forEach(function (li) {
-            li.classList.remove('active');
+            li.classList.toggle('active', li.dataset.title === title);
         });
-        if (event && event.currentTarget) event.currentTarget.classList.add('active');
         await this.loadMessages();
     },
 
