@@ -30,8 +30,14 @@ type Server struct {
 	// indexHTML is web/index.html with the version placeholder already
 	// substituted; computed once at startup.
 	indexHTML []byte
-	mcpMgr    *mcp.Manager
-	engine    *engine.StreamEngine
+	// loginHTML is web/login.html, cached once at startup. Nil when the
+	// embed is missing (tests); the handler then 404s.
+	loginHTML []byte
+	// pow is the login proof-of-work: primes n, m, the per-boot salt,
+	// and the single rolling (h, challenge) pair. Created once in New.
+	pow    *powLogin
+	mcpMgr *mcp.Manager
+	engine *engine.StreamEngine
 }
 
 func New(staticFS embed.FS) *Server {
@@ -50,15 +56,26 @@ func New(staticFS embed.FS) *Server {
 	endpoint, apiKey, modelName := cfg.ResolveModel()
 	client := llm.NewClient(endpoint, apiKey, modelName)
 
+	// Without the PoW parameters the login endpoint cannot serve anyone;
+	// a broken entropy source at boot is fatal, not a warning.
+	pow, err := newPowLogin()
+	if err != nil {
+		panic(fmt.Sprintf("init login pow: %v", err))
+	}
+
 	s := &Server{
 		mode:     "readonly",
 		mux:      http.NewServeMux(),
 		staticFS: staticFS,
 		mcpMgr:   mcpMgr,
 		engine:   engine.Init(client, mcpMgr),
+		pow:      pow,
 	}
 	if data, err := staticFS.ReadFile("web/index.html"); err == nil {
 		s.indexHTML = bytes.ReplaceAll(data, []byte(versionPlaceholder), []byte(appVersion))
+	}
+	if data, err := staticFS.ReadFile("web/login.html"); err == nil {
+		s.loginHTML = data
 	}
 	s.registerRoutes()
 	s.maybeIntegrateJupyter()
@@ -73,6 +90,7 @@ func New(staticFS embed.FS) *Server {
 // config and do nothing.
 func (s *Server) maybeIntegrateJupyter() {
 	if !jupyter.Detect() {
+		log.Printf("[jupyter] no running jupyter process detected; skipping integration")
 		return
 	}
 	needRestart := false
@@ -169,10 +187,15 @@ func (s *Server) Port() int {
 }
 
 func (s *Server) Handler() http.Handler {
-	return s.mux
+	// Auth wraps the mux (not the individual routes) so nothing can be
+	// reached around it — including SSE endpoints and static files.
+	return s.authMiddleware(s.mux)
 }
 
 func (s *Server) registerRoutes() {
+	s.mux.HandleFunc("GET /login", s.handleLoginPage)
+	s.mux.HandleFunc("GET /api/login/seed", s.handleLoginSeed)
+	s.mux.HandleFunc("POST /api/login", s.handleLoginSubmit)
 	s.mux.HandleFunc("GET /api/mode", s.handleGetMode)
 	s.mux.HandleFunc("PUT /api/mode", s.handleSetMode)
 	s.mux.HandleFunc("GET /api/config", s.handleGetConfig)

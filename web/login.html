@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta content="width=device-width, initial-scale=1.0" name="viewport">
+    <title>Sign in</title>
+    <style>
+        :root {
+            color-scheme: dark light;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            font-size: 14px;
+            background: #ffffff;
+            color: #111111;
+        }
+
+        .card {
+            width: 300px;
+            padding: 32px 28px 28px;
+            border: 1px solid #111111;
+            text-align: center;
+        }
+
+        input[type="password"] {
+            width: 100%;
+            padding: 9px 10px;
+            background: transparent;
+            color: inherit;
+            border: 1px solid #111111;
+            border-radius: 0;
+            font-size: 14px;
+            outline: none;
+        }
+
+        input[type="password"]:focus {
+            background: #f0f0f0;
+        }
+
+        button {
+            width: 100%;
+            margin-top: 10px;
+            padding: 9px 10px;
+            background: #111111;
+            color: #ffffff;
+            border: 1px solid #111111;
+            border-radius: 0;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #333333;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: default;
+        }
+
+        #login-error {
+            margin-top: 10px;
+            font-size: 13px;
+            font-weight: 600;
+            min-height: 1.2em;
+        }
+
+        #login-error.shake {
+            animation: shake 0.3s;
+        }
+
+        @keyframes shake {
+            0%, 100% {
+                transform: translateX(0);
+            }
+            25% {
+                transform: translateX(-6px);
+            }
+            75% {
+                transform: translateX(6px);
+            }
+        }
+
+        @media (prefers-color-scheme: dark) {
+            body {
+                background: #000000;
+                color: #eeeeee;
+            }
+
+            .card {
+                border-color: #eeeeee;
+            }
+
+            input[type="password"] {
+                border-color: #eeeeee;
+            }
+
+            input[type="password"]:focus {
+                background: #1c1c1c;
+            }
+
+            button {
+                background: #eeeeee;
+                color: #000000;
+                border-color: #eeeeee;
+            }
+
+            button:hover {
+                background: #cccccc;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="card">
+    <form id="login-form">
+        <input autocomplete="current-password" autofocus id="login-password" placeholder="Password" type="password">
+        <button id="login-submit" type="submit">Sign in</button>
+        <div id="login-error">UwU</div>
+    </form>
+</div>
+<script>
+    (function () {
+        'use strict';
+        var form = document.getElementById('login-form');
+        var input = document.getElementById('login-password');
+        var btn = document.getElementById('login-submit');
+        var err = document.getElementById('login-error');
+        var seed = null, solved = null, pending = false;
+
+        function modPow(b, e, m) {
+            var r = 1n;
+            b %= m;
+            while (e > 0n) {
+                if (e & 1n) r = r * b % m;
+                b = b * b % m;
+                e >>= 1n;
+            }
+            return r;
+        }
+
+
+        var lastUnsolved = null;
+
+        function solve() {
+            if (!seed) return;
+            var t0 = performance.now();
+            var n = seed.n, m = seed.m;
+            var s = Math.ceil(Math.sqrt(seed.maxH));
+            var baby = new Map();
+            var v = seed.challenge % m;
+            for (var j = 0; j < s; j++) {
+                if (!baby.has(v)) baby.set(v, j);
+                v = v * n % m;
+            }
+            var stride = modPow(n, BigInt(s), m);
+            var g = stride;
+            for (var i = 1; i <= s; i++) {
+                var j = baby.get(g);
+                if (j !== undefined && i * s - j >= 1) {
+                    solved = i * s - j;
+                    console.log('[login] pow: h = ' + solved + ' solved in ' +
+                        (performance.now() - t0).toFixed(1) + ' ms (' + s + '\u00d7' + s + ' grid)');
+                    break;
+                }
+                g = g * stride % m;
+            }
+            if (solved === null) {
+                console.log('[login] pow: no solution in ' + (performance.now() - t0).toFixed(1) + ' ms');
+                var key = seed.n + '/' + seed.m + '/' + seed.challenge;
+                if (lastUnsolved !== key) {
+                    lastUnsolved = key;
+                    fetch('api/login/seed').then(function (r) {
+                        return r.json();
+                    }).then(refreshSeed);
+                }
+                return;
+            }
+            if (pending) {
+                pending = false;
+                submit();
+            }
+        }
+
+        function refreshSeed(sd) {
+            seed = sd ? {
+                n: BigInt(sd.n),
+                m: BigInt(sd.m),
+                challenge: BigInt(sd.challenge),
+                maxH: sd.max_h
+            } : null;
+            solved = null;
+            setTimeout(solve, 0);
+        }
+
+        function fail(msg) {
+            btn.disabled = false;
+            err.textContent = msg;
+            err.classList.remove('shake');
+            void err.offsetWidth;
+            err.classList.add('shake');
+            input.select();
+        }
+
+        function submit() {
+            if (solved === null) {
+                pending = true;
+                btn.disabled = true;
+                err.textContent = 'Working\u2026';
+                return;
+            }
+            btn.disabled = true;
+            err.textContent = '';
+            fetch('api/login', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({password: input.value, h: solved})
+            }).then(function (r) {
+                if (r.ok) {
+                    location.href = '.';
+                    return;
+                }
+                r.json().catch(function () {
+                    return null;
+                }).then(function (body) {
+                    if (body && body.seed) refreshSeed(body.seed);
+                    if (body && body.error === 'wrong password') fail('Wrong password');
+                    else if (body && body.error === 'pow') fail('Challenge expired, try again');
+                    else fail('Login failed (' + r.status + ')');
+                });
+            }).catch(function () {
+                fail('Network error');
+            });
+        }
+
+        form.addEventListener('submit', function (e) {
+            e.preventDefault();
+            submit();
+        });
+
+        fetch('api/login/seed').then(function (r) {
+            return r.json();
+        }).then(refreshSeed);
+    })();
+</script>
+</body>
+</html>

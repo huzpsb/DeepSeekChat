@@ -3,6 +3,21 @@
     'use strict';
     var currentMode = 'readonly';
 
+    // Global 401 guard: when the auth cookie expires or the config
+    // password changes, bounce the whole tab to the login page instead
+    // of letting every request fail individually. Relative target keeps
+    // this working behind path-prefix proxies. Must wrap fetch before
+    // any module below issues its first request.
+    var rawFetch = window.fetch.bind(window);
+    window.fetch = function () {
+        return rawFetch.apply(null, arguments).then(function (resp) {
+            if (resp.status === 401 && location.pathname !== '/login') {
+                location.href = 'login';
+            }
+            return resp;
+        });
+    };
+
     window.DsApp = {};
 
     window.DsApp.getMode = function () {

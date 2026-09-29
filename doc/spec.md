@@ -58,7 +58,10 @@ ContextSize int // 最近一次请求的 prompt tokens，usage 事件到内存�
   mtime 倒序。
 - **`config.json`**（`model.MCPConfig`）：端口（默认 5234）、沙盒根目录列表、MCP 服务器、**工具审批表**（`approved_tools` /
   `manually_approved_tools`，格式 `"MCP名::工具名"`）、模型 provider 列表与当前选择、默认 system prompt、
-  `enable_coding_tools`。
+  `enable_coding_tools`、`auth_password`（可选访问密码：非空时除登录页/seed/favicon/assets 外全站鉴权——登录走**离散对数 PoW**：
+  `GET /api/login/seed` 下发 (n, m, challenge = n^h mod m, max_h)（n<m<2n，64-bit 安全素数故 PH 无效；h 均匀取自 [1, 1e11]，上界随 seed 公布——安全性只住在区间宽度里，指数下界是公开可平移的幻觉；服务端全局仅存一个 h，被正确提交即原子滚动，challenge 仅在滚动时用快速幂算一次；**滚 h 时 1/1000 概率连 n,m 一起重掷**——固定参数+有界指数的 DLP 可被彩虹表预计算（~30MB/分钟级构建/亚毫秒查询），1/1000 使表期望寿命仅 1000 次猜测、重建摊还成本高于现场求解，预计算不再划算），客户端 BSGS 后台可解（~31.6 万步/侧，实测 ~100ms，输入密码时正好算完），`POST /api/login` 需带 `{password, h}`——爆破者每猜一次都要重解一次 DLP；有人爆破期间合法用户无法登录属预期行为；登录失败响应总是附带最新 seed。成功换取 HttpOnly cookie（值为 hash(salt·password)，salt 随 PoW 参数每次启动随机：无状态，改密码即全员失效，重启亦全员失效，`/api/mcp/reload` 热生效），
+  API/SSE 返回 JSON 401、页面请求 303 相对重定向（proxy 子路径友好）；非浏览器客户端走同一 `/api/login` 流程（Basic Auth 已移除——它是绕过 PoW 的免猜口子）；
+  空 = 完全不鉴权）。
 - **`coding.json`**（`model.CodingConfig`）：CLI 别名工具表（`shell_tools`）、`raw_shell`（真 shell 直通，启用后**禁用沙盒路径检查
   **）、黑名单。
 - **`states.log`**：全量结构化日志（continue 引擎、stream 会话、server 请求都往里打，是本调试器的"自我调试"手段）。
@@ -216,6 +219,9 @@ notify    chan struct{}      // 每次状态变化 close+换新，唤醒所有�
 
 - 侧栏**所有**对话的"● 生成中"标记（单对话 stream 只覆盖当前打开的，管不了后台）；
 - 兼作**存活探针**：重连期间显示"后端离线"标记（1.5s 宽限防抖）；
+- **401 甄别**：EventSource 拿到 HTTP 级错误（如 auth 失效的 401 JSON）是终态 CLOSED、不再自动重连（网络层错误才会 CONNECTING 自愈），
+  且 SSE 不走 `app.js` 包的 fetch 401 守卫。故 CLOSED 时用一次 `fetch('api/mode')` 复核：401 → 守卫整页跳登录；否则 3s 后重建流
+  （顺带修复代理 502 等非 401 场景下"reconnecting"标记永久卡死的旧问题）；
 - 重连成功顺手刷新全局 mode（后端重启会回 readonly）。
 
 ---
@@ -287,6 +293,7 @@ approved + manual 的工具会进 `GetAllowedTools()` 发给模型**。`reconcil
 
 | 路由                                                     | 用途                                                   |
 |--------------------------------------------------------|------------------------------------------------------|
+| `GET /login` · `GET /api/login/seed` · `POST /api/login` | 登录页 / PoW 种子 (n, m, challenge) / `{password, h}` 换 cookie（`auth_password` 非空时，§2） |
 | `GET/PUT /api/mode`                                    | 全局模式（readonly/writable/sudo）                         |
 | `GET/PUT /api/config`                                  | root_dirs / provider / model                         |
 | `GET /api/chats` · `POST /api/chats`                   | 列表（带 running 标记）· 新建（可带 root_dir，注入 default_prompt）  |

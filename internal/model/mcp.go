@@ -11,6 +11,12 @@ type MCPConfig struct {
 	ModelProviders        []ModelProvider `json:"model_providers"`
 	Provider              string          `json:"provider"`
 	Model                 string          `json:"model"`
+	// AuthPassword optionally protects the whole HTTP surface; clients
+	// authenticate through the PoW-gated /api/login flow and its cookie
+	// (Basic Auth was removed — a pow-free guessing oracle). Empty (the
+	// default) means no auth at all. Serialized even when empty so users
+	// discover the knob in config.json.
+	AuthPassword string `json:"auth_password"`
 }
 
 type ModelProvider struct {

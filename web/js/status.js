@@ -15,6 +15,8 @@
     var runningTitles = {};
     var hasSnapshot = false; // don't wipe list-rendered markers before the first snapshot
     var offlineGraceTimer = null;
+    var es = null;
+    var retryTimer = null;
 
     // ---- backend connectivity marker ----
     // The status SSE doubles as a liveness probe: EventSource fires "error"
@@ -45,6 +47,31 @@
         }, 1500);
     }
 
+    // CLOSED is terminal: the server ANSWERED the stream request with a
+    // non-200 response — network-level failures keep readyState CONNECTING
+    // with the browser retrying on its own. On this endpoint a non-200 is
+    // the auth gate's 401 JSON (e.g. the cookie died when the backend
+    // restarted with a fresh salt or the password changed), and a plain
+    // "backend offline" would misdiagnose it. EventSource hides the status
+    // code, so confirm over fetch — a 401 there trips the global wrapper
+    // in app.js, which bounces the tab to the login page. The CLOSED
+    // stream never reconnects by itself, so also schedule a fresh
+    // connect(); without it the "reconnecting…" marker would be an empty
+    // promise for every other non-200 too (e.g. a proxy's 502 while the
+    // backend restarts).
+    function onFatal() {
+        fetch('api/mode').catch(function () {
+            // backend unreachable, or the tab is already navigating to
+            // the login page via the wrapper — nothing to do here.
+        });
+        if (!retryTimer) {
+            retryTimer = setTimeout(function () {
+                retryTimer = null;
+                connect();
+            }, 3000);
+        }
+    }
+
     function applyMarkers() {
         if (!hasSnapshot) return;
         document.querySelectorAll('#chat-list li').forEach(function (li) {
@@ -71,10 +98,21 @@
     }
 
     function connect() {
-        var es = new EventSource('api/chats/status');
+        if (retryTimer) {
+            clearTimeout(retryTimer);
+            retryTimer = null;
+        }
+        if (es) {
+            es.close(); // replace, don't accumulate, EventSources
+            es = null;
+        }
+        es = new EventSource('api/chats/status');
         es.onopen = noteOpen;
         es.onerror = function () {
             noteError(es);
+            if (es.readyState === EventSource.CLOSED) {
+                onFatal();
+            }
         };
         es.addEventListener('status', function (e) {
             var d;
