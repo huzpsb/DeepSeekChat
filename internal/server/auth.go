@@ -155,18 +155,22 @@ func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// PoW gate comes before the password check: the attempt must present
-	// the current exponent h, and a correct presentation rolls the
-	// challenge (single-use) no matter what the password turns out to
-	// be — so an attacker pays one discrete log per guess, win or lose.
-	if !s.pow.consume(req.H) {
+	// the current exponent h of the caller's OWN slot (keyed to the
+	// inbound IP — the seed's issuer and its consumer are one IP), and a
+	// correct presentation rolls that slot's challenge (single-use) no
+	// matter what the password turns out to be — so an attacker pays one
+	// discrete log per guess, win or lose, and disturbs only the
+	// 1/powSlotCount of IPs sharing their slot.
+	if !s.pow.slotFor(r).consume(req.H) {
 		log.Printf("[server] login_pow_rejected remote=%q\n", r.RemoteAddr)
-		s.writeLoginError(w, "pow", http.StatusUnauthorized)
+		s.writeLoginError(w, r, "pow", http.StatusUnauthorized)
 		return
 	}
 	if req.Password != want {
 		log.Printf("[server] login_failed remote=%q\n", r.RemoteAddr)
-		// Failure always carries the current (freshly rolled) challenge.
-		s.writeLoginError(w, "wrong password", http.StatusUnauthorized)
+		// Failure always carries the freshly rolled challenge of the
+		// caller's slot.
+		s.writeLoginError(w, r, "wrong password", http.StatusUnauthorized)
 		return
 	}
 	http.SetCookie(w, &http.Cookie{

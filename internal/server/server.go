@@ -33,9 +33,11 @@ type Server struct {
 	// loginHTML is web/login.html, cached once at startup. Nil when the
 	// embed is missing (tests); the handler then 404s.
 	loginHTML []byte
-	// pow is the login proof-of-work: primes n, m, the per-boot salt,
-	// and the single rolling (h, challenge) pair. Created once in New.
-	pow    *powLogin
+	// pow is the login proof-of-work: the per-boot salt and
+	// powSlotCount+1 independent rolling (n, m, h, challenge) states,
+	// one per inbound-IP hash slot plus a shared fallback. Created once
+	// in New.
+	pow    *powTable
 	mcpMgr *mcp.Manager
 	engine *engine.StreamEngine
 }
@@ -58,7 +60,7 @@ func New(staticFS embed.FS) *Server {
 
 	// Without the PoW parameters the login endpoint cannot serve anyone;
 	// a broken entropy source at boot is fatal, not a warning.
-	pow, err := newPowLogin()
+	pow, err := newPowTable()
 	if err != nil {
 		panic(fmt.Sprintf("init login pow: %v", err))
 	}

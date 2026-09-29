@@ -2,9 +2,12 @@ package server
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"net"
 	"net/http"
 	"sync"
 )
@@ -14,32 +17,35 @@ const (
 	powHMax       = 100_000_000_000 // 1e11
 	powParamRollP = 1000
 	powSaltLen    = 16
+	// powSlotCount is the number of independent challenge states the
+	// login PoW is spread over. A correct consume rolls exactly one
+	// state — the solver's own — so a client churning challenges from a
+	// fixed source IP can disturb at most 1/powSlotCount of all client
+	// IPs; with the previous single global state it churned the login
+	// path for everyone.
+	powSlotCount = 10
 )
 
-// powLogin is the server-wide single login challenge: generator n,
+// powLogin is ONE independently rolling login challenge: generator n,
 // safe prime m with n < m < 2n, secret exponent h, and the public
 // challenge n^h mod m. All access goes through the mutex; (h,
-// challenge) only ever move together, as one atomic roll.
+// challenge) only ever move together, as one atomic roll. The server
+// runs powSlotCount of these plus a fallback (see powTable); the
+// states share nothing, so rolling one disturbs no other.
 type powLogin struct {
 	mu        sync.Mutex
 	n, m      *big.Int
-	salt      []byte
 	h         uint64
 	challenge *big.Int
 }
 
-// newPowLogin draws the boot-time parameters: the (n, m) pair, the
-// per-boot salt, and the first challenge.
+// newPowLogin draws one state: the (n, m) pair and the first challenge.
 func newPowLogin() (*powLogin, error) {
 	n, m, err := randomParamPair()
 	if err != nil {
 		return nil, err
 	}
-	salt := make([]byte, powSaltLen)
-	if _, err := rand.Read(salt); err != nil {
-		return nil, err
-	}
-	p := &powLogin{n: n, m: m, salt: salt}
+	p := &powLogin{n: n, m: m}
 	p.rollLocked()
 	return p, nil
 }
@@ -102,11 +108,12 @@ func (p *powLogin) rollLocked() {
 }
 
 // rollParamsLocked redraws the (n, m) pair with the same shape
-// guarantees as at boot. The salt is deliberately NOT redrawn: the
-// issued cookie hash(salt‖password) must keep working across param
-// rolls. Runs a safe-prime search (~tens of ms) under the lock — at
-// 1/1000 per h-roll that is a negligible hiccup on the login path.
-// Caller must hold p.mu.
+// guarantees as at boot. The salt lives on the powTable, not here, so
+// it cannot roll with the parameters: the issued cookie
+// hash(salt‖password) must keep working across param rolls. Runs a
+// safe-prime search (~tens of ms) under the lock — at 1/1000 per
+// h-roll that is a negligible hiccup on the login path. Caller must
+// hold p.mu.
 func (p *powLogin) rollParamsLocked() {
 	n, m, err := randomParamPair()
 	if err != nil {
@@ -125,12 +132,74 @@ func powParamRoll() bool {
 	return v.Sign() == 0
 }
 
+type powTable struct {
+	salt  []byte
+	slots [powSlotCount]*powLogin
+}
+
+// newPowTable draws the boot-time state: the shared per-boot salt and
+// one fresh challenge per slot. Ten safe-prime pair searches (tens of
+// ms each) at boot only.
+func newPowTable() (*powTable, error) {
+	salt := make([]byte, powSaltLen)
+	if _, err := rand.Read(salt); err != nil {
+		return nil, err
+	}
+	t := &powTable{salt: salt}
+	for i := range t.slots {
+		p, err := newPowLogin()
+		if err != nil {
+			return nil, err
+		}
+		t.slots[i] = p
+	}
+	return t, nil
+}
+
+// powSlotIndex maps an inbound IP string to its slot index: SHA-256,
+// first 8 bytes big-endian, mod powSlotCount. The hash needs no
+// adversarial strength — a client cannot choose its TCP source
+// address, so the input is not attacker-picked — it only has to
+// scatter distinct addresses evenly.
+func powSlotIndex(ip string) int {
+	sum := sha256.Sum256([]byte(ip))
+	return int(binary.BigEndian.Uint64(sum[:8]) % powSlotCount)
+}
+
+// remoteIP extracts the canonical inbound IP of a request's connection.
+// RemoteAddr is filled in by net/http from the TCP peer, so it cannot
+// be forged by the client; X-Forwarded-For and friends are deliberately
+// ignored (see powTable). "" means "no usable IP" — the caller must
+// fall back.
+func remoteIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr // already a bare address without port
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.String() // canonical text form: one address, one slot
+	}
+	return ""
+}
+
+// slotFor returns the challenge state serving r: slot hash(inbound IP)
+// of the connection. No special case for an undeterminable IP:
+// remoteIP yields "", whose hash is one fixed slot — such (rare,
+// server-fault) requests share that state exactly like any other
+// address bucket, i.e. the pre-slot shared-challenge behavior confined
+// to their own 1/powSlotCount of the table.
+func (t *powTable) slotFor(r *http.Request) *powLogin {
+	return t.slots[powSlotIndex(remoteIP(r))]
+}
+
 // loginSeed is the public "dlp-seed" handed to any client. n, m and
 // challenge are decimal strings: they are ~2^64 and thus beyond JSON's
 // exact integer range in JavaScript (2^53); the page BigInt()s them
 // back. max_h rides along as a plain number (far below 2^53) so the
 // client sizes its BSGS grid from the seed itself — retuning the
-// server's constants needs no client change.
+// server's constants needs no client change. The client never learns
+// which slot it is on; same-IP requests are simply always judged
+// against the same state.
 type loginSeed struct {
 	N         string `json:"n"`
 	M         string `json:"m"`
@@ -138,19 +207,20 @@ type loginSeed struct {
 	MaxH      uint64 `json:"max_h"`
 }
 
-// seed snapshots the current public challenge.
+// seed snapshots this state's current public challenge.
 func (p *powLogin) seed() loginSeed {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return loginSeed{N: p.n.String(), M: p.m.String(), Challenge: p.challenge.String(), MaxH: powHMax}
 }
 
-// consume reports whether the submitted exponent matches the current
-// one. A match rolls h before returning — making every correct solution
-// single-use — and the password is checked only afterwards, so each
-// guess costs the attacker one full discrete log regardless of the
+// consume reports whether the submitted exponent matches this state's
+// current one. A match rolls h before returning — making every correct
+// solution single-use — and the password is checked only afterwards, so
+// each guess costs the attacker one full discrete log regardless of the
 // guess being right or wrong. A wrong (or missing) h never rolls
-// anything and reveals nothing.
+// anything and reveals nothing. Because the state is the caller's own
+// slot, the roll is confined to clients hashing into that slot.
 func (p *powLogin) consume(h *int64) bool {
 	if h == nil || *h < 0 {
 		return false
@@ -169,18 +239,20 @@ func (p *powLogin) consume(h *int64) bool {
 	return true
 }
 
-// handleLoginSeed serves GET /api/login/seed: the current dlp-seed
-// (n, m, challenge) any client needs to start solving.
-func (s *Server) handleLoginSeed(w http.ResponseWriter, _ *http.Request) {
-	s.writeJSON(w, s.pow.seed())
+// handleLoginSeed serves GET /api/login/seed: the dlp-seed of the
+// CALLER's slot. Keyed to the inbound connection IP, it is exactly the
+// state the same client's POST /api/login will be judged against —
+// applicant and consumer are one IP, one slot.
+func (s *Server) handleLoginSeed(w http.ResponseWriter, r *http.Request) {
+	s.writeJSON(w, s.pow.slotFor(r).seed())
 }
 
 // writeLoginError is the failure path of POST /api/login. The error is
-// always accompanied by the current seed so the client can immediately
-// start solving the next challenge in the background while the user
-// retypes the password.
-func (s *Server) writeLoginError(w http.ResponseWriter, msg string, code int) {
+// always accompanied by the caller's slot's current seed so the client
+// can immediately start solving the next challenge in the background
+// while the user retypes the password.
+func (s *Server) writeLoginError(w http.ResponseWriter, r *http.Request, msg string, code int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(map[string]any{"error": msg, "seed": s.pow.seed()})
+	json.NewEncoder(w).Encode(map[string]any{"error": msg, "seed": s.pow.slotFor(r).seed()})
 }
