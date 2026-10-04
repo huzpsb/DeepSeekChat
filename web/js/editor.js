@@ -11,6 +11,17 @@
     var editingIndex = -1;
     var toolCallRowCounter = 0;
 
+    // One-time bindings for the static editor buttons. These must NOT be
+    // wired inside buildEditorForm: it runs on every open, and stacking
+    // another listener per open meant that after N edits a single Save
+    // click fired N concurrent performSave() calls (each suspends at its
+    // first await while editingMsg is still set) — the same edit was PUT
+    // N times. closeEditor/saveEdit are hoisted function declarations, so
+    // referencing them here is safe.
+    document.getElementById('editor-close').addEventListener('click', closeEditor);
+    document.getElementById('editor-cancel').addEventListener('click', closeEditor);
+    document.getElementById('editor-save').addEventListener('click', saveEdit);
+
     // ---- tool schema helpers ----
 
     async function fetchToolSchemas() {
@@ -170,11 +181,8 @@
                 addToolCallRow(tc, true);
             });
         }
-
-        // wire up close and save
-        document.getElementById('editor-close').addEventListener('click', closeEditor);
-        document.getElementById('editor-cancel').addEventListener('click', closeEditor);
-        document.getElementById('editor-save').addEventListener('click', saveEdit);
+        // NOTE: close/cancel/save listeners are bound once at module init,
+        // not here — see the comment near the top of this IIFE.
     }
 
     // ---- tool call rows ----

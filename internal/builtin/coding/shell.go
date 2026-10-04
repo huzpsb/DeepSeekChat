@@ -82,7 +82,12 @@ func (p *Provider) runShellToolWithLimit(ctx context.Context, tool model.ShellTo
 	var cmd *exec.Cmd
 	if p.rawShell != nil && p.rawShell.Enabled {
 		fullCmd := strings.Replace(p.rawShell.Preamble, "$original", tool.Command, -1)
-		args := append(p.rawShell.Shell[1:], fullCmd)
+		// Copy before appending: Shell[1:] aliases the config slice's
+		// backing array, and appending in place would have two concurrent
+		// runs (the provider is shared across chats) write the same slot
+		// — one session could exec the other's command.
+		args := append(make([]string, 0, len(p.rawShell.Shell)), p.rawShell.Shell[1:]...)
+		args = append(args, fullCmd)
 		cmd = exec.Command(p.rawShell.Shell[0], args...)
 	} else if os.PathSeparator == '\\' {
 		cmd = exec.Command("powershell", "-NoProfile", "-Command", tool.Command)
