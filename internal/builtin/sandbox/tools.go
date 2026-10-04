@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -30,7 +31,7 @@ func (p *Provider) isBlacklistedExt(name string) bool {
 
 func (p *Provider) Tools() []model.ToolDef {
 	tools := []model.ToolDef{
-		{Name: "tree", Description: "Recursively list directory tree",
+		{Name: "tree", Description: "Recursively list directory tree. Adaptive limit: if entries at the requested depth exceed limit, depth is automatically reduced (down to 1); if depth=1 still exceeds limit, the first limit entries are returned. A WARNING line in the output reports which happened.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -210,39 +211,25 @@ func walkInterrupted(ctx context.Context, err error) bool {
 	return err != nil && ctx.Err() != nil
 }
 
-func (p *Provider) tree(ctx context.Context, args map[string]any) string {
-	depth := 2
-	if v, ok := args["depth"].(float64); ok {
-		depth = int(v)
-	}
-	dirStr := "/"
-	if v, ok := args["dir"].(string); ok {
-		dirStr = v
-	}
-	limit := 1000
-	if v, ok := args["limit"].(float64); ok {
-		limit = int(v)
-	}
+// errTreeCapReached is a filepath.Walk sentinel used to abort the walk as
+// soon as the entry cap is hit: the exact overflow count is never needed,
+// and early abort keeps huge trees cheap.
+var errTreeCapReached = errors.New("tree entry cap reached")
 
-	path, err := p.getSafePath(dirStr)
-	if err != nil {
-		return fmt.Sprintf("Error: %v", err)
-	}
-
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return "Directory non-exist. (Hint: the base directory is ALREADY configured. Just create files in current directory unless otherwise specified by user.)"
-	}
-
-	var out strings.Builder
-	lineCount := 0
-	walkErr := filepath.Walk(path, func(fp string, info os.FileInfo, err error) error {
+// collectTreeLines walks root to the given depth and returns at most
+// limit+1 relative entry paths (limit+1 so that "exceeded" is detectable
+// without a second pass). exceeded reports that the tree holds more than
+// limit entries at this depth; interrupted reports ctx cancellation.
+func collectTreeLines(ctx context.Context, root string, depth, limit int) (lines []string, exceeded, interrupted bool) {
+	lines = make([]string, 0, limit+1)
+	err := filepath.Walk(root, func(fp string, info os.FileInfo, err error) error {
 		if cerr := ctx.Err(); cerr != nil {
 			return cerr
 		}
 		if err != nil {
 			return nil
 		}
-		rel, _ := filepath.Rel(path, fp)
+		rel, _ := filepath.Rel(root, fp)
 		if rel == "." {
 			return nil
 		}
@@ -258,23 +245,89 @@ func (p *Provider) tree(ctx context.Context, args map[string]any) string {
 			}
 			return nil
 		}
-		lineCount++
-		if lineCount <= limit {
-			out.WriteString(rel + "\n")
+		lines = append(lines, rel)
+		if len(lines) > limit {
+			return errTreeCapReached
 		}
 		return nil
 	})
-
-	if walkInterrupted(ctx, walkErr) {
-		return "Error: tree interrupted (cancelled)"
+	if err == errTreeCapReached {
+		return lines, true, false
 	}
-	if lineCount > limit {
-		return fmt.Sprintf("line limit exceeded (%d > %d)", lineCount, limit)
+	if walkInterrupted(ctx, err) {
+		return nil, false, true
+	}
+	return lines, false, false
+}
+
+func (p *Provider) tree(ctx context.Context, args map[string]any) string {
+	depth := 2
+	if v, ok := args["depth"].(float64); ok {
+		depth = int(v)
+	}
+	if depth < 1 {
+		depth = 1
+	}
+	dirStr := "/"
+	if v, ok := args["dir"].(string); ok {
+		dirStr = v
+	}
+	limit := 1000
+	if v, ok := args["limit"].(float64); ok {
+		limit = int(v)
+	}
+	if limit < 1 {
+		limit = 1
 	}
 
+	path, err := p.getSafePath(dirStr)
+	if err != nil {
+		return fmt.Sprintf("Error: %v", err)
+	}
+
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return "Directory non-exist. (Hint: the base directory is ALREADY configured. Just create files in current directory unless otherwise specified by user.)"
+	}
+
+	// Adaptive depth: if the listing at the requested depth exceeds limit,
+	// retry at depth-1 ... down to depth=1. If even depth=1 exceeds, fall
+	// back to the first limit entries. Both degradations must be visible
+	// in the output, otherwise the model would silently believe it saw a
+	// complete tree.
+	var lines []string
+	warning := ""
+	for d := depth; ; d-- {
+		collected, exceeded, interrupted := collectTreeLines(ctx, path, d, limit)
+		if interrupted {
+			return "Error: tree interrupted (cancelled)"
+		}
+		if !exceeded {
+			if d < depth {
+				warning = fmt.Sprintf("WARNING: listing at depth=%d exceeded limit=%d; automatically reduced to depth=%d. Increase limit or narrow dir to see deeper entries.",
+					depth, limit, d)
+			}
+			lines = collected
+			break
+		}
+		if d <= 1 {
+			lines = collected[:limit]
+			warning = fmt.Sprintf("WARNING: directory holds more than %d entries even at depth=1; only the first %d are shown. Use search_name or a narrower dir to explore.",
+				limit, limit)
+			break
+		}
+	}
+
+	var out strings.Builder
+	for _, l := range lines {
+		out.WriteString(l)
+		out.WriteString("\n")
+	}
 	result := out.String()
 	if result == "" {
 		result = "Empty directory"
+	}
+	if warning != "" {
+		result += "\n" + warning
 	}
 
 	if !p.sandboxDisabled && strings.HasPrefix(dirStr, "/") {

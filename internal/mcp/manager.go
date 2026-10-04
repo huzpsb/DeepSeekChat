@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"sync"
 
@@ -152,6 +153,7 @@ func (m *Manager) registerBuiltin(p builtin.Provider) error {
 
 	m.clients[name] = client
 	m.allTools[name] = tools
+	m.warnBareNameConflicts(name)
 	log.Printf("Builtin [%s] loaded with %d tools", name, len(tools))
 	return nil
 }
@@ -203,8 +205,47 @@ func (m *Manager) connectServer(srv model.MCPServer) error {
 
 	m.clients[srv.Name] = client
 	m.allTools[srv.Name] = tools
+	m.warnBareNameConflicts(srv.Name)
 	log.Printf("MCP [%s] connected with %d tools", srv.Name, len(tools))
 	return nil
+}
+
+// warnBareNameConflicts logs every tool of the just-registered server whose
+// bare name is also exposed by another connected MCP. The LLM only ever
+// sees bare tool names, so two same-named tools cannot coexist in one
+// tools array: GetAllowedTools deterministically keeps the lowest-named
+// MCP's copy (see resolveBareTool) and shadows the other. We hard-fail on
+// nothing here — a conflicting server is still fully usable via its
+// "MCP::tool" full names — but the shadowing must be loud, not silent.
+// Callers must hold m.mu.
+func (m *Manager) warnBareNameConflicts(name string) {
+	for _, t := range m.allTools[name] {
+		for _, other := range sortedToolServers(m.allTools) {
+			if other == name {
+				continue
+			}
+			if !hasBareTool(m.allTools[other], t.Name) {
+				continue
+			}
+			winner, loser := other, name
+			if name < other {
+				winner, loser = name, other
+			}
+			log.Printf("MCP tool name conflict: '%s' exists on both [%s] and [%s]; "+
+				"[%s::%s] wins by sorted-name priority, [%s::%s] is shadowed "+
+				"(not exposed to the LLM by bare name '%s')",
+				t.Name, name, other, winner, t.Name, loser, t.Name, t.Name)
+		}
+	}
+}
+
+func hasBareTool(tools []model.ToolDef, name string) bool {
+	for _, t := range tools {
+		if t.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *Manager) reconcileTools() {
@@ -291,7 +332,11 @@ func (m *Manager) GetTools() []ToolStatus {
 	}
 
 	result := make([]ToolStatus, 0)
-	for mcpName, tools := range m.allTools {
+	// Iterate MCP names in sorted order: Go map iteration is re-randomized
+	// on every range, so iterating m.allTools directly would shuffle this
+	// list per call (and per restart).
+	for _, mcpName := range sortedToolServers(m.allTools) {
+		tools := m.allTools[mcpName]
 		for _, tool := range tools {
 			fullName := mcpName + "::" + tool.Name
 			status := "unapproved"
@@ -473,23 +518,98 @@ func (m *Manager) GetAllowedTools() []model.ToolDef {
 		manualMap[t] = true
 	}
 
+	// The returned slice is serialized verbatim as the tools array of every
+	// LLM request. Providers with prefix-based prompt caching (DeepSeek
+	// Context Caching, Kimi, ...) match the cache on the serialized request
+	// prefix, and Go map iteration is re-randomized on every range — so
+	// iterating m.allTools directly would reshuffle the tools array per
+	// request and turn every follow-up turn (and every restart) into a
+	// cache miss, re-billing the full input prefix. Sorted MCP names keep
+	// the array byte-identical across calls, reloads and restarts.
+	//
+	// Bare names must also be unique in the array: the LLM only sees bare
+	// tool names, so two MCPs exposing the same name would leave the tool
+	// call parser with no way to tell them apart. On a collision the
+	// lowest-named MCP wins (matching resolveBareTool) and the other def
+	// is deterministically shadowed — never silently sent as a duplicate.
+	seen := make(map[string]bool)
 	var result []model.ToolDef
-	for mcpName, tools := range m.allTools {
-		for _, tool := range tools {
+	for _, mcpName := range sortedToolServers(m.allTools) {
+		for _, tool := range m.allTools[mcpName] {
 			fullName := mcpName + "::" + tool.Name
-			if approvedMap[fullName] || manualMap[fullName] {
-				result = append(result, tool)
+			if !(approvedMap[fullName] || manualMap[fullName]) {
+				continue
 			}
+			if seen[tool.Name] {
+				continue // shadowed by a lower-named MCP's same-named tool
+			}
+			seen[tool.Name] = true
+			result = append(result, tool)
 		}
 	}
 	return result
 }
 
+// resolveBareTool resolves a bare tool name (no "::") to its owning MCP and
+// tool def, deterministically. Callers must hold m.mu.
+//
+// Same-name tools on different MCPs cannot both be exposed to the LLM (it
+// sees bare names only), so GetAllowedTools deduplicates by sorted
+// MCP-name priority. This resolver applies the same rule so a bare call
+// always dispatches to the exact tool the model saw:
+//
+//  1. the lowest-named MCP whose same-named tool is approved or manually
+//     approved wins;
+//  2. if no candidate is allowed (approval changed after the request, or a
+//     non-gated caller such as a unit test), the lowest-named MCP that
+//     merely has the tool wins — still deterministic, never map-order.
+func (m *Manager) resolveBareTool(bare string) (mcpName string, def *model.ToolDef) {
+	allowed := make(map[string]bool)
+	for _, t := range m.config.ApprovedTools {
+		allowed[t] = true
+	}
+	for _, t := range m.config.ManuallyApprovedTools {
+		allowed[t] = true
+	}
+
+	var fbName string
+	var fbDef *model.ToolDef
+	for _, name := range sortedToolServers(m.allTools) {
+		for _, t := range m.allTools[name] {
+			if t.Name != bare {
+				continue
+			}
+			td := t // copy: must stay valid after the lock is released
+			if allowed[name+"::"+bare] {
+				return name, &td
+			}
+			if fbDef == nil {
+				fbName, fbDef = name, &td
+			}
+		}
+	}
+	return fbName, fbDef
+}
+
+// sortedToolServers returns the keys of a tools-by-server map in sorted
+// order, so any consumer that leaks the order into output (UI lists, LLM
+// request bodies) is deterministic. Registration order is NOT a substitute:
+// it depends on connect timing (a server that failed at startup and only
+// connects on Reload would jump position).
+func sortedToolServers(all map[string][]model.ToolDef) []string {
+	names := make([]string, 0, len(all))
+	for name := range all {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
 func (m *Manager) GetToolDef(name string) *model.ToolDef {
 	mcpName, toolName := SplitToolName(name)
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	if toolName != "" {
-		m.mu.RLock()
-		defer m.mu.RUnlock()
 		if tools, ok := m.allTools[mcpName]; ok {
 			for _, t := range tools {
 				if t.Name == toolName {
@@ -499,16 +619,11 @@ func (m *Manager) GetToolDef(name string) *model.ToolDef {
 		}
 		return nil
 	}
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	for _, tools := range m.allTools {
-		for _, t := range tools {
-			if t.Name == name {
-				return &t
-			}
-		}
-	}
-	return nil
+	// Bare name: same deterministic resolution as ExecuteTool so schema
+	// validation (arg auto-fix, required-args checks) looks at the exact
+	// tool a bare call would dispatch to.
+	_, def := m.resolveBareTool(name)
+	return def
 }
 
 func (m *Manager) ExecuteTool(ctx context.Context, fullName string, arguments string) (*model.ToolResult, error) {
@@ -519,15 +634,11 @@ func (m *Manager) ExecuteTool(ctx context.Context, fullName string, arguments st
 	var toolDef *model.ToolDef
 	m.mu.RLock()
 	if toolName == "" {
-		for name, tools := range m.allTools {
-			for _, t := range tools {
-				if t.Name == fullName {
-					mcpName = name
-					toolName = fullName
-					td := t
-					toolDef = &td
-				}
-			}
+		// Bare tool name (the form the LLM calls): resolve the owning MCP
+		// deterministically — see resolveBareTool.
+		name, def := m.resolveBareTool(fullName)
+		if def != nil {
+			mcpName, toolName, toolDef = name, fullName, def
 		}
 	} else {
 		for _, t := range m.allTools[mcpName] {
