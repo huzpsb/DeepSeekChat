@@ -23,19 +23,25 @@
         <div class="hidden" id="search-results"></div>
         <ul id="chat-list"></ul>
     </aside>
+    <div id="sidebar-backdrop"></div>
     <main id="main">
         <div id="main-header">
-            <span id="context-size" style="display:none"></span>
-            <div id="mode-controls">
-                <button class="mode-btn active" data-mode="readonly">Read</button>
-                <button class="mode-btn" data-mode="writable">Write</button>
-                <button class="mode-btn" data-mode="sudo">Sudo</button>
+            <div class="header-row" id="header-toolbar">
+                <div id="mode-controls">
+                    <button class="mode-btn active" data-mode="readonly">Read</button>
+                    <button class="mode-btn" data-mode="writable">Write</button>
+                    <button class="mode-btn" data-mode="sudo">Sudo</button>
+                </div>
+                <button id="btn-validate">Validate</button>
+                <select id="root-dir-select" title="Sandbox root dir"></select>
             </div>
-            <button id="btn-validate">Validate</button>
-            <select id="root-dir-select" title="Sandbox root dir"></select>
-            <button id="btn-mute-sound" style="display:none">Mute</button>
-            <button id="btn-preferences" title="Preferences">p</button>
-            <button id="btn-version" title="Version Info">v</button>
+            <div class="header-row" id="header-actions">
+                <button aria-label="Toggle sidebar" aria-expanded="true" id="btn-sidebar-toggle" title="Hide sidebar">☰</button>
+                <span id="context-size" style="display:none"></span>
+                <button id="btn-mute-sound" style="display:none">Mute</button>
+                <button id="btn-preferences" title="Preferences">p</button>
+                <button id="btn-version" title="Version Info">v</button>
+            </div>
         </div>
         <div id="messages"></div>
         <div id="input-area">
@@ -200,6 +206,7 @@
 <script src="assets/marked.min.js"></script>
 
 <script src="web/js/app.js"></script>
+<script src="web/js/sidebar.js"></script>
 <script src="web/js/chat.js"></script>
 <script src="web/js/status.js"></script>
 <script src="web/js/messages.js"></script>

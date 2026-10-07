@@ -1744,3 +1744,189 @@ html, body {
 .pref-root-dir-add button:hover {
     border-color: var(--accent);
 }
+
+/* === Responsive layout / mobile adaptation (sidebar.js) ===
+   Wide screens keep the old look: the sidebar is a permanent column
+   and the header is a single line - the two .header-row wrappers use
+   display:contents so their children lay out exactly like the old
+   flat header. Only once the sidebar would cover 1/3 or more of the
+   viewport (viewport <= 780px == 260 * 3) does the compact layout
+   kick in:
+     - #main-header becomes a two-row header, mirroring the sidebar
+       (button row on top, controls row below, like the search bar row).
+     - The sidebar turns into a slide-in drawer with a dimmed backdrop,
+       toggled by #btn-sidebar-toggle, which is only visible here. */
+
+.header-row {
+    display: contents;
+}
+
+/* old single-line order: context size led the header */
+#context-size {
+    order: -1;
+}
+
+/* drawer toggle: shown iff the compact layout is active */
+#btn-sidebar-toggle {
+    display: none;
+    order: -2; /* stay left of the order:-1 context-size */
+    flex-shrink: 0;
+    width: 30px;
+    height: 30px;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 15px;
+    line-height: 1;
+    user-select: none;
+}
+
+#btn-sidebar-toggle:hover {
+    color: var(--text-primary);
+    border-color: var(--accent);
+}
+
+#btn-sidebar-toggle:active {
+    background: var(--accent-dim);
+}
+
+#sidebar {
+    transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+/* dim layer behind the sidebar drawer (compact layout only) */
+#sidebar-backdrop {
+    display: none;
+}
+
+/* .preload suppresses the drawer animation for the initial state and
+   for layout-mode switches (added/removed by sidebar.js) */
+#app.preload #sidebar {
+    transition: none !important;
+}
+
+@media (max-width: 780px) {
+    #main-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0;
+        padding: 8px 10px;
+    }
+
+    .header-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+    }
+
+    #header-actions {
+        order: 1;
+    }
+
+    /* toolbar row: mode / validate / root dir, below the top row */
+    #header-toolbar {
+        order: 2;
+        flex-wrap: wrap;
+        border-top: 1px solid var(--border);
+        margin-top: 8px;
+        padding-top: 8px;
+    }
+
+    #btn-sidebar-toggle {
+        display: inline-flex;
+    }
+
+    #context-size {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    #mode-controls,
+    #btn-validate {
+        flex-shrink: 0;
+    }
+
+    .mode-btn {
+        padding: 4px 10px;
+    }
+
+    #btn-validate {
+        padding: 4px 10px;
+    }
+
+    #root-dir-select {
+        flex: 1;
+        min-width: 100px;
+        max-width: none;
+    }
+
+    /* sidebar becomes a slide-in drawer above the chat */
+    #sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        z-index: 91;
+        width: min(300px, 85vw);
+        box-shadow: 8px 0 24px var(--shadow-color);
+    }
+
+    #app.sidebar-collapsed #sidebar {
+        transform: translateX(-105%);
+        box-shadow: none;
+    }
+
+    #sidebar-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 90;
+        background: var(--overlay-bg);
+    }
+
+    #app:not(.sidebar-collapsed) #sidebar-backdrop {
+        display: block;
+    }
+
+    /* touch devices have no hover: keep per-chat actions reachable */
+    #chat-list li .chat-actions {
+        display: flex;
+    }
+
+    #messages {
+        padding: 10px;
+    }
+
+    .message {
+        max-width: 92%;
+    }
+
+    #input-area {
+        padding: 8px 10px;
+    }
+
+    /* header is two rows tall now: let the editor use the full screen */
+    #editor-overlay {
+        top: 0;
+        padding: 8px;
+    }
+
+    .editor-card {
+        max-height: calc(100vh - 32px);
+    }
+}
+
+/* narrow-screen safety nets for the fixed-width dialogs */
+#modal-content {
+    max-width: calc(100vw - 32px);
+}
+
+#version-content {
+    max-width: calc(100vw - 32px);
+}

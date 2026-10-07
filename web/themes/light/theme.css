@@ -174,7 +174,8 @@ body {
 
 #btn-validate,
 #btn-preferences,
-#btn-version {
+#btn-version,
+#btn-sidebar-toggle {
     background: var(--bg-secondary);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
@@ -186,7 +187,8 @@ body {
 
 #btn-validate:hover,
 #btn-preferences:hover,
-#btn-version:hover {
+#btn-version:hover,
+#btn-sidebar-toggle:hover {
     background: var(--bg-tertiary);
     color: var(--text-primary);
     border-color: var(--border);

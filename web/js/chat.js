@@ -132,12 +132,20 @@ var ChatList = {
             if (window.ContinueModule) {
                 window.ContinueModule.switchChat(chat.title);
             }
+            // mobile: a fresh chat gets the full screen right away
+            if (window.Sidebar) {
+                window.Sidebar.autoClose();
+            }
         }
         await this.refresh();
         await this.loadMessages();
     },
 
     select: async function (title) {
+        // mobile: picking a chat closes the sidebar drawer
+        if (window.Sidebar) {
+            window.Sidebar.autoClose();
+        }
         // switch subscription only — a running chat keeps running in the background
         this.currentTitle = title;
         this.saveCurrentTitle(title);
