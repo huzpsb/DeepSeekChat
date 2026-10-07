@@ -24,12 +24,40 @@ const (
 	runOutputKeepBytes = 1024
 )
 
+// rawShellName returns the interpreter name of the configured raw shell,
+// falling back to the platform default when the config's shell argv is
+// empty. Used for tool descriptions, so it must never panic.
+func (p *Provider) rawShellName() string {
+	return p.rawShellArgs()[0]
+}
+
+// rawShellArgs returns the raw shell argv prefix (interpreter + static
+// args). A raw_shell.shell of length 0 — an invalid but accepted config —
+// falls back to the platform default shell instead of panicking on
+// Shell[0].
+func (p *Provider) rawShellArgs() []string {
+	if p.rawShell != nil && len(p.rawShell.Shell) > 0 {
+		return p.rawShell.Shell
+	}
+	if os.PathSeparator == '\\' {
+		return []string{"powershell", "-NoProfile", "-Command"}
+	}
+	return []string{"sh", "-c"}
+}
+
 func (p *Provider) runShellTool(ctx context.Context, tool model.ShellTool, rootDir string) string {
 	return p.runShellToolWithLimit(ctx, tool, rootDir, 0)
 }
 
 func (p *Provider) runShellToolWithLimit(ctx context.Context, tool model.ShellTool, rootDir string, outputSizeLimit int) string {
 	rawEnabled := p.rawShell != nil && p.rawShell.Enabled
+
+	// Defensive clamp for callers that did not go through Initialize's
+	// normalization: a non-positive timeout would expire the context the
+	// moment it is created and kill the command instantly.
+	if tool.Timeout <= 0 {
+		tool.Timeout = 60
+	}
 
 	if outputSizeLimit > 0 && outputSizeLimit < defaultRunOutputSizeLimit {
 		outputSizeLimit = defaultRunOutputSizeLimit
@@ -82,13 +110,17 @@ func (p *Provider) runShellToolWithLimit(ctx context.Context, tool model.ShellTo
 	var cmd *exec.Cmd
 	if p.rawShell != nil && p.rawShell.Enabled {
 		fullCmd := strings.Replace(p.rawShell.Preamble, "$original", tool.Command, -1)
+		// rawShellArgs never returns an empty argv: a config with
+		// raw_shell.shell = [] used to panic on Shell[0] both here and in
+		// Tools(); instead it falls back to the platform default shell.
+		rawArgs := p.rawShellArgs()
 		// Copy before appending: Shell[1:] aliases the config slice's
 		// backing array, and appending in place would have two concurrent
 		// runs (the provider is shared across chats) write the same slot
 		// — one session could exec the other's command.
-		args := append(make([]string, 0, len(p.rawShell.Shell)), p.rawShell.Shell[1:]...)
+		args := append(make([]string, 0, len(rawArgs)), rawArgs[1:]...)
 		args = append(args, fullCmd)
-		cmd = exec.Command(p.rawShell.Shell[0], args...)
+		cmd = exec.Command(rawArgs[0], args...)
 	} else if os.PathSeparator == '\\' {
 		cmd = exec.Command("powershell", "-NoProfile", "-Command", tool.Command)
 	} else {

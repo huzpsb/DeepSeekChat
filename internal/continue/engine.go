@@ -993,6 +993,24 @@ func EditMessage(chat *model.Chat, index int, newMsg *model.Message, mode string
 		}
 	}
 
+	// Validate duplicates BEFORE any mutation: a rejected edit must leave
+	// the chat untouched. handleEditMessage persists the chat even when
+	// validation errors are returned, so inserting placeholder tool
+	// messages (or applying the replacement) first would land a
+	// structurally broken conversation on disk in writable mode.
+	seenIDs := map[string]bool{}
+	for _, tc := range newMsg.ToolCalls {
+		if seenIDs[tc.ID] {
+			return []ValidationError{{
+				MessageIndex: index,
+				Type:         "duplicate_id",
+				ToolCallID:   tc.ID,
+				Detail:       "Duplicate tool_call_id in edited message",
+			}}, nil
+		}
+		seenIDs[tc.ID] = true
+	}
+
 	oldIDs := map[string]bool{}
 	for _, tc := range oldMsg.ToolCalls {
 		oldIDs[tc.ID] = true
@@ -1014,19 +1032,6 @@ func EditMessage(chat *model.Chat, index int, newMsg *model.Message, mode string
 	}
 
 	chat.Messages[index] = *newMsg
-
-	seenIDs := map[string]bool{}
-	for _, tc := range newMsg.ToolCalls {
-		if seenIDs[tc.ID] {
-			return []ValidationError{{
-				MessageIndex: index,
-				Type:         "duplicate_id",
-				ToolCallID:   tc.ID,
-				Detail:       "Duplicate tool_call_id in edited message",
-			}}, nil
-		}
-		seenIDs[tc.ID] = true
-	}
 
 	return nil, nil
 }
@@ -1063,6 +1068,18 @@ func InsertMessage(chat *model.Chat, index int, newMsg *model.Message, mode stri
 			MessageIndex: 0,
 			Type:         "insert_violation",
 			Detail:       "Cannot insert tool message at the beginning",
+		}}, nil
+	}
+
+	// A tool message without a tool_call_id cannot be matched to its
+	// originating assistant call: auto-registering an empty-ID tool_call
+	// would create a group the continue engine treats as permanently
+	// invalid (findInvalidToolCalls flags empty IDs).
+	if newMsg.ToolCallID == "" {
+		return []ValidationError{{
+			MessageIndex: index,
+			Type:         "insert_violation",
+			Detail:       "Tool message must reference a tool_call_id",
 		}}, nil
 	}
 

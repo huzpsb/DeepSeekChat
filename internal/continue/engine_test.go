@@ -2517,3 +2517,62 @@ func runContinue(engine *Engine, chat *model.Chat, input string, autoContinue bo
 	engine.Continue(context.Background(), chat, input, autoContinue, func(evt ContinueEvent) { events = append(events, evt) }, func() bool { return false })
 	return events
 }
+
+// ============================================================
+// Regression: validation must run before mutation (audit fixes)
+// ============================================================
+
+// A rejected edit (duplicate tool_call_id) must leave the chat untouched:
+// handleEditMessage persists the chat even when validation errors are
+// returned, so mutating first would store a structurally broken chat.
+func TestEditMessage_Assistant_DuplicateID_NoMutation(t *testing.T) {
+	chat := &model.Chat{Messages: []model.Message{
+		makeUserMsg("hello"),
+		makeAssistantMsg("", []model.ToolCall{makeToolCall("id1", "tool_a", `{}`)}),
+	}}
+	newMsg := makeAssistantMsg("edited", []model.ToolCall{
+		makeToolCall("id1", "tool_a", `{}`),
+		makeToolCall("id1", "tool_b", `{}`),
+		makeToolCall("id9", "tool_c", `{}`),
+	})
+	errs, err := EditMessage(chat, 1, &newMsg, "writable", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(errs) != 1 || errs[0].Type != "duplicate_id" {
+		t.Fatalf("expected duplicate_id error, got %+v", errs)
+	}
+	if len(chat.Messages) != 2 {
+		t.Fatalf("chat must be unchanged on rejection: messages=%d", len(chat.Messages))
+	}
+	if got := len(chat.Messages[1].ToolCalls); got != 1 {
+		t.Fatalf("assistant must be unchanged on rejection: tool_calls=%d", got)
+	}
+	if chat.Messages[1].Content != "" {
+		t.Fatalf("assistant content must be unchanged, got %q", chat.Messages[1].Content)
+	}
+}
+
+// Inserting a tool message without a tool_call_id must be rejected instead
+// of auto-registering an empty-ID tool_call (which makes the group
+// permanently invalid for the continue engine).
+func TestInsertMessage_Tool_EmptyToolCallID(t *testing.T) {
+	chat := &model.Chat{Messages: []model.Message{
+		makeUserMsg("hi"),
+		makeAssistantMsg("", []model.ToolCall{makeToolCall("id1", "tool_a", `{}`)}),
+	}}
+	toolMsg := model.Message{Role: "tool", Name: "tool_b", ToolCallID: "", Content: "res", SendToServer: true}
+	errs, err := InsertMessage(chat, 2, &toolMsg, "writable")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(errs) != 1 || errs[0].Type != "insert_violation" {
+		t.Fatalf("expected insert_violation error, got %+v", errs)
+	}
+	if len(chat.Messages) != 2 {
+		t.Fatalf("chat must be unchanged on rejection: messages=%d", len(chat.Messages))
+	}
+	if got := len(chat.Messages[1].ToolCalls); got != 1 {
+		t.Fatalf("assistant must be unchanged on rejection: tool_calls=%d", got)
+	}
+}

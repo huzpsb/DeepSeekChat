@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"hschat/internal/builtin/sandbox"
@@ -24,6 +25,10 @@ import (
 )
 
 type Server struct {
+	// modeMu guards mode: it is read by every request handler (message
+	// editing gates, logging) and written by PUT /api/mode, so concurrent
+	// requests race on the unsynchronized string otherwise.
+	modeMu   sync.RWMutex
 	mode     string
 	mux      *http.ServeMux
 	staticFS embed.FS
@@ -233,6 +238,20 @@ func (s *Server) writeJSON(w http.ResponseWriter, data any) {
 	json.NewEncoder(w).Encode(data)
 }
 
+// getMode returns the current global mode under the read lock.
+func (s *Server) getMode() string {
+	s.modeMu.RLock()
+	defer s.modeMu.RUnlock()
+	return s.mode
+}
+
+// setMode updates the global mode under the write lock.
+func (s *Server) setMode(mode string) {
+	s.modeMu.Lock()
+	s.mode = mode
+	s.modeMu.Unlock()
+}
+
 func (s *Server) writeError(w http.ResponseWriter, msg string, code int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
@@ -240,7 +259,7 @@ func (s *Server) writeError(w http.ResponseWriter, msg string, code int) {
 }
 
 func (s *Server) handleGetMode(w http.ResponseWriter, _ *http.Request) {
-	s.writeJSON(w, map[string]any{"mode": s.mode})
+	s.writeJSON(w, map[string]any{"mode": s.getMode()})
 }
 
 func (s *Server) handleSetMode(w http.ResponseWriter, r *http.Request) {
@@ -255,9 +274,9 @@ func (s *Server) handleSetMode(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "invalid mode", http.StatusBadRequest)
 		return
 	}
-	s.mode = req.Mode
+	s.setMode(req.Mode)
 	s.engine.SetMode(req.Mode)
-	s.writeJSON(w, map[string]string{"mode": s.mode})
+	s.writeJSON(w, map[string]string{"mode": s.getMode()})
 }
 
 // configResponse is the single read interface for provider config. It
@@ -694,7 +713,7 @@ func (s *Server) handleContinue(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "missing title", http.StatusBadRequest)
 		return
 	}
-	log.Printf("[server] continue_request title=%q input_len=%d auto_continue=%v mode=%s\n", req.Title, len(req.Input), req.AutoContinue, s.mode)
+	log.Printf("[server] continue_request title=%q input_len=%d auto_continue=%v mode=%s\n", req.Title, len(req.Input), req.AutoContinue, s.getMode())
 
 	if err := s.engine.StartInference(req.Title, req.Input, req.AutoContinue); err != nil {
 		log.Printf("[server] continue_start_error title=%q err=%q\n", req.Title, err.Error())
@@ -877,7 +896,7 @@ func (s *Server) handleDeleteMessage(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, "invalid index", http.StatusBadRequest)
 		return
 	}
-	log.Printf("[server] delete_message_request title=%q idx=%d mode=%s\n", title, idx, s.mode)
+	log.Printf("[server] delete_message_request title=%q idx=%d mode=%s\n", title, idx, s.getMode())
 
 	if s.engine.IsInferencingWith(title) {
 		log.Printf("[server] delete_message_reject title=%q idx=%d reason=inferencing_same_chat\n", title, idx)
@@ -893,13 +912,13 @@ func (s *Server) handleDeleteMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("[server] delete_message_loaded title=%q idx=%d messages=%d last=%s target=%s\n", title, idx, len(chat.Messages), describeServerLastMessage(chat), describeServerMessage(chat, idx))
 
-	if s.mode == "readonly" && idx != len(chat.Messages)-1 {
+	if s.getMode() == "readonly" && idx != len(chat.Messages)-1 {
 		log.Printf("[server] delete_message_reject title=%q idx=%d reason=readonly_non_last messages=%d\n", title, idx, len(chat.Messages))
 		s.writeError(w, "readonly mode", http.StatusForbidden)
 		return
 	}
 
-	delMode := s.mode
+	delMode := s.getMode()
 	if delMode == "readonly" {
 		delMode = "writable"
 	}
@@ -966,7 +985,7 @@ func (s *Server) handleApproveToggle(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleEditMessage(w http.ResponseWriter, r *http.Request) {
-	if s.mode == "readonly" {
+	if s.getMode() == "readonly" {
 		s.writeError(w, "readonly mode", http.StatusForbidden)
 		return
 	}
@@ -994,7 +1013,7 @@ func (s *Server) handleEditMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	errors, err := cont.EditMessage(chat, idx, &newMsg, s.mode, s.mcpMgr.ToolExists)
+	errors, err := cont.EditMessage(chat, idx, &newMsg, s.getMode(), s.mcpMgr.ToolExists)
 	if err != nil {
 		s.writeError(w, err.Error(), http.StatusBadRequest)
 		return
@@ -1037,8 +1056,8 @@ func (s *Server) handleInsertMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	insertMode := s.mode
-	if s.mode == "readonly" {
+	insertMode := s.getMode()
+	if s.getMode() == "readonly" {
 		if !isReadonlyAskUserInsert(chat, idx, &newMsg) {
 			s.writeError(w, "readonly mode", http.StatusForbidden)
 			return

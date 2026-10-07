@@ -13,7 +13,7 @@ func (p *Provider) Tools() []model.ToolDef {
 	for name, tool := range p.shellTools {
 		desc := tool.Description
 		if p.rawShell != nil && p.rawShell.Enabled {
-			desc += " (" + p.rawShell.Shell[0] + ")"
+			desc += " (" + p.rawShellName() + ")"
 		}
 		tools = append(tools, model.ToolDef{
 			Name:        name,
@@ -28,7 +28,7 @@ func (p *Provider) Tools() []model.ToolDef {
 	if p.rawShell != nil && p.rawShell.Enabled {
 		tools = append(tools, model.ToolDef{
 			Name:        "run",
-			Description: "Run a shell command (" + p.rawShell.Shell[0] + ")",
+			Description: "Run a shell command (" + p.rawShellName() + ")",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -70,6 +70,13 @@ func (p *Provider) CallTool(ctx context.Context, name string, args map[string]an
 		timeout := 300
 		if v, ok := args["time_out"].(float64); ok {
 			timeout = int(v)
+		}
+		// Clamp non-positive values to the default: an explicit 0 (or a
+		// negative number hallucinated by the model) would make
+		// context.WithTimeout expire instantly and kill the command
+		// before it can produce any output.
+		if timeout <= 0 {
+			timeout = 300
 		}
 		outputSizeLimit := defaultRunOutputSizeLimit
 		if v, ok := args["output_size_limit"].(float64); ok {

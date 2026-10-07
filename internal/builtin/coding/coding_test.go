@@ -217,3 +217,94 @@ func checkContains(t *testing.T, text, sub string) {
 	}
 	t.Errorf("expected text to contain '%s', got:\n%s", sub, text)
 }
+
+// ============================================================
+// Regression: raw shell config robustness (audit fixes)
+// ============================================================
+
+func rawShellCfgForOS() *model.RawShellConfig {
+	if runtime.GOOS == "windows" {
+		return &model.RawShellConfig{Enabled: true, Shell: []string{"cmd.exe", "/c"}, Preamble: "$original"}
+	}
+	return &model.RawShellConfig{Enabled: true, Shell: []string{"sh", "-c"}, Preamble: "$original"}
+}
+
+// An explicitly non-positive time_out used to expire the context the
+// moment it was created, killing the command before any output.
+func TestCallTool_Run_NonPositiveTimeoutClamped(t *testing.T) {
+	p := setupProvider(t)
+	p.rawShell = rawShellCfgForOS()
+
+	result, err := p.CallTool(context.Background(), "run", map[string]any{
+		"command":  "echo ok",
+		"time_out": 0,
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	text := result.Content[0].Text
+	if !strings.Contains(text, "ok") {
+		t.Errorf("expected 'ok' in output:\n%s", text)
+	}
+	if strings.Contains(text, "context deadline exceeded") {
+		t.Errorf("command was killed by an instantly-expired context:\n%s", text)
+	}
+}
+
+// A negative timeout gets clamped too, and a large-enough custom timeout
+// still works.
+func TestCallTool_Run_NegativeTimeoutClamped(t *testing.T) {
+	p := setupProvider(t)
+	p.rawShell = rawShellCfgForOS()
+
+	result, err := p.CallTool(context.Background(), "run", map[string]any{
+		"command":  "echo ok",
+		"time_out": -5,
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if !strings.Contains(result.Content[0].Text, "ok") {
+		t.Errorf("expected 'ok' in output:\n%s", result.Content[0].Text)
+	}
+}
+
+// raw_shell.shell = [] used to panic on Shell[0] both when listing tools
+// and when executing.
+func TestCallTool_Run_EmptyRawShellArgv(t *testing.T) {
+	p := setupProvider(t)
+	p.rawShell = &model.RawShellConfig{Enabled: true, Shell: []string{}, Preamble: "$original"}
+
+	tools := p.Tools()
+	foundRun := false
+	for _, td := range tools {
+		if td.Name == "run" {
+			foundRun = true
+		}
+	}
+	if !foundRun {
+		t.Fatalf("expected 'run' tool in %+v", tools)
+	}
+
+	result, err := p.CallTool(context.Background(), "run", map[string]any{
+		"command": "echo ok",
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if !strings.Contains(result.Content[0].Text, "ok") {
+		t.Errorf("expected 'ok' in output:\n%s", result.Content[0].Text)
+	}
+}
+
+// Named shell tools also list safely with an empty raw shell argv.
+func TestTools_EmptyRawShellArgv_NamedTools(t *testing.T) {
+	p := setupProvider(t)
+	p.shellTools["go_test"] = model.ShellTool{Description: "Run go test", Command: "go test ./...", Timeout: 60}
+	p.rawShell = &model.RawShellConfig{Enabled: true, Shell: []string{}, Preamble: "$original"}
+
+	tools := p.Tools()
+	if len(tools) != 2 {
+		t.Fatalf("expected 2 tools (go_test + run), got %d: %+v", len(tools), tools)
+	}
+}
