@@ -149,6 +149,16 @@ func (p *Provider) Tools() []model.ToolDef {
 				"required": []string{"src", "dst"},
 			},
 		},
+		{Name: "check_picture", Description: "Ask a vision-language sub-agent a question about an image file (jpeg, png, gif, webp). Images larger than about 1300x1300 total pixels are downscaled preserving aspect ratio before being sent. Returns the sub-agent's answer as text.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"path":     map[string]any{"type": "string"},
+					"question": map[string]any{"type": "string"},
+				},
+				"required": []string{"path", "question"},
+			},
+		},
 	}
 
 	return tools
@@ -181,6 +191,8 @@ func (p *Provider) CallTool(ctx context.Context, name string, args map[string]an
 		result = p.rm(args)
 	case "move":
 		result = p.moveFile(args)
+	case "check_picture":
+		result = p.checkPicture(ctx, args)
 	default:
 		result = "Error: Unknown tool"
 	}

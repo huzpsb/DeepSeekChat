@@ -30,6 +30,29 @@ type Provider struct {
 	rootDir         string
 	extBlacklist    []string
 	sandboxDisabled bool
+	// pictureResolver resolves (endpoint, apiKey, model) for the
+	// check_picture vision sub-agent from the live model_providers
+	// registry. Set once by the MCP manager after construction; read on
+	// every check_picture call so a provider switch applies without a
+	// restart.
+	pictureResolver func() (endpoint, apiKey, model string, err error)
+}
+
+// SetPictureAgentResolver installs the live resolver used by the
+// check_picture tool (see the pictureResolver field).
+func (p *Provider) SetPictureAgentResolver(fn func() (endpoint, apiKey, model string, err error)) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.pictureResolver = fn
+}
+
+// getPictureResolver returns the resolver under the read lock so a
+// withRootDir copy (which shares nothing but copied fields) and a
+// concurrent SetPictureAgentResolver cannot race.
+func (p *Provider) getPictureResolver() func() (string, string, string, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.pictureResolver
 }
 
 func New(cfg *model.SandboxConfig) builtin.Provider {
@@ -92,6 +115,7 @@ func (p *Provider) withRootDir(dir string) *Provider {
 		rootDir:         ResolveLiveRootDir(dir, p.rootDir),
 		extBlacklist:    p.extBlacklist,
 		sandboxDisabled: p.sandboxDisabled,
+		pictureResolver: p.pictureResolver,
 	}
 }
 

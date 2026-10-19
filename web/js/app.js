@@ -155,6 +155,54 @@
             providerSel.appendChild(opt);
         });
         renderModelOptions();
+        renderPicProviderOptions();
+    }
+
+    function renderPicProviderOptions() {
+        var sel = document.getElementById('pref-pic-provider');
+        if (!sel) return;
+        var current = (backendConfig.check_picture && backendConfig.check_picture.provider) || '';
+        sel.innerHTML = '';
+        var found = false;
+        (backendConfig.providers || []).forEach(function (p) {
+            var opt = document.createElement('option');
+            opt.value = p.name;
+            opt.textContent = p.name;
+            if (p.name === current) {
+                opt.selected = true;
+                found = true;
+            }
+            sel.appendChild(opt);
+        });
+        // A configured provider missing from the registry (e.g. after a
+        // providers edit) stays visible instead of silently displaying a
+        // different provider than the one that will actually be used.
+        if (current && !found) {
+            var opt = document.createElement('option');
+            opt.value = current;
+            opt.textContent = current + ' (not in registry)';
+            opt.selected = true;
+            sel.appendChild(opt);
+        }
+        renderPicModelOptions();
+    }
+
+    function renderPicModelOptions() {
+        var modelSel = document.getElementById('pref-pic-model');
+        if (!modelSel) return;
+        var providerName = document.getElementById('pref-pic-provider').value;
+        var current = (backendConfig.check_picture && backendConfig.check_picture.model) || '';
+        modelSel.innerHTML = '';
+        (backendConfig.providers || []).forEach(function (p) {
+            if (p.name !== providerName) return;
+            (p.models || []).forEach(function (m) {
+                var opt = document.createElement('option');
+                opt.value = m;
+                opt.textContent = m;
+                if (m === current) opt.selected = true;
+                modelSel.appendChild(opt);
+            });
+        });
     }
 
     // ---- provider CRUD (unified onto GET/PUT /api/config) ----
@@ -438,6 +486,12 @@
         });
         document.getElementById('pref-model').addEventListener('change', function () {
             saveBackendSettings({model: this.value});
+        });
+        document.getElementById('pref-pic-provider').addEventListener('change', function () {
+            saveBackendSettings({check_picture_provider: this.value});
+        });
+        document.getElementById('pref-pic-model').addEventListener('change', function () {
+            saveBackendSettings({check_picture_model: this.value});
         });
         initRootDirSelector();
     }

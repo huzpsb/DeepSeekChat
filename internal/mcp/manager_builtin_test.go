@@ -29,8 +29,8 @@ func TestManager_LoadAndConnect_SandboxAlways(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected Sandbox in allTools")
 	}
-	if len(tools) != 10 {
-		t.Errorf("expected 10 sandbox tools, got %d", len(tools))
+	if len(tools) != 11 {
+		t.Errorf("expected 11 sandbox tools, got %d", len(tools))
 	}
 
 	expectedTools := []string{"tree", "search_name", "search_content_plaintext", "search_content_advanced", "read_content",
@@ -122,8 +122,8 @@ func TestManager_GetTools_WithSandbox(t *testing.T) {
 			sandboxTools++
 		}
 	}
-	if sandboxTools != 10 {
-		t.Errorf("expected 10 sandbox tools, got %d", sandboxTools)
+	if sandboxTools != 11 {
+		t.Errorf("expected 11 sandbox tools, got %d", sandboxTools)
 	}
 }
 
@@ -398,8 +398,8 @@ func TestManager_GetTools_UnapprovedSandboxTools(t *testing.T) {
 			unapprovedCount++
 		}
 	}
-	if unapprovedCount != 10 {
-		t.Errorf("expected 10 unapproved sandbox tools, got %d", unapprovedCount)
+	if unapprovedCount != 11 {
+		t.Errorf("expected 11 unapproved sandbox tools, got %d", unapprovedCount)
 	}
 }
 

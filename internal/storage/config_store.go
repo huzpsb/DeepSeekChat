@@ -32,6 +32,9 @@ func LoadConfig() (*model.MCPConfig, error) {
 	// dropdown silently renders the first option. Normalize and persist
 	// here so config, UI, and inference all agree.
 	changed := normalizeModelSelection(cfg)
+	if normalizeCheckPictureSelection(cfg) {
+		changed = true
+	}
 	// Root dirs that no longer exist on disk must not be silently
 	// recreated by the sandbox provider: drop them from the list instead.
 	// The builtin default ("./agent") is exempt — it is the guaranteed
@@ -122,6 +125,31 @@ func normalizeModelSelection(cfg *model.MCPConfig) bool {
 	return changed
 }
 
+// normalizeCheckPictureSelection clears a check_picture selection whose
+// provider (or model) no longer exists in the registry; an empty
+// selection falls back to the deepseek default at call time. Reports
+// whether anything changed.
+func normalizeCheckPictureSelection(cfg *model.MCPConfig) bool {
+	if cfg.CheckPicture.Provider == "" {
+		return false
+	}
+	p := cfg.FindProvider(cfg.CheckPicture.Provider)
+	if p == nil {
+		cfg.CheckPicture = model.CheckPictureConfig{}
+		return true
+	}
+	if cfg.CheckPicture.Model == "" {
+		return false
+	}
+	for _, m := range p.Models {
+		if m == cfg.CheckPicture.Model {
+			return false
+		}
+	}
+	cfg.CheckPicture.Model = ""
+	return true
+}
+
 func defaultConfig() *model.MCPConfig {
 	return &model.MCPConfig{
 		Port: 5234,
@@ -145,15 +173,10 @@ func defaultConfig() *model.MCPConfig {
 		},
 		ModelProviders: []model.ModelProvider{
 			{
-				Name:     "opencode-zen",
-				Endpoint: "https://opencode.ai/zen/v1/chat/completions",
-				Models:   []string{"deepseek-v4-flash-free"},
-			},
-			{
 				Name:     "deepseek",
 				Endpoint: "https://api.deepseek.com/chat/completions",
 				APIKey:   "sk-xxxx",
-				Models:   []string{"deepseek-v4-flash", "deepseek-v4-pro"},
+				Models:   []string{"deepseek-flash", "deepseek-v4-pro"},
 			},
 			{
 				Name:     "kimi-code",
@@ -162,8 +185,12 @@ func defaultConfig() *model.MCPConfig {
 				Models:   []string{"k3-256k"},
 			},
 		},
-		Provider: "opencode-zen",
-		Model:    "deepseek-v4-flash-free",
+		Provider: "deepseek",
+		Model:    "deepseek-flash",
+		// The default registry above contains the deepseek provider with
+		// deepseek-flash first, so the explicit default matches what an
+		// empty selection would resolve to anyway.
+		CheckPicture: model.CheckPictureConfig{Provider: "deepseek", Model: "deepseek-flash"},
 	}
 }
 

@@ -90,6 +90,14 @@ func (m *Manager) LoadAndConnect() error {
 		log.Printf("Builtin [Sandbox] init failed: %v", err)
 	}
 	m.sandboxProvider = sp.(*sandbox.Provider)
+	// The check_picture sub-agent resolves provider/model from the live
+	// config on every call, so a Preferences switch applies without a
+	// restart or a Reload.
+	m.sandboxProvider.SetPictureAgentResolver(func() (string, string, string, error) {
+		m.mu.RLock()
+		defer m.mu.RUnlock()
+		return m.config.ResolveCheckPicture()
+	})
 
 	if !m.SkipAskUser {
 		if err := m.registerBuiltin(askuser.New()); err != nil {

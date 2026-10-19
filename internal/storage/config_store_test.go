@@ -21,17 +21,20 @@ func TestLoadConfig_NotExist(t *testing.T) {
 	if cfg == nil {
 		t.Fatalf("expected non-nil config")
 	}
-	if len(cfg.ModelProviders) != 3 {
-		t.Fatalf("expected 3 default providers, got %d", len(cfg.ModelProviders))
+	if len(cfg.ModelProviders) != 2 {
+		t.Fatalf("expected 2 default providers, got %d", len(cfg.ModelProviders))
 	}
-	if cfg.ModelProviders[0].Name != "opencode-zen" || len(cfg.ModelProviders[0].Models) != 1 {
-		t.Errorf("expected opencode-zen provider with 1 model, got %+v", cfg.ModelProviders[0])
+	if cfg.ModelProviders[0].Name != "deepseek" || len(cfg.ModelProviders[0].Models) != 2 {
+		t.Errorf("expected deepseek provider with 2 models, got %+v", cfg.ModelProviders[0])
 	}
-	if cfg.ModelProviders[1].Name != "deepseek" || len(cfg.ModelProviders[1].Models) != 2 {
-		t.Errorf("expected deepseek provider with 2 models, got %+v", cfg.ModelProviders[1])
+	if cfg.ModelProviders[1].Name != "kimi-code" || len(cfg.ModelProviders[1].Models) != 1 {
+		t.Errorf("expected kimi-code provider with 1 model, got %+v", cfg.ModelProviders[1])
 	}
-	if cfg.Provider != "opencode-zen" || cfg.Model != "deepseek-v4-flash-free" {
-		t.Errorf("expected opencode-zen/deepseek-v4-flash-free selection, got %s/%s", cfg.Provider, cfg.Model)
+	if cfg.Provider != "deepseek" || cfg.Model != "deepseek-flash" {
+		t.Errorf("expected deepseek/deepseek-flash selection, got %s/%s", cfg.Provider, cfg.Model)
+	}
+	if cfg.CheckPicture.Provider != "deepseek" || cfg.CheckPicture.Model != "deepseek-flash" {
+		t.Errorf("expected deepseek/deepseek-flash check_picture selection, got %+v", cfg.CheckPicture)
 	}
 	if _, err := os.Stat(configPath); err != nil {
 		t.Errorf("expected config.json to be auto-generated on cold start: %v", err)

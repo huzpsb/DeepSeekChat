@@ -296,7 +296,22 @@ func (s *Server) configResponse() map[string]any {
 		"provider":  cfg.Provider,
 		"model":     cfg.Model,
 		"providers": providers,
+		// The effective provider name (empty config means the deepseek
+		// default) so the selector shows what check_picture will
+		// actually use; the model is the raw config value — empty falls
+		// back to the provider's first model at call time.
+		"check_picture": map[string]string{
+			"provider": effectiveCheckPictureProvider(&cfg),
+			"model":    cfg.CheckPicture.Model,
+		},
 	}
+}
+
+func effectiveCheckPictureProvider(cfg *model.MCPConfig) string {
+	if cfg.CheckPicture.Provider != "" {
+		return cfg.CheckPicture.Provider
+	}
+	return model.DefaultCheckPictureProvider
 }
 
 func (s *Server) handleGetConfig(w http.ResponseWriter, _ *http.Request) {
@@ -313,10 +328,12 @@ func (s *Server) refreshLLMClient() {
 
 func (s *Server) handleSetConfig(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		RootDirs  *[]string              `json:"root_dirs"`
-		Provider  *string                `json:"provider"`
-		Model     *string                `json:"model"`
-		Providers *[]model.ModelProvider `json:"providers"`
+		RootDirs             *[]string              `json:"root_dirs"`
+		Provider             *string                `json:"provider"`
+		Model                *string                `json:"model"`
+		Providers            *[]model.ModelProvider `json:"providers"`
+		CheckPictureProvider *string                `json:"check_picture_provider"`
+		CheckPictureModel    *string                `json:"check_picture_model"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, "invalid body", http.StatusBadRequest)
@@ -430,6 +447,62 @@ func (s *Server) handleSetConfig(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 			}
+
+			// The replacement can also orphan the check_picture
+			// selection; reset it to the registry default instead of
+			// leaving a dangling name that would fail at call time.
+			if cfg.CheckPicture.Provider != "" && cfg.FindProvider(cfg.CheckPicture.Provider) == nil {
+				cfg.CheckPicture = model.CheckPictureConfig{}
+			}
+		}
+
+		if req.CheckPictureProvider != nil {
+			name := strings.TrimSpace(*req.CheckPictureProvider)
+			if name == "" {
+				// Empty resets to the default (deepseek) selection.
+				cfg.CheckPicture = model.CheckPictureConfig{}
+			} else {
+				p := cfg.FindProvider(name)
+				if p == nil {
+					valErr = fmt.Errorf("unknown check_picture provider")
+					return valErr
+				}
+				cfg.CheckPicture.Provider = p.Name
+				// Keep the model if still valid for the new provider,
+				// else clear it (call time falls back to first model).
+				valid := false
+				for _, m := range p.Models {
+					if m == cfg.CheckPicture.Model {
+						valid = true
+						break
+					}
+				}
+				if !valid {
+					cfg.CheckPicture.Model = ""
+				}
+			}
+		}
+
+		if req.CheckPictureModel != nil {
+			providerName := cfg.CheckPicture.Provider
+			if providerName == "" {
+				providerName = model.DefaultCheckPictureProvider
+			}
+			p := cfg.FindProvider(providerName)
+			valid := *req.CheckPictureModel == "" // empty clears: first-model fallback
+			if !valid && p != nil {
+				for _, m := range p.Models {
+					if m == *req.CheckPictureModel {
+						valid = true
+						break
+					}
+				}
+			}
+			if !valid {
+				valErr = fmt.Errorf("unknown check_picture model")
+				return valErr
+			}
+			cfg.CheckPicture.Model = *req.CheckPictureModel
 		}
 
 		if req.Provider != nil {
