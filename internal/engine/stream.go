@@ -321,6 +321,15 @@ func (e *StreamEngine) run(sess *Session, ctx context.Context, cancel context.Ca
 	}
 
 	engine := cont.NewEngine(e.Client(), mode, e.mcpMgr, save)
+	// Read mode mirrors the CLI runner (internal/cli/runner.go): a
+	// malformed tool call (unknown tool, empty/duplicate ID, schema-invalid
+	// arguments) must not stall the run. readonly offers no message editing
+	// to repair the call by hand, so instead of emitting an error event and
+	// stopping, the engine answers the bad call with an error tool_result
+	// ("tool not found" / "Error: ...") and lets the model correct itself.
+	if mode == "readonly" {
+		engine.ContinueOnInvalid = true
+	}
 
 	interrupted := func() bool {
 		sess.mu.Lock()

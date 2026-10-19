@@ -132,9 +132,10 @@ approved。
 
 **无效 tool_call 处理**（`findInvalidToolCalls`：空 id/空名/工具不存在/组内 id 重复）：
 
-- 默认：发 `error{invalid_tool_calls, ids}` 停机，前端把对应 tool_call 高亮 5 秒。
-- `ContinueOnInvalid=true`（CLI 模式）：给每个无效调用补一条 `"tool not found"` 的 tool 消息，**让模型自己看着办**，继续
-  stream。
+- 默认（writable/sudo）：发 `error{invalid_tool_calls, ids}` 停机，前端把对应 tool_call 高亮 5 秒——这两种模式可用消息编辑手工修复。
+- `ContinueOnInvalid=true`（CLI 模式与 **readonly/read 模式**，`stream.go` 的 `run` 按 mode 设置）：给每个无效调用补一条
+  `"tool not found"` 的 tool 消息，**让模型自己看着办**，继续 stream。readonly 下没有编辑手段修复坏调用，停机等于永久卡死，
+  故与 CLI 一样喂回错误让模型自纠。
 - 参数校验（`validateArgs`，对照工具 inputSchema 查 JSON 合法性/required/类型/未知字段）同理：默认报错停机；
   `ContinueOnInvalid` 下把错误文本当工具结果喂回去。
 

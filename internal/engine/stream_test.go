@@ -532,3 +532,110 @@ func TestRun_InstantErrorRedeliveredOnReset(t *testing.T) {
 		t.Fatalf("expected Idle after Reset, got %+v ok=%v", res, ok)
 	}
 }
+
+// existsExecutor overrides ToolExists so specific tool names (or all of
+// them) can be made invalid, exercising the findInvalidToolCalls path.
+type existsExecutor struct {
+	mockExecutor
+	exists func(string) bool
+}
+
+func (x existsExecutor) ToolExists(name string) bool { return x.exists(name) }
+
+// TestRun_InvalidToolCall_ReadonlyContinues pins the read-mode parity
+// with the CLI runner: a malformed tool call must NOT emit
+// error{invalid_tool_calls} and stall the run — readonly offers no
+// message editing to repair it by hand, so the invalid call is answered
+// with a "tool not found" tool_result and streaming continues. writable
+// keeps the default stop-and-report behavior (the user can fix the
+// message there).
+func TestRun_InvalidToolCall_ReadonlyContinues(t *testing.T) {
+	for _, tc := range []struct {
+		mode       string
+		wantError  bool
+		wantResult bool
+	}{
+		{"readonly", false, true},
+		{"writable", true, false},
+	} {
+		t.Run(tc.mode, func(t *testing.T) {
+			setupEngineTest(t)
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				w.Write([]byte(sseBody("after")))
+			}))
+			defer srv.Close()
+
+			client := llm.NewClient(srv.URL, "test-key", "mock")
+			e := Init(client, existsExecutor{exists: func(string) bool { return false }})
+			e.SetMode(tc.mode)
+
+			title := "invalid-" + tc.mode
+			chat := &model.Chat{Title: title, Messages: []model.Message{{
+				Role:         "assistant",
+				SendToServer: true,
+				ToolCalls: []model.ToolCall{{
+					ID:       "bad1",
+					Function: model.FunctionCall{Name: "no_such_tool", Arguments: "{}"},
+				}},
+			}}}
+			if err := storage.SaveChat(chat); err != nil {
+				t.Fatal(err)
+			}
+
+			if err := e.StartInference(title, "", false); err != nil {
+				t.Fatalf("start: %v", err)
+			}
+
+			reader := e.Subscribe(title)
+			var sawIdle, gotErr, gotResult bool
+			var resultContent string
+			for !sawIdle {
+				res, ok := reader.Wait(waitCtx(t))
+				if !ok {
+					t.Fatalf("subscription closed before idle")
+				}
+				if len(res.Errors) > 0 {
+					gotErr = true
+				}
+				for _, evt := range res.Events {
+					switch {
+					case evt.Type == "error":
+						gotErr = true
+					case evt.Type == "tool_result" && evt.ToolResult != nil:
+						gotResult = true
+						resultContent = evt.ToolResult.Message.Content
+					}
+				}
+				if res.Idle {
+					sawIdle = true
+				}
+			}
+			e.WaitForIdle(title)
+
+			if gotErr != tc.wantError {
+				t.Errorf("error event: got %v, want %v", gotErr, tc.wantError)
+			}
+			if gotResult != tc.wantResult {
+				t.Errorf("tool_result event: got %v (content=%q), want %v", gotResult, resultContent, tc.wantResult)
+			}
+			if tc.wantResult && resultContent != "tool not found" {
+				t.Errorf("expected 'tool not found' result, got %q", resultContent)
+			}
+
+			// readonly must have driven the loop to a follow-up assistant
+			// answer; writable must have left the chat untouched.
+			saved, _, _, err := e.ReadChatConsistent(title)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.wantResult {
+				if len(saved.Messages) != 3 || saved.Messages[1].Role != "tool" || saved.Messages[2].Content != "after" {
+					t.Fatalf("unexpected readonly messages: %#v", saved.Messages)
+				}
+			} else if len(saved.Messages) != 1 {
+				t.Fatalf("writable must not append anything, got %#v", saved.Messages)
+			}
+		})
+	}
+}
