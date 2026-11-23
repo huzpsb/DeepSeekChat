@@ -45,7 +45,8 @@
     var historyReady = false; // history rendered and baselined
     var pending = [];         // events buffered while historyReady === false
     var applied = [];         // DOM-producing events of the current streaming layer
-    var pendingErrors = [];   // errors carried by sync, shown after history renders
+    var pendingErrors = [];
+    var shownErrors = {};     // error keys already surfaced for the current subscription
 
     var STREAM_EVENT_TYPES = [
         'delta', 'reasoning_delta', 'tool_call', 'tool_execute',
@@ -169,10 +170,67 @@
         pending = [];
         applied = [];
         pendingErrors = [];
+        shownErrors = {};
         reasoningPendingEl = null;
         curGen = -1;
         setRunning(false);
         settleReady();
+    }
+
+    // ---- error surfacing ----
+    //
+    // Errors are identified by chat + gen + type: a run stops at its first
+    // error, so this names exactly one failure. The key is remembered per
+    // tab (sessionStorage) so a historical error is toasted at most once
+    // per tab, while a new tab still learns why the last run failed.
+    function errorKey(gen, evt) {
+        var e = evt && evt.error ? evt.error : {};
+        return subscribedTitle + '|' + gen + '|' + (e.type || 'error');
+    }
+
+    function errorSeen(key) {
+        try {
+            return sessionStorage.getItem('dschat_error_seen:' + key) === '1';
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function markErrorSeen(key) {
+        try {
+            sessionStorage.setItem('dschat_error_seen:' + key, '1');
+        } catch (e) {
+            // storage unavailable (privacy mode, quota): fall back to
+            // per-page memory, i.e. the toast repeats on the next load
+        }
+    }
+
+    // Historical failure: notify, but never render a message-like box.
+    function notifyHistoricalError(evt) {
+        var e = evt && evt.error;
+        if (e) {
+            showToast(e.detail || e.type || 'Unknown error');
+        }
+    }
+
+    // Surfaces one error exactly once per subscription. Live errors get the
+    // in-flow box; historical ones only a toast, and only the first time
+    // this tab hears about them.
+    function surfaceError(item) {
+        var key = errorKey(item.gen, item.evt);
+        if (shownErrors[key]) {
+            return;
+        }
+        shownErrors[key] = true;
+        if (!item.stale) {
+            markErrorSeen(key);
+            applyEvent('error', item.evt, false, 0);
+            return;
+        }
+        if (!errorSeen(key)) {
+            markErrorSeen(key);
+            notifyHistoricalError(item.evt);
+        }
     }
 
     function settleReady() {
@@ -237,7 +295,14 @@
         nextSeq = d.saved_pos || 0;
         pending = [];
         applied = [];
-        pendingErrors = d.errors || [];
+        shownErrors = {};
+        // The sync's errors belong to the run of d.gen. With running:false
+        // that run is already over — it failed before this subscription
+        // attached — so its errors are history (toast once), not a live
+        // failure of this view.
+        pendingErrors = (d.errors || []).map(function (evt) {
+            return {evt: evt, gen: d.gen, stale: !d.running};
+        });
         historyReady = false;
         resetStreamDOM();
         setRunning(!!d.running);
@@ -261,12 +326,14 @@
     function onStreamEvent(type, evt) {
         // Error events are never persisted; they must always be shown
         // regardless of the saved_pos / seq alignment (see failChat).
+        // A live error is a failure this subscription witnessed: it gets
+        // the in-flow box, once (the sync may carry the same error too).
         if (type === 'error') {
             if (!historyReady) {
-                pendingErrors.push(evt);
+                pendingErrors.push({evt: evt, gen: curGen, stale: false});
                 return;
             }
-            applyEvent(type, evt, false, 0);
+            surfaceError({evt: evt, gen: curGen, stale: false});
             return;
         }
         var seq = nextSeq++;
@@ -325,13 +392,17 @@
         replayApplied();
         // errors from the sync payload and from live events that arrived
         // before history was ready: show them now, after history has been
-        // re-rendered, so tool-call highlighting can find its DOM.
+        // re-rendered, so tool-call highlighting can find its DOM. Live
+        // failures go first: when the same error is both carried by the
+        // sync and replayed as an event, the live copy must win so it gets
+        // the in-flow box instead of the historical toast.
         if (pendingErrors.length) {
             var errs = pendingErrors;
             pendingErrors = [];
-            errs.forEach(function (evt) {
-                applyEvent('error', evt, false, 0);
+            errs.sort(function (a, b) {
+                return (a.stale ? 1 : 0) - (b.stale ? 1 : 0);
             });
+            errs.forEach(surfaceError);
         }
     }
 

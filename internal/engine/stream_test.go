@@ -2,11 +2,15 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -530,6 +534,106 @@ func TestRun_InstantErrorRedeliveredOnReset(t *testing.T) {
 	res, ok = reader.Wait(waitCtx(t))
 	if !ok || !res.Idle {
 		t.Fatalf("expected Idle after Reset, got %+v ok=%v", res, ok)
+	}
+}
+
+// Regression: an upstream failure of the LLM request must stay an out-of-band
+// error event. The error text is neither written into the chat nor part of
+// the next request: the run that follows a failed one sends exactly the
+// messages that were on disk before the failure (the error div a tab shows
+// for it is transient, see web/js/continue.js). The sync payload keeps
+// re-delivering the failure to a subscriber that attaches while the session
+// is idle — that is the only place it lives.
+func TestRun_UpstreamErrorIsNotPersistedOrResent(t *testing.T) {
+	setupEngineTest(t)
+
+	var mu sync.Mutex
+	var bodies []string
+	fail := true
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		data, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		bodies = append(bodies, string(data))
+		f := fail
+		mu.Unlock()
+		if f {
+			w.WriteHeader(http.StatusBadGateway)
+			io.WriteString(w, `{"error":{"message":"http2: timeout awaiting response headers"}}`)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		io.WriteString(w, sseBody("recovered"))
+	}))
+	defer srv.Close()
+
+	e := newTestEngine(srv.URL)
+	title := "flaky"
+	before := []model.Message{
+		{Role: "system", Content: "You are a helpful assistant.", SendToServer: true},
+		{Role: "user", Content: "hello", SendToServer: true},
+	}
+	if err := storage.SaveChat(&model.Chat{Title: title, Messages: before}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := e.StartInference(title, "", true); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	e.WaitForIdle(title)
+
+	// the failure reached the subscribers...
+	reader := e.Subscribe(title)
+	res, ok := reader.Wait(waitCtx(t))
+	if !ok || !res.Reset || len(res.Errors) != 1 || res.Errors[0].Error == nil {
+		t.Fatalf("expected the upstream failure on the idle sync, got %+v ok=%v", res, ok)
+	}
+	if detail := res.Errors[0].Error.Detail; !strings.Contains(detail, "timeout awaiting response headers") {
+		t.Fatalf("unexpected error detail %q", detail)
+	}
+	// ...and nothing else: the file is what it was before the run
+	saved, _, _, err := e.ReadChatConsistent(title)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(saved.Messages, before) {
+		t.Fatalf("failed run must not touch the chat, got %#v", saved.Messages)
+	}
+
+	// the retry sends the pre-failure messages, never the error text
+	mu.Lock()
+	fail = false
+	mu.Unlock()
+	if err := e.StartInference(title, "", true); err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+	e.WaitForIdle(title)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(bodies) != 2 {
+		t.Fatalf("expected 2 LLM requests, got %d", len(bodies))
+	}
+	for i, body := range bodies {
+		if strings.Contains(body, "timeout awaiting response headers") || strings.Contains(body, "502") {
+			t.Fatalf("request %d leaks the upstream error: %s", i, body)
+		}
+	}
+	var req struct {
+		Messages []struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal([]byte(bodies[1]), &req); err != nil {
+		t.Fatalf("retry request body: %v", err)
+	}
+	if len(req.Messages) != len(before) {
+		t.Fatalf("retry sent %d messages, want the %d from before the failure", len(req.Messages), len(before))
+	}
+	for i, m := range req.Messages {
+		if m.Role != before[i].Role || m.Content != before[i].Content {
+			t.Fatalf("retry message %d = %s %q, want %s %q", i, m.Role, m.Content, before[i].Role, before[i].Content)
+		}
 	}
 }
 
