@@ -679,14 +679,18 @@ func (s *Server) handleGetChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cfg := s.mcpMgr.Config()
-	// Report the effective root dir: a stored dir whose project has been
-	// deleted falls back to the configured default, matching what the
-	// runtime sandbox actually uses.
+	// root_dir is echoed verbatim, in whatever form the user configured
+	// the entry ("./cvpr", "../../cvpr" or an absolute path alike):
+	// resolving entries, checking liveness and picking fallbacks is a
+	// runtime-only concern of the sandbox (ResolveLiveRootDir) and must
+	// not leak into transport or persistence — an entry that died after
+	// the folder (or machine) moved is still the chat's configured entry,
+	// and only execution falls back to the default. The one adjustment is
+	// the storage convention "empty = configured default", so the frontend
+	// selector always receives an entry it can offer.
 	rootDir := chat.RootDir
 	if rootDir == "" {
 		rootDir = cfg.Sandbox.DefaultRootDir()
-	} else {
-		rootDir = sandbox.ResolveLiveRootDir(rootDir, cfg.Sandbox.DefaultRootDir())
 	}
 	s.writeJSON(w, map[string]any{
 		"title":        chat.Title,

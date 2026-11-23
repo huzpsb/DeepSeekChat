@@ -908,31 +908,142 @@ func TestHandleEditMessage_NonNumericIndex(t *testing.T) {
 	}
 }
 
-func TestGetChat_StaleRootDirReportsDefault(t *testing.T) {
+func TestSetChatRootDir_RoundTripsVerbatim(t *testing.T) {
 	setupServerTest(t)
+	// Root dirs that do not exist on disk are pruned from the config at
+	// load time, so both non-default entries must actually exist — which
+	// is also the state PUT /api/config leaves them in (ValidateRootDir
+	// creates the directory when the entry is added).
+	if err := os.MkdirAll("./cvpr", 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll("./absdir", 0755); err != nil {
+		t.Fatal(err)
+	}
+	absEntry, err := filepath.Abs("./absdir")
+	if err != nil {
+		t.Fatal(err)
+	}
+	absEntry = filepath.ToSlash(absEntry) // JSON-friendly on Windows too
+	storage.SaveConfig(&model.MCPConfig{
+		Sandbox: model.SandboxConfig{RootDirs: []string{"./agent", "./cvpr", absEntry}},
+	})
+	storage.SaveChat(&model.Chat{Title: "switch", RootDir: ""})
+
+	srv := New(testStaticFS)
+	put := func(dir string) {
+		t.Helper()
+		req := httptest.NewRequest("PUT", "/api/chats/switch/rootdir", strings.NewReader(`{"root_dir":"`+dir+`"}`))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		srv.mux.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("PUT rootdir %q failed: %d - %s", dir, w.Code, w.Body.String())
+		}
+		var resp struct {
+			RootDir string `json:"root_dir"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+		if resp.RootDir != dir {
+			t.Fatalf("PUT echoed %q, want verbatim %q", resp.RootDir, dir)
+		}
+	}
+	getRootDir := func() string {
+		t.Helper()
+		req := httptest.NewRequest("GET", "/api/chats/switch", nil)
+		w := httptest.NewRecorder()
+		srv.mux.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+		var resp struct {
+			RootDir string `json:"root_dir"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+		return resp.RootDir
+	}
+
+	// Selecting an entry stores and echoes it verbatim, so the next load
+	// selects it again (the original bug: GET leaked a resolved absolute
+	// path the selector could never match).
+	put("./cvpr")
+	if got := getRootDir(); got != "./cvpr" {
+		t.Fatalf("expected %q after PUT, got %q", "./cvpr", got)
+	}
+
+	// With both a relative and an absolute entry configured, binding the
+	// absolute one never jumps to the relative spelling (nor vice versa).
+	put(absEntry)
+	if got := getRootDir(); got != absEntry {
+		t.Fatalf("expected %q after PUT, got %q", absEntry, got)
+	}
+}
+
+func TestGetChat_RootDirEchoedVerbatim(t *testing.T) {
+	setupServerTest(t)
+	// Echoing never consults the config (or the disk), so the stored form
+	// is returned as-is whatever the configured list looks like.
 	storage.SaveConfig(&model.MCPConfig{
 		Sandbox: model.SandboxConfig{RootDirs: []string{"./agent"}},
 	})
-	stale := filepath.Join(t.TempDir(), "gone")
-	storage.SaveChat(&model.Chat{Title: "stale_root", RootDir: stale})
 
 	srv := New(testStaticFS)
+	getRootDir := func(title string) string {
+		t.Helper()
+		req := httptest.NewRequest("GET", "/api/chats/"+title, nil)
+		w := httptest.NewRecorder()
+		srv.mux.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200 for %q, got %d: %s", title, w.Code, w.Body.String())
+		}
+		var resp struct {
+			RootDir string `json:"root_dir"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+		return resp.RootDir
+	}
 
-	req := httptest.NewRequest("GET", "/api/chats/stale_root", nil)
-	w := httptest.NewRecorder()
-	srv.mux.ServeHTTP(w, req)
+	// A relative entry is echoed as-is, never resolved to an absolute path
+	// (that leak is what left the frontend unable to match the entry and
+	// showing "./agent" instead).
+	storage.SaveChat(&model.Chat{Title: "rel", RootDir: "./cvpr"})
+	if got := getRootDir("rel"); got != "./cvpr" {
+		t.Fatalf("expected %q, got %q", "./cvpr", got)
+	}
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	// An absolute entry is echoed as-is too: the user may configure
+	// "./cvpr" and "/root/autodl-tmp/cvpr" side by side, and the chat is
+	// bound to exactly the entry it stored — mapping the absolute one onto
+	// the relative one would silently rebind it.
+	storage.SaveChat(&model.Chat{Title: "abs", RootDir: "/root/autodl-tmp/cvpr"})
+	if got := getRootDir("abs"); got != "/root/autodl-tmp/cvpr" {
+		t.Fatalf("expected %q, got %q", "/root/autodl-tmp/cvpr", got)
 	}
-	var resp struct {
-		RootDir string `json:"root_dir"`
+
+	// Entries outside the configured list — legacy or hand-edited values —
+	// pass through untouched as well.
+	storage.SaveChat(&model.Chat{Title: "legacy", RootDir: "D:\\desktop\\gone"})
+	if got := getRootDir("legacy"); got != `D:\desktop\gone` {
+		t.Fatalf("expected %q, got %q", `D:\desktop\gone`, got)
 	}
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("failed to decode response: %v", err)
+
+	// Liveness is a runtime concern: an entry whose directory died (the
+	// folder or machine moved) is still the chat's configured entry, so it
+	// is echoed verbatim — only execution falls back to the default.
+	storage.SaveChat(&model.Chat{Title: "dead", RootDir: filepath.Join(t.TempDir(), "gone")})
+	if got := getRootDir("dead"); !strings.HasSuffix(got, "gone") {
+		t.Fatalf("expected verbatim dead entry, got %q", got)
 	}
-	want, _ := filepath.Abs("./agent")
-	if resp.RootDir != want {
-		t.Fatalf("expected default %q, got %q", want, resp.RootDir)
+
+	// Empty means the configured default entry (storage convention).
+	storage.SaveChat(&model.Chat{Title: "unset", RootDir: ""})
+	if got := getRootDir("unset"); got != "./agent" {
+		t.Fatalf("expected default entry %q, got %q", "./agent", got)
 	}
 }

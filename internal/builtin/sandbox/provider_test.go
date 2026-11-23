@@ -667,3 +667,30 @@ func TestResolveLiveRootDir(t *testing.T) {
 		t.Fatalf("expected fallback %q for non-dir path, got %q", ResolveRootDir(fallback), got)
 	}
 }
+
+func TestValidateRootDir_CreatesParentRelativeDir(t *testing.T) {
+	origWd, _ := os.Getwd()
+	tmp := t.TempDir()
+	nested := filepath.Join(tmp, "a", "b")
+	if err := os.MkdirAll(nested, 0755); err != nil {
+		t.Fatalf("MkdirAll failed: %v", err)
+	}
+	if err := os.Chdir(nested); err != nil {
+		t.Fatalf("Chdir failed: %v", err)
+	}
+	t.Cleanup(func() { os.Chdir(origWd) })
+
+	// "../../cvpr" from tmp/a/b denotes tmp/cvpr: validation must resolve
+	// the ../ segments against the cwd and create exactly that directory —
+	// no normalization beyond what the runtime itself performs.
+	if err := ValidateRootDir("../../cvpr"); err != nil {
+		t.Fatalf("ValidateRootDir failed: %v", err)
+	}
+	want := filepath.Join(tmp, "cvpr")
+	if got := ResolveRootDir("../../cvpr"); got != want {
+		t.Fatalf("expected %q, got %q", want, got)
+	}
+	if info, err := os.Stat(want); err != nil || !info.IsDir() {
+		t.Fatalf("expected %q to exist after validation (stat: %v)", want, err)
+	}
+}
