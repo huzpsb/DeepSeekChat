@@ -78,6 +78,12 @@ func New(staticFS embed.FS) *Server {
 		engine:   engine.Init(client, mcpMgr),
 		pow:      pow,
 	}
+	// The server struct owns the boot mode; mirror it into the engine so
+	// the two never drift before the first PUT /api/mode. Without this
+	// the engine booted with mode "" which gates like writable (invalid
+	// tool calls interrupt the run) while every UI surface reports
+	// "readonly" — a glitch only masked by toggling modes back and forth.
+	s.engine.SetMode(s.mode)
 	if data, err := staticFS.ReadFile("web/index.html"); err == nil {
 		s.indexHTML = bytes.ReplaceAll(data, []byte(versionPlaceholder), []byte(appVersion))
 	}
@@ -196,7 +202,10 @@ func (s *Server) Port() int {
 func (s *Server) Handler() http.Handler {
 	// Auth wraps the mux (not the individual routes) so nothing can be
 	// reached around it — including SSE endpoints and static files.
-	return s.authMiddleware(s.mux)
+	// Deflate sits outermost so every response (auth errors and static
+	// assets included) is compressed when the client accepts it; SSE
+	// streams opt out inside the middleware.
+	return withDeflate(s.authMiddleware(s.mux))
 }
 
 func (s *Server) registerRoutes() {

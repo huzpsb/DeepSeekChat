@@ -57,6 +57,15 @@ func Init(client *llm.Client, executor cont.ToolExecutor) *StreamEngine {
 		statusNotify: make(chan struct{}),
 		mcpMgr:       executor,
 		client:       client,
+		// Fail-closed boot default: the engine must never start in a
+		// mode stricter-than-readonly by accident. The zero value ("")
+		// is NOT readonly — every mode gate compares against explicit
+		// strings, so "" silently behaves like writable (invalid tool
+		// calls interrupt the run instead of being answered with an
+		// error tool_result) while the UI still shows "read". The server
+		// syncs this via SetMode right after boot; this default protects
+		// any other caller that forgets.
+		mode: "readonly",
 	}
 }
 
