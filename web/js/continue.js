@@ -16,6 +16,12 @@
 // log starting at saved_pos. Any reload of history re-baselines saved_pos
 // and replays only events with seq >= saved_pos, so nothing is ever
 // rendered twice and no message is ever split.
+//
+// History ownership: the "sync" that opens every subscription performs the
+// single history load (GET /api/chats/<title>) of that open, and switchChat()
+// resolves once that load has settled. The "idle" the server sends right
+// after a sync of a non-running chat is only the handshake's closing marker
+// and does NOT reload; only the idle that ends a real run does (final save).
 (function () {
     'use strict';
 
@@ -31,6 +37,8 @@
 
     var evtSource = null;
     var subscribedTitle = null;
+    var readyResolve = null; // settles the promise returned by switchChat
+    var idleAfterSync = false; // the next idle merely closes a sync{running:false} handshake
     var curGen = -1;
     var nextSeq = 0;          // seq (index in session event log) of the next event
     var historySavedPos = 0;  // saved_pos that the rendered history reflects
@@ -156,6 +164,7 @@
             evtSource = null;
         }
         subscribedTitle = null;
+        idleAfterSync = false;
         historyReady = false;
         pending = [];
         applied = [];
@@ -163,12 +172,23 @@
         reasoningPendingEl = null;
         curGen = -1;
         setRunning(false);
+        settleReady();
+    }
+
+    function settleReady() {
+        if (!readyResolve) return;
+        var resolve = readyResolve;
+        readyResolve = null;
+        resolve();
     }
 
     function switchChat(title) {
         disconnect();
-        if (!title) return;
+        if (!title) return Promise.resolve();
         subscribedTitle = title;
+        var ready = new Promise(function (resolve) {
+            readyResolve = resolve;
+        });
         var es = new EventSource('api/chat/stream?title=' + encodeURIComponent(title));
         evtSource = es;
         es.addEventListener('sync', function (e) {
@@ -194,8 +214,22 @@
         es.addEventListener('idle', function () {
             onIdle();
         });
+        es.onerror = function () {
+            // CLOSED is terminal (the server answered the stream request
+            // with a non-200, e.g. a proxy that does not pass SSE through):
+            // no sync will ever arrive, so the history would never render.
+            // Fall back to a plain load; the streaming layer just stays
+            // empty. CONNECTING errors are network blips that the browser
+            // retries by itself, and the resync then loads the history.
+            if (es.readyState !== EventSource.CLOSED || subscribedTitle !== title) {
+                return;
+            }
+            settleReady();
+            ChatList.loadMessages();
+        };
         // EventSource auto-reconnects on errors; the server resends "sync"
         // on every reconnect, which resets and replays the streaming layer.
+        return ready;
     }
 
     function onSync(d) {
@@ -207,14 +241,21 @@
         historyReady = false;
         resetStreamDOM();
         setRunning(!!d.running);
+        // The server sends "idle" right after this sync's replay when the
+        // chat is not running. That idle carries nothing new: the history
+        // load below reads the disk after the sync's baseline, so it
+        // already shows everything on disk. Reloading on it would double
+        // the GETs of every page open, chat switch and SSE reconnect.
+        idleAfterSync = !d.running;
         // The SSE stream re-syncs after every reconnect. A reconnect may
         // follow a backend restart, which resets the server mode to
         // readonly; re-fetch it so the Read/Write/Sudo UI stays truthful.
         if (window.DsApp && window.DsApp.refreshMode) {
             window.DsApp.refreshMode();
         }
-        // re-baseline history; onHistoryLoaded will flush pending events
-        ChatList.loadMessages();
+        // re-baseline history; onHistoryLoaded will flush pending events.
+        // The promise returned by switchChat settles with this load.
+        Promise.resolve(ChatList.loadMessages()).then(settleReady, settleReady);
     }
 
     function onStreamEvent(type, evt) {
@@ -250,6 +291,14 @@
         pending = [];
         if (wasRunning) {
             setStopSoundFlag();
+        }
+        // The idle closing a sync{running:false} handshake has nothing to
+        // reload: the sync's own history load already read the disk after
+        // the baseline (see onSync), and no save can happen without a run,
+        // i.e. without another sync in between.
+        if (idleAfterSync) {
+            idleAfterSync = false;
+            return;
         }
         // disk is now authoritative; replace the streaming layer
         ChatList.loadMessages();

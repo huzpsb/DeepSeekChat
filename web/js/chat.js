@@ -1,41 +1,37 @@
 // chat.js - chat list management
+//
+// History loads: opening a chat (page load, switch, create) only swaps the
+// SSE subscription (see subscribe); the "sync" event that opens every
+// subscription performs the one and only GET /api/chats/<title> of that
+// open. Callers must not add their own loadMessages() on top of it.
 var ChatList = {
     currentTitle: null,
+    titles: [], // titles of the last refresh(), for existence checks without an extra GET
+    loadSeq: 0, // ticket of the newest history load; older in-flight responses are dropped
 
     init: async function () {
+        document.getElementById('btn-new-chat').addEventListener('click', function () {
+            ChatList.create();
+        });
+
         // sessionStorage so multiple tabs can each view their own chat;
         // fall back to the legacy localStorage key once
         var savedTitle = sessionStorage.getItem('current_chat') || localStorage.getItem('current_chat');
         await this.refresh();
 
-        if (savedTitle) {
+        if (savedTitle && this.titles.indexOf(savedTitle) >= 0) {
             this.currentTitle = savedTitle;
-            var resp = await fetch('api/chats/' + encodeURIComponent(savedTitle));
-            if (resp.ok) {
-                if (window.ContinueModule) {
-                    window.ContinueModule.switchChat(savedTitle);
-                }
-                await this.loadMessages();
-                document.querySelectorAll('#chat-list li .chat-title').forEach(function (span) {
-                    if (span.textContent === savedTitle) {
-                        span.closest('li').classList.add('active');
-                    }
-                });
-            } else {
-                // Chat was deleted — clean up stale state
-                this.currentTitle = null;
-                sessionStorage.removeItem('current_chat');
-                localStorage.removeItem('current_chat');
-            }
+            this.markActive(savedTitle);
+            await this.subscribe(savedTitle);
+            return;
         }
 
-        if (!this.currentTitle) {
-            Messages.render(null, document.getElementById('messages'));
+        if (savedTitle) {
+            // Chat was deleted — clean up stale state
+            sessionStorage.removeItem('current_chat');
+            localStorage.removeItem('current_chat');
         }
-
-        document.getElementById('btn-new-chat').addEventListener('click', function () {
-            ChatList.create();
-        });
+        Messages.render(null, document.getElementById('messages'));
     },
 
     getCurrentTitle: function () {
@@ -55,6 +51,9 @@ var ChatList = {
         var resp = await fetch('api/chats');
         var chats = await resp.json();
         var list = document.getElementById('chat-list');
+        this.titles = (Array.isArray(chats) ? chats : []).map(function (chat) {
+            return chat.title;
+        });
         list.innerHTML = '';
         if (chats && chats.length > 0) {
             chats.forEach(function (chat) {
@@ -129,16 +128,15 @@ var ChatList = {
             var chat = await resp.json();
             this.currentTitle = chat.title;
             this.saveCurrentTitle(chat.title);
-            if (window.ContinueModule) {
-                window.ContinueModule.switchChat(chat.title);
-            }
+            // the subscription's sync renders the fresh (empty) chat
+            var subscribed = this.subscribe(chat.title);
             // mobile: a fresh chat gets the full screen right away
             if (window.Sidebar) {
                 window.Sidebar.autoClose();
             }
+            await this.refresh();
+            await subscribed;
         }
-        await this.refresh();
-        await this.loadMessages();
     },
 
     select: async function (title) {
@@ -149,15 +147,30 @@ var ChatList = {
         // switch subscription only — a running chat keeps running in the background
         this.currentTitle = title;
         this.saveCurrentTitle(title);
+        this.markActive(title);
+        await this.subscribe(title);
+    },
+
+    // Opens the chat's stream subscription. The "sync" that the server
+    // sends on (re)connect re-baselines the history with a single
+    // GET /api/chats/<title>; the returned promise settles once that render
+    // is done, so callers (e.g. search jumps) can rely on the messages
+    // being on screen. Without the stream module there is no sync, so the
+    // history is loaded directly.
+    subscribe: async function (title) {
         if (window.ContinueModule) {
-            window.ContinueModule.switchChat(title);
+            await window.ContinueModule.switchChat(title);
+        } else {
+            await this.loadMessages();
         }
+    },
+
+    markActive: function (title) {
         // dataset-based so both click handlers and programmatic callers
         // (e.g. search results) mark the active chat correctly
         document.querySelectorAll('#chat-list li').forEach(function (li) {
             li.classList.toggle('active', li.dataset.title === title);
         });
-        await this.loadMessages();
     },
 
     updateContextSize: function (n) {
@@ -180,7 +193,9 @@ var ChatList = {
     },
 
     loadMessages: async function () {
-        if (!this.currentTitle) {
+        var seq = ++this.loadSeq;
+        var title = this.currentTitle;
+        if (!title) {
             Messages.render(null, document.getElementById('messages'));
             this.updateContextSize(0);
             if (window.DsApp && window.DsApp.updateRootDirSelector) {
@@ -191,7 +206,13 @@ var ChatList = {
             }
             return;
         }
-        var resp = await fetch('api/chats/' + encodeURIComponent(this.currentTitle));
+        var resp = await fetch('api/chats/' + encodeURIComponent(title));
+        var chat = resp.ok ? await resp.json() : null;
+        // latest wins: a newer load (or a chat switch) was issued while this
+        // request was in flight, so its result must not overwrite the view
+        if (seq !== this.loadSeq || this.currentTitle !== title) {
+            return;
+        }
         if (!resp.ok) {
             if (resp.status === 404) {
                 this.currentTitle = null;
@@ -204,7 +225,6 @@ var ChatList = {
             }
             return;
         }
-        var chat = await resp.json();
         Messages.render(chat.messages || [], document.getElementById('messages'));
         this.updateContextSize(chat.context_size);
         if (window.DsApp && window.DsApp.updateRootDirSelector) {

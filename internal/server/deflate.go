@@ -208,7 +208,7 @@ func (w *deflateResponseWriter) commitDeflate() {
 	if w.status != 0 {
 		w.rw.WriteHeader(w.status)
 	}
-	if zw, err := zlib.NewWriterLevel(w.rw, zlib.BestSpeed); err != nil {
+	if zw, err := zlib.NewWriterLevel(w.rw, 7); err != nil {
 		w.fail(err)
 	} else {
 		w.zw = zw

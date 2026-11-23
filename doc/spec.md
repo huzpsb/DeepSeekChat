@@ -233,10 +233,14 @@ notify    chan struct{}      // 每次状态变化 close+换新，唤醒所有�
 
 1. **服务端权威**：磁盘 + 会话事件日志（§4）。前端不持有任何"唯一的"运行状态，按钮文字、运行标记全部以 SSE 为准。
 2. **重定基线渲染**：
-    - 切对话（`ChatList.select`）= 只换 SSE 订阅（`ContinueModule.switchChat`），**后台跑的对话继续跑**。
+    - 切对话（`ChatList.select`）= 只换 SSE 订阅（`ContinueModule.switchChat`），**后台跑的对话继续跑**。`switchChat` 返回的 promise 在本次历史渲染
+      完成后才 resolve（搜索跳转依赖它）。
     - 收到 `sync` → 清空 streaming 层 → `ChatList.loadMessages()` 拉历史（带 `saved_pos`）→ `onHistoryLoaded(savedPos)`
       冲刷缓冲事件，丢弃 seq < savedPos 的（已在磁盘上、已被 history 渲染），回放其余的。
-    - `idle` → 磁盘成为唯一权威 → 重拉 history 替换 streaming 层。
+    - **拉历史只由 `sync` 发起**：打开页面 / 切对话 / 新建对话都不再各自额外 `GET /api/chats/<title>`（旧版 init 的存在性检查改用
+      `GET /api/chats` 的列表），因此每次打开恰好 1 次 GET；`loadMessages` 带序号"最新者胜"，乱序到达的旧响应不会覆盖新视图。
+    - run 结束的 `idle` → 磁盘成为唯一权威 → 重拉 history 替换 streaming 层。紧随 `sync{running:false}` 的那次 `idle` 只是握手收尾
+      （服务端对闲置对话立即发一次），**不重拉**——否则每次连接/重连都白多一次 GET。
     - history 未渲染完时到达的事件进 `pending` 缓冲，错误进 `pendingErrors`（等 tool-call DOM 存在后再高亮）。
 3. **标签页隔离**：当前对话存 `sessionStorage`（多标签页各看各的），旧版 `localStorage` key 只做一次性迁移兜底。
 
