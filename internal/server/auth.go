@@ -134,8 +134,7 @@ func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write(s.loginHTML)
+	s.writeStatic(w, r, "web/login.html", "text/html; charset=utf-8", s.loginHTML)
 }
 
 // handleLoginSubmit exchanges (password, PoW h) for the auth cookie.

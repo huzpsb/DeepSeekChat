@@ -2,9 +2,12 @@ package server
 
 import (
 	"bytes"
+	"crypto/md5"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"mime"
 	"net/http"
 	"path/filepath"
@@ -28,16 +31,27 @@ type Server struct {
 	// modeMu guards mode: it is read by every request handler (message
 	// editing gates, logging) and written by PUT /api/mode, so concurrent
 	// requests race on the unsynchronized string otherwise.
-	modeMu   sync.RWMutex
-	mode     string
-	mux      *http.ServeMux
-	staticFS embed.FS
+	modeMu sync.RWMutex
+	mode   string
+	mux    *http.ServeMux
+	// staticFS holds the embedded web/assets tree. Typed as fs.FS (which
+	// embed.FS satisfies) so tests can drive the static handlers against
+	// an on-disk tree; production always passes the embed from main.
+	staticFS fs.FS
 	// indexHTML is web/index.html with the version placeholder already
 	// substituted; computed once at startup.
 	indexHTML []byte
 	// loginHTML is web/login.html, cached once at startup. Nil when the
 	// embed is missing (tests); the handler then 404s.
 	loginHTML []byte
+	// etags memoizes the quoted MD5 ETag per static asset, computed
+	// lazily on first request from the bytes actually served (the
+	// version-substituted index.html therefore hashes differently from
+	// the raw embed). The web tree is frozen into the binary, so content
+	// is immutable for the process lifetime and the digest never goes
+	// stale. A sync.Map because reads (every hit) vastly outnumber the
+	// one-time write per asset.
+	etags sync.Map // fs path -> quoted ETag
 	// pow is the login proof-of-work: the per-boot salt and
 	// powSlotCount+1 independent rolling (n, m, h, challenge) states,
 	// one per inbound-IP hash slot plus a shared fallback. Created once
@@ -47,7 +61,15 @@ type Server struct {
 	engine *engine.StreamEngine
 }
 
+// New boots the Server from the embedded web/assets tree. The embed.FS
+// parameter is the compile-time shape callers (main) have; internally the
+// server only needs an fs.FS — newServer accepts any implementation,
+// which lets tests exercise the static handlers against real files.
 func New(staticFS embed.FS) *Server {
+	return newServer(staticFS)
+}
+
+func newServer(staticFS fs.FS) *Server {
 	if err := log.Init("states.log"); err != nil {
 		fmt.Printf("failed to init log: %v\n", err)
 	}
@@ -84,10 +106,10 @@ func New(staticFS embed.FS) *Server {
 	// tool calls interrupt the run) while every UI surface reports
 	// "readonly" — a glitch only masked by toggling modes back and forth.
 	s.engine.SetMode(s.mode)
-	if data, err := staticFS.ReadFile("web/index.html"); err == nil {
+	if data, err := fs.ReadFile(staticFS, "web/index.html"); err == nil {
 		s.indexHTML = bytes.ReplaceAll(data, []byte(versionPlaceholder), []byte(appVersion))
 	}
-	if data, err := staticFS.ReadFile("web/login.html"); err == nil {
+	if data, err := fs.ReadFile(staticFS, "web/login.html"); err == nil {
 		s.loginHTML = data
 	}
 	s.registerRoutes()
@@ -157,7 +179,7 @@ func (s *Server) maybeIntegrateJupyter() {
 // jupyterIcon extracts the embedded SVG logo next to the Jupyter config so
 // the launcher tile can reference it via icon_path. Returns "" on failure.
 func (s *Server) jupyterIcon() string {
-	data, err := s.staticFS.ReadFile("assets/dschat.svg")
+	data, err := fs.ReadFile(s.staticFS, "assets/dschat.svg")
 	if err != nil {
 		return ""
 	}
@@ -1216,12 +1238,11 @@ func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if path == "web/index.html" && s.indexHTML != nil {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write(s.indexHTML)
+		s.writeStatic(w, r, path, "text/html; charset=utf-8", s.indexHTML)
 		return
 	}
 
-	data, err := s.staticFS.ReadFile(path)
+	data, err := fs.ReadFile(s.staticFS, path)
 	if err != nil {
 		http.NotFound(w, r)
 		return
@@ -1231,16 +1252,69 @@ func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
 	if contentType == "" {
 		contentType = http.DetectContentType(data)
 	}
-	w.Header().Set("Content-Type", contentType)
-	w.Write(data)
+	s.writeStatic(w, r, path, contentType, data)
 }
 
-func (s *Server) handleFavicon(w http.ResponseWriter, _ *http.Request) {
-	data, err := s.staticFS.ReadFile("assets/favicon.ico")
+func (s *Server) handleFavicon(w http.ResponseWriter, r *http.Request) {
+	data, err := fs.ReadFile(s.staticFS, "assets/favicon.ico")
 	if err != nil {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
-	w.Header().Set("Content-Type", "image/x-icon")
+	s.writeStatic(w, r, "assets/favicon.ico", "image/x-icon", data)
+}
+
+// writeStatic serves an immutable embedded asset with ETag revalidation
+// (RFC 7232 conditional GET). Cache-Control: no-cache lets the browser
+// store the asset but forces every reuse through a conditional request,
+// so an unchanged asset costs one tiny 304 round-trip instead of a full
+// re-download, while a rebuilt binary (new content, new MD5) is picked
+// up immediately — safe because asset URLs are not fingerprinted.
+func (s *Server) writeStatic(w http.ResponseWriter, r *http.Request, key, contentType string, data []byte) {
+	etag := s.etagFor(key, data)
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("ETag", etag)
+	if etagMatches(r.Header.Get("If-None-Match"), etag) {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	w.Header().Set("Content-Type", contentType)
 	w.Write(data)
+}
+
+// etagFor returns the quoted ETag for a static asset, hashing data with
+// MD5 on its first request and memoizing the digest per key afterwards.
+// The asset bytes are embedded (frozen at build time), so the one-time
+// lazy hash is valid for the whole process lifetime: warm requests pay a
+// map lookup, cold ones a single MD5 pass. Concurrent first requests for
+// the same key may each hash and race the Store; the data is identical,
+// so the winner is indistinguishable.
+func (s *Server) etagFor(key string, data []byte) string {
+	if v, ok := s.etags.Load(key); ok {
+		return v.(string)
+	}
+	sum := md5.Sum(data)
+	etag := `"` + hex.EncodeToString(sum[:]) + `"`
+	s.etags.Store(key, etag)
+	return etag
+}
+
+// etagMatches implements the If-None-Match comparison of RFC 7232 §2.3
+// against an ETag this server generated itself. The weak comparison is
+// used (W/ prefixes ignored): for byte-immutable embedded assets a weak
+// match always implies byte equality, so serving 304 is safe. The header
+// may carry a comma-separated list of candidate tags, or "*" which
+// matches any current representation.
+func etagMatches(ifNoneMatch, etag string) bool {
+	if strings.TrimSpace(ifNoneMatch) == "*" {
+		return true
+	}
+	etag = strings.TrimPrefix(etag, "W/")
+	for _, cand := range strings.Split(ifNoneMatch, ",") {
+		cand = strings.TrimPrefix(strings.TrimSpace(cand), "W/")
+		if cand == etag {
+			return true
+		}
+	}
+	return false
 }
