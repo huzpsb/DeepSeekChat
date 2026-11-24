@@ -183,7 +183,8 @@ var Messages = {
             actions.innerHTML = '<button class="btn-edit-msg" title="Edit">Edit</button>'
                 + '<button class="btn-del-msg" title="Delete">Del</button>'
                 + '<button class="btn-insb-msg" title="Insert Before">InsB</button>'
-                + '<button class="btn-insa-msg" title="Insert After">InsA</button>';
+                + '<button class="btn-insa-msg" title="Insert After">InsA</button>'
+                + '<button class="btn-copy-msg" title="Copy content">Copy</button>';
         }
         div.appendChild(actions);
 
