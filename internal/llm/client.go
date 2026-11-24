@@ -3,6 +3,7 @@ package llm
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -49,6 +50,11 @@ func NewClient(endpoint, apiKey, model string) *Client {
 	// parseSSE, and mid-stream liveness is left to ctx cancellation (user
 	// interrupt).
 	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.ForceAttemptHTTP2 = false
+	if transport.TLSClientConfig == nil {
+		transport.TLSClientConfig = &tls.Config{}
+	}
+	transport.TLSClientConfig.NextProtos = []string{"http/1.1"}
 	transport.ResponseHeaderTimeout = 2 * time.Minute
 	return &Client{
 		apiKey:     apiKey,
@@ -129,7 +135,7 @@ func (c *Client) StreamChat(ctx context.Context, messages []model.Message, tools
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+c.apiKey)
 		req.Header.Set("Accept", "text/event-stream")
-		req.Header.Set("User-Agent", "DsChat/v1")
+		req.Header.Set("User-Agent", "DsChat/v1.1")
 
 		resp, err = c.httpClient.Do(req)
 		if err != nil {

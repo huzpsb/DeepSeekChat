@@ -140,8 +140,8 @@ func TestStreamChat_SetsUserAgent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected success, got error: %v", err)
 	}
-	if gotUA != "DsChat/v1" {
-		t.Errorf("expected User-Agent 'DsChat/v1', got %q", gotUA)
+	if gotUA != "DsChat/v1.1" {
+		t.Errorf("expected User-Agent 'DsChat/v1.1', got %q", gotUA)
 	}
 }
 
