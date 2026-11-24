@@ -17,6 +17,13 @@
 // and replays only events with seq >= saved_pos, so nothing is ever
 // rendered twice and no message is ever split.
 //
+// Streaming-layer blocks carry the same .msg-actions buttons as history
+// blocks (see appendStreamActions): Copy works right away from the locally
+// accumulated text, while the mutating buttons (Edit/Del/InsB/InsA/
+// Approve) need a persisted message index and a non-running chat, so they
+// alert until the run finishes and the idle reload swaps the layer for a
+// full history render.
+//
 // History ownership: the "sync" that opens every subscription performs the
 // single history load (GET /api/chats/<title>) of that open, and switchChat()
 // resolves once that load has settled. The "idle" the server sends right
@@ -632,6 +639,46 @@
 
     // ---- streaming DOM builders (all elements tagged .stream-live) ----
 
+    // Same .msg-actions bar as history renders (messages.js), attached to
+    // streaming-layer blocks so every new message shows its buttons right
+    // away — including Copy, which works fully from the locally
+    // accumulated text. The mutating buttons (Edit/Del/InsB/InsA/Approve)
+    // have no persisted message index yet and the server answers message
+    // mutations with 409 while the chat runs, so editor.js alerts on click;
+    // when the run finishes, the idle reload replaces the layer with a
+    // history render and they become functional. Keeping the markup
+    // identical to messages.js means the hover CSS applies unchanged.
+    function appendStreamActions(div, role) {
+        var actions = document.createElement('div');
+        actions.className = 'msg-actions';
+        var isReadonly = window.DsApp && window.DsApp.getMode && window.DsApp.getMode() === 'readonly';
+        var isNoob = window.NoobMode && window.NoobMode.isActive();
+        // History shows Del in readonly only on the very last message (a
+        // stopgap to trim a bad tail once the chat is idle). Streaming
+        // blocks are all mid-run: their Del could only ever alert (the
+        // server rejects message mutations with 409 while running), and the
+        // layer is replaced by a history render when the run ends, so in
+        // readonly they show no Del at all instead of rows of dead ones.
+        var showDel = !isReadonly && !isNoob;
+        if (isReadonly) {
+            if (role === 'assistant') {
+                actions.innerHTML = '<button class="btn-approve-msg" title="Toggle Approve">Approve</button>'
+                    + (showDel ? '<button class="btn-del-msg" title="Delete">Del</button>' : '')
+                    + '<button class="btn-copy-msg" title="Copy content">Copy</button>';
+            } else {
+                actions.innerHTML = (showDel ? '<button class="btn-del-msg" title="Delete">Del</button>' : '')
+                    + '<button class="btn-copy-msg" title="Copy content">Copy</button>';
+            }
+        } else {
+            actions.innerHTML = '<button class="btn-edit-msg" title="Edit">Edit</button>'
+                + '<button class="btn-del-msg" title="Delete">Del</button>'
+                + '<button class="btn-insb-msg" title="Insert Before">InsB</button>'
+                + '<button class="btn-insa-msg" title="Insert After">InsA</button>'
+                + '<button class="btn-copy-msg" title="Copy content">Copy</button>';
+        }
+        div.appendChild(actions);
+    }
+
     function getOrCreateAssistant() {
         var container = document.getElementById('messages');
 
@@ -644,6 +691,7 @@
         }
         currentAssistant = document.createElement('div');
         currentAssistant.className = 'message role-assistant assistant-streaming stream-live';
+        appendStreamActions(currentAssistant, 'assistant');
         container.appendChild(currentAssistant);
         scrollIfNearBottom(container);
         return currentAssistant;
@@ -780,6 +828,7 @@
         contentDiv.className = 'msg-content';
         contentDiv.style.display = 'none';
         contentDiv.innerHTML = '<pre><code>' + Messages.escHtml(msg.content || '') + '</code></pre>';
+        contentDiv.dataset.rawText = msg.content || '';
 
         var toolToggle = document.createElement('span');
         toolToggle.className = 'tool-result-toggle';
@@ -798,6 +847,7 @@
 
         div.appendChild(headerDiv);
         div.appendChild(contentDiv);
+        appendStreamActions(div, 'tool');
         container.appendChild(div);
 
         currentAssistant = null;
@@ -816,6 +866,11 @@
         div.className = 'message role-user stream-live';
         div.innerHTML = '<div class="msg-header"><span class="msg-role">USER</span></div>'
             + '<div class="msg-content">' + marked.parse(content) + '</div>';
+        var contentEl = div.querySelector('.msg-content');
+        if (contentEl) {
+            contentEl.dataset.rawText = content;
+        }
+        appendStreamActions(div, 'user');
         container.appendChild(div);
         scrollIfNearBottom(container);
     }

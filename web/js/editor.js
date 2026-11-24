@@ -729,6 +729,10 @@
         var approveBtn = e.target.closest('.btn-approve-msg');
         if (approveBtn) {
             var msgEl = approveBtn.closest('.message');
+            if (msgEl.classList.contains('stream-live')) {
+                alert('Cannot approve while chat is being processed.');
+                return;
+            }
             var idx = parseInt(msgEl.dataset.index);
             if (!isNaN(idx)) toggleApprove(idx, approveBtn);
             return;
@@ -737,32 +741,43 @@
         var copyBtn = e.target.closest('.btn-copy-msg');
         if (copyBtn) {
             var msgEl = copyBtn.closest('.message');
-            if (msgEl && msgEl.dataset.rawMessage) {
-                try {
-                    var msg = JSON.parse(msgEl.dataset.rawMessage);
-                    if (msg.content) {
-                        navigator.clipboard.writeText(msg.content).then(function () {
-                            copyBtn.textContent = 'Copied';
-                            setTimeout(function () {
-                                copyBtn.textContent = 'Copy';
-                            }, 1500);
-                        }).catch(function () {
-                            // fallback: select from the content element
-                            var area = document.createElement('textarea');
-                            area.value = msg.content;
-                            area.style.position = 'fixed';
-                            area.style.left = '-9999px';
-                            document.body.appendChild(area);
-                            area.select();
-                            document.execCommand('copy');
-                            document.body.removeChild(area);
-                            copyBtn.textContent = 'Copied';
-                            setTimeout(function () {
-                                copyBtn.textContent = 'Copy';
-                            }, 1500);
-                        });
+            if (msgEl) {
+                var text = '';
+                if (msgEl.dataset.rawMessage) {
+                    try {
+                        var msg = JSON.parse(msgEl.dataset.rawMessage);
+                        if (msg && msg.content) text = msg.content;
+                    } catch (ex) {
                     }
-                } catch (ex) {
+                }
+                if (!text) {
+                    // streaming-layer block: no rawMessage yet, but its
+                    // content element keeps the authoritative accumulated
+                    // text (updated per delta), so Copy works mid-stream
+                    var c = msgEl.querySelector('.msg-content:not(.reasoning-content)');
+                    if (c && c.dataset.rawText) text = c.dataset.rawText;
+                }
+                if (text) {
+                    navigator.clipboard.writeText(text).then(function () {
+                        copyBtn.textContent = 'Copied';
+                        setTimeout(function () {
+                            copyBtn.textContent = 'Copy';
+                        }, 1500);
+                    }).catch(function () {
+                        // fallback: select from the content element
+                        var area = document.createElement('textarea');
+                        area.value = text;
+                        area.style.position = 'fixed';
+                        area.style.left = '-9999px';
+                        document.body.appendChild(area);
+                        area.select();
+                        document.execCommand('copy');
+                        document.body.removeChild(area);
+                        copyBtn.textContent = 'Copied';
+                        setTimeout(function () {
+                            copyBtn.textContent = 'Copy';
+                        }, 1500);
+                    });
                 }
             }
             return;
@@ -772,6 +787,14 @@
         if (!btn) return;
 
         var msgEl = btn.closest('.message');
+        if (msgEl.classList.contains('stream-live')) {
+            // Streaming-layer block: it has no persisted message index,
+            // and the server rejects message mutations with 409 while the
+            // chat runs anyway. The idle reload after the run replaces the
+            // layer with a history render whose buttons are functional.
+            alert('Cannot modify messages while chat is being processed.');
+            return;
+        }
         var index = parseInt(msgEl.dataset.index);
         if (isNaN(index)) return;
 
